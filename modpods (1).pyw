@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 # as the model predicts derivatives, system_data must represent a *causal* system
 # that is, forcing and the response to that forcing cannot occur at the same timestep
 # it may be necessary for the user to shift the forcing data back to make the system causal (especially for time aggregated data like daily rainfall-runoff)
-def delay_io_train(system_data, dependent_columns, independent_columns, windup_timesteps=0,init_transforms=1, max_transforms=4, max_iter=250, poly_order=3, transform_dependent=False, verbose=True, extra_verbose=False, include_bias=False, include_interaction=False):
+def delay_io_model(system_data, dependent_columns, independent_columns, windup_timesteps=0,init_transforms=1, max_transforms=4, max_iter=250, poly_order=3, transform_dependent=False, verbose=True, extra_verbose=False, include_bias=False, include_interaction=False):
     forcing = system_data[independent_columns].copy(deep=True)
     orig_forcing_columns = forcing.columns
     response = system_data[dependent_columns].copy(deep=True)
@@ -209,13 +209,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns, windup_t
     
     
         final_model = SINDY_delays_MI(shape_factors, scale_factors ,loc_factors,system_data.index, forcing, response, verbose, poly_order , include_bias, include_interaction,windup_timesteps)
-        results[num_transforms] = {'final_model':final_model.copy(), 
-                                   'shape_factors':shape_factors.copy(deep=True), 
-                                   'scale_factors':scale_factors.copy(deep=True), 
-                                   'loc_factors':loc_factors.copy(deep=True),
-                                   'windup_timesteps':windup_timesteps,
-                                   'dependent_columns':dependent_columns,
-                                   'independent_columns':independent_columns}
+        results[num_transforms] = {'final_model':final_model.copy(), 'shape_factors':shape_factors.copy(deep=True), 'scale_factors':scale_factors.copy(deep=True), 'loc_factors':loc_factors.copy(deep=True)}
     return results
 
 
@@ -332,74 +326,3 @@ def transform_inputs(shape_factors, scale_factors, loc_factors,index, forcing):
     #print("forcing at end of transform inputs")
     #print(forcing)
     return forcing
-
-# REQUIRES: the output of delay_io_train, starting value of otuput, forcing timeseries
-# EFFECTS: returns a simulated response given forcing and a model
-def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=False):
-    forcing = system_data[delay_io_model[num_transforms]['independent_columns']].copy(deep=True)
-    transformed_forcing = transform_inputs(shape_factors=delay_io_model[num_transforms]['shape_factors'], 
-                                           scale_factors=delay_io_model[num_transforms]['scale_factors'], 
-                                           loc_factors=delay_io_model[num_transforms]['loc_factors'], 
-                                           index=system_data.index,forcing=forcing)
-    prediction = delay_io_model[num_transforms]['final_model']['model'].simulate(system_data[delay_io_model[num_transforms]['dependent_columns']].iloc[delay_io_model[num_transforms]['windup_timesteps'],:], 
-                                                                         t=np.arange(0,len(system_data.index),1)[delay_io_model[num_transforms]['windup_timesteps']:], 
-                                                                         u=transformed_forcing[delay_io_model[num_transforms]['windup_timesteps']:])
-
-
-    # return all the error metrics if the prediction is being evaluated against known measurements
-    if (evaluation):
-        response = system_data[delay_io_model[num_transforms]['dependent_columns']].copy(deep=True)
-        mae = list()
-        rmse = list()
-        nse = list()
-        alpha = list()
-        beta = list()
-        hfv = list()
-        hfv10 = list()
-        lfv = list()
-        fdc = list()
-        for col_idx in range(0,len(response.columns)): # univariate performance metrics
-            error = response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]-prediction[:,col_idx]
-
-            #print("error")
-            #print(error)
-            # nash sutcliffe efficiency between response and prediction
-            mae.append(np.mean(np.abs(error)))
-            rmse.append(np.sqrt(np.mean(error**2 ) ))
-            #print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
-            #print("sum of squared error between measured and model = ", np.sum((error)**2 ))
-            #print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
-            nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]-np.mean(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]  ) )**2 ) )
-            alpha.append(np.std(prediction[:,col_idx])/np.std(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]))
-            beta.append(np.mean(prediction[:,col_idx])/np.mean(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]))
-            hfv.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.02*len(system_data.index)):])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.02*len(system_data.index)):]))
-            hfv10.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.1*len(system_data.index)):])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.1*len(system_data.index)):]))
-            lfv.append(np.sum(np.sort(prediction[:,col_idx])[:int(0.3*len(system_data.index))])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[:int(0.3*len(system_data.index))]))
-            fdc.append(np.mean(np.sort(prediction[:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))])/np.mean(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))]))
-            
-
-        print("MAE = ", mae)
-        print("RMSE = ", rmse)
-        # all the below error metrics were generated by copilot and should be checked
-        print("NSE = ", nse)
-        # alpha nse decomposition due to gupta et al 2009
-        print("alpha = ", alpha)
-        print("beta = ", beta)
-        # top 2% peak flow bias (HFV) due to yilmaz et al 2008
-        print("HFV = ", hfv)
-        # top 10% peak flow bias (HFV) due to yilmaz et al 2008
-        print("HFV10 = ", hfv10)
-        # 30% low flow bias (LFV) due to yilmaz et al 2008
-        print("LFV = ", lfv)
-        # bias of FDC midsegment slope due to yilmaz et al 2008
-        print("FDC = ", fdc)
-        # compile all the error metrics into a dictionary
-        error_metrics = {"MAE":mae,"RMSE":rmse,"NSE":nse,"alpha":alpha,"beta":beta,"HFV":hfv,"HFV10":hfv10,"LFV":lfv,"FDC":fdc}
-        # omit r2 here because it doesn't mean the same thing as it does for training, would be misleading.
-        # r2 in training expresses how much of the derivative is predicted by the model, whereas in evaluation it expresses how much of the response is predicted by the model
-
-        return {'prediction':prediction, 'error_metrics':error_metrics}
-
-    else:
-        return {'prediction':prediction,'error_metrics':None}
-
