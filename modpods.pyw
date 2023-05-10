@@ -243,61 +243,61 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
     error_metrics = {"MAE":False,"RMSE":False,"NSE":False,"alpha":False,"beta":False,"HFV":False,"HFV10":False,"LFV":False,"FDC":False,"r2":r2}
     simulated = False
     if (final_run): # only simulate final runs because it's slow
-        # try: once in high volume training put this back in, but want to see the errors during development
-        simulated = model.simulate(response.values[windup_timesteps,:],t=np.arange(0,len(index),1)[windup_timesteps:],u=forcing.values[windup_timesteps:,:])
-        mae = list()
-        rmse = list()
-        nse = list()
-        alpha = list()
-        beta = list()
-        hfv = list()
-        hfv10 = list()
-        lfv = list()
-        fdc = list()
-        for col_idx in range(0,len(response.columns)): # univariate performance metrics
-            error = response.values[windup_timesteps+1:,col_idx]-simulated[:,col_idx]
+        try: #once in high volume training put this back in, but want to see the errors during development
+            simulated = model.simulate(response.values[windup_timesteps,:],t=np.arange(0,len(index),1)[windup_timesteps:],u=forcing.values[windup_timesteps:,:])
+            mae = list()
+            rmse = list()
+            nse = list()
+            alpha = list()
+            beta = list()
+            hfv = list()
+            hfv10 = list()
+            lfv = list()
+            fdc = list()
+            for col_idx in range(0,len(response.columns)): # univariate performance metrics
+                error = response.values[windup_timesteps+1:,col_idx]-simulated[:,col_idx]
 
-            #print("error")
-            #print(error)
-            # nash sutcliffe efficiency between response and simulated
-            mae.append(np.mean(np.abs(error)))
-            rmse.append(np.sqrt(np.mean(error**2 ) ))
-            #print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
-            #print("sum of squared error between measured and model = ", np.sum((error)**2 ))
-            #print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
-            nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ) )
-            alpha.append(np.std(simulated[:,col_idx])/np.std(response.values[windup_timesteps+1:,col_idx]))
-            beta.append(np.mean(simulated[:,col_idx])/np.mean(response.values[windup_timesteps+1:,col_idx]))
-            hfv.append(np.sum(np.sort(simulated[:,col_idx])[-int(0.02*len(index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.02*len(index)):]))
-            hfv10.append(np.sum(np.sort(simulated[:,col_idx])[-int(0.1*len(index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.1*len(index)):]))
-            lfv.append(np.sum(np.sort(simulated[:,col_idx])[:int(0.3*len(index))])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[:int(0.3*len(index))]))
-            fdc.append(np.mean(np.sort(simulated[:,col_idx])[-int(0.6*len(index)):-int(0.4*len(index))])/np.mean(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.6*len(index)):-int(0.4*len(index))]))
+                #print("error")
+                #print(error)
+                # nash sutcliffe efficiency between response and simulated
+                mae.append(np.mean(np.abs(error)))
+                rmse.append(np.sqrt(np.mean(error**2 ) ))
+                #print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
+                #print("sum of squared error between measured and model = ", np.sum((error)**2 ))
+                #print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
+                nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ) )
+                alpha.append(np.std(simulated[:,col_idx])/np.std(response.values[windup_timesteps+1:,col_idx]))
+                beta.append(np.mean(simulated[:,col_idx])/np.mean(response.values[windup_timesteps+1:,col_idx]))
+                hfv.append(np.sum(np.sort(simulated[:,col_idx])[-int(0.02*len(index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.02*len(index)):]))
+                hfv10.append(np.sum(np.sort(simulated[:,col_idx])[-int(0.1*len(index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.1*len(index)):]))
+                lfv.append(np.sum(np.sort(simulated[:,col_idx])[:int(0.3*len(index))])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[:int(0.3*len(index))]))
+                fdc.append(np.mean(np.sort(simulated[:,col_idx])[-int(0.6*len(index)):-int(0.4*len(index))])/np.mean(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.6*len(index)):-int(0.4*len(index))]))
 
-        print("MAE = ", mae)
-        print("RMSE = ", rmse)
-        # all the below error metrics were generated by copilot and should be checked
-        print("NSE = ", nse)
-        # alpha nse decomposition due to gupta et al 2009
-        print("alpha = ", alpha)
-        print("beta = ", beta)
-        # top 2% peak flow bias (HFV) due to yilmaz et al 2008
-        print("HFV = ", hfv)
-        # top 10% peak flow bias (HFV) due to yilmaz et al 2008
-        print("HFV10 = ", hfv10)
-        # 30% low flow bias (LFV) due to yilmaz et al 2008
-        print("LFV = ", lfv)
-        # bias of FDC midsegment slope due to yilmaz et al 2008
-        print("FDC = ", fdc)
-        # compile all the error metrics into a dictionary
-        error_metrics = {"MAE":mae,"RMSE":rmse,"NSE":nse,"alpha":alpha,"beta":beta,"HFV":hfv,"HFV10":hfv10,"LFV":lfv,"FDC":fdc,"r2":r2}
-
-
-        '''
+            print("MAE = ", mae)
+            print("RMSE = ", rmse)
+            # all the below error metrics were generated by copilot and should be checked
+            print("NSE = ", nse)
+            # alpha nse decomposition due to gupta et al 2009
+            print("alpha = ", alpha)
+            print("beta = ", beta)
+            # top 2% peak flow bias (HFV) due to yilmaz et al 2008
+            print("HFV = ", hfv)
+            # top 10% peak flow bias (HFV) due to yilmaz et al 2008
+            print("HFV10 = ", hfv10)
+            # 30% low flow bias (LFV) due to yilmaz et al 2008
+            print("LFV = ", lfv)
+            # bias of FDC midsegment slope due to yilmaz et al 2008
+            print("FDC = ", fdc)
+            # compile all the error metrics into a dictionary
+            error_metrics = {"MAE":mae,"RMSE":rmse,"NSE":nse,"alpha":alpha,"beta":beta,"HFV":hfv,"HFV10":hfv10,"LFV":lfv,"FDC":fdc,"r2":r2}
+        
         except:
             print("Simulation diverged.")
-            return {"error_metrics": False, "model": model, "simulated": False, "response": response, "forcing": forcing, "index": index}
+            error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN],"r2":r2}
 
-        '''
+            return {"error_metrics": error_metrics, "model": model, "simulated": response[1:], "response": response, "forcing": forcing, "index": index}
+
+        
           
     return {"error_metrics": error_metrics, "model": model, "simulated": simulated, "response": response, "forcing": forcing, "index": index}
     #return [r2, model, mae, rmse, index, simulated , response , forcing]
@@ -337,69 +337,80 @@ def transform_inputs(shape_factors, scale_factors, loc_factors,index, forcing):
 # EFFECTS: returns a simulated response given forcing and a model
 def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=False):
     forcing = system_data[delay_io_model[num_transforms]['independent_columns']].copy(deep=True)
+    response = system_data[delay_io_model[num_transforms]['dependent_columns']].copy(deep=True)
+            
     transformed_forcing = transform_inputs(shape_factors=delay_io_model[num_transforms]['shape_factors'], 
                                            scale_factors=delay_io_model[num_transforms]['scale_factors'], 
                                            loc_factors=delay_io_model[num_transforms]['loc_factors'], 
                                            index=system_data.index,forcing=forcing)
-    prediction = delay_io_model[num_transforms]['final_model']['model'].simulate(system_data[delay_io_model[num_transforms]['dependent_columns']].iloc[delay_io_model[num_transforms]['windup_timesteps'],:], 
+    try:
+        prediction = delay_io_model[num_transforms]['final_model']['model'].simulate(system_data[delay_io_model[num_transforms]['dependent_columns']].iloc[delay_io_model[num_transforms]['windup_timesteps'],:], 
                                                                          t=np.arange(0,len(system_data.index),1)[delay_io_model[num_transforms]['windup_timesteps']:], 
                                                                          u=transformed_forcing[delay_io_model[num_transforms]['windup_timesteps']:])
-
+    except:
+        print("diverged.")
+        error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
+        return {'prediction':np.NAN*np.ones(shape=response[delay_io_model[num_transforms]['windup_timesteps']+1:].shape), 'error_metrics':error_metrics}
 
     # return all the error metrics if the prediction is being evaluated against known measurements
     if (evaluation):
-        response = system_data[delay_io_model[num_transforms]['dependent_columns']].copy(deep=True)
-        mae = list()
-        rmse = list()
-        nse = list()
-        alpha = list()
-        beta = list()
-        hfv = list()
-        hfv10 = list()
-        lfv = list()
-        fdc = list()
-        for col_idx in range(0,len(response.columns)): # univariate performance metrics
-            error = response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]-prediction[:,col_idx]
+        try:
+            mae = list()
+            rmse = list()
+            nse = list()
+            alpha = list()
+            beta = list()
+            hfv = list()
+            hfv10 = list()
+            lfv = list()
+            fdc = list()
+            for col_idx in range(0,len(response.columns)): # univariate performance metrics
+                error = response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]-prediction[:,col_idx]
 
-            #print("error")
-            #print(error)
-            # nash sutcliffe efficiency between response and prediction
-            mae.append(np.mean(np.abs(error)))
-            rmse.append(np.sqrt(np.mean(error**2 ) ))
-            #print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
-            #print("sum of squared error between measured and model = ", np.sum((error)**2 ))
-            #print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
-            nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]-np.mean(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]  ) )**2 ) )
-            alpha.append(np.std(prediction[:,col_idx])/np.std(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]))
-            beta.append(np.mean(prediction[:,col_idx])/np.mean(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]))
-            hfv.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.02*len(system_data.index)):])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.02*len(system_data.index)):]))
-            hfv10.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.1*len(system_data.index)):])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.1*len(system_data.index)):]))
-            lfv.append(np.sum(np.sort(prediction[:,col_idx])[:int(0.3*len(system_data.index))])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[:int(0.3*len(system_data.index))]))
-            fdc.append(np.mean(np.sort(prediction[:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))])/np.mean(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))]))
+                #print("error")
+                #print(error)
+                # nash sutcliffe efficiency between response and prediction
+                mae.append(np.mean(np.abs(error)))
+                rmse.append(np.sqrt(np.mean(error**2 ) ))
+                #print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
+                #print("sum of squared error between measured and model = ", np.sum((error)**2 ))
+                #print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
+                nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]-np.mean(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]  ) )**2 ) )
+                alpha.append(np.std(prediction[:,col_idx])/np.std(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]))
+                beta.append(np.mean(prediction[:,col_idx])/np.mean(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]))
+                hfv.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.02*len(system_data.index)):])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.02*len(system_data.index)):]))
+                hfv10.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.1*len(system_data.index)):])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.1*len(system_data.index)):]))
+                lfv.append(np.sum(np.sort(prediction[:,col_idx])[:int(0.3*len(system_data.index))])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[:int(0.3*len(system_data.index))]))
+                fdc.append(np.mean(np.sort(prediction[:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))])/np.mean(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))]))
             
 
-        print("MAE = ", mae)
-        print("RMSE = ", rmse)
-        # all the below error metrics were generated by copilot and should be checked
-        print("NSE = ", nse)
-        # alpha nse decomposition due to gupta et al 2009
-        print("alpha = ", alpha)
-        print("beta = ", beta)
-        # top 2% peak flow bias (HFV) due to yilmaz et al 2008
-        print("HFV = ", hfv)
-        # top 10% peak flow bias (HFV) due to yilmaz et al 2008
-        print("HFV10 = ", hfv10)
-        # 30% low flow bias (LFV) due to yilmaz et al 2008
-        print("LFV = ", lfv)
-        # bias of FDC midsegment slope due to yilmaz et al 2008
-        print("FDC = ", fdc)
-        # compile all the error metrics into a dictionary
-        error_metrics = {"MAE":mae,"RMSE":rmse,"NSE":nse,"alpha":alpha,"beta":beta,"HFV":hfv,"HFV10":hfv10,"LFV":lfv,"FDC":fdc}
-        # omit r2 here because it doesn't mean the same thing as it does for training, would be misleading.
-        # r2 in training expresses how much of the derivative is predicted by the model, whereas in evaluation it expresses how much of the response is predicted by the model
+            print("MAE = ", mae)
+            print("RMSE = ", rmse)
+            # all the below error metrics were generated by copilot and should be checked
+            print("NSE = ", nse)
+            # alpha nse decomposition due to gupta et al 2009
+            print("alpha = ", alpha)
+            print("beta = ", beta)
+            # top 2% peak flow bias (HFV) due to yilmaz et al 2008
+            print("HFV = ", hfv)
+            # top 10% peak flow bias (HFV) due to yilmaz et al 2008
+            print("HFV10 = ", hfv10)
+            # 30% low flow bias (LFV) due to yilmaz et al 2008
+            print("LFV = ", lfv)
+            # bias of FDC midsegment slope due to yilmaz et al 2008
+            print("FDC = ", fdc)
+            # compile all the error metrics into a dictionary
+            error_metrics = {"MAE":mae,"RMSE":rmse,"NSE":nse,"alpha":alpha,"beta":beta,"HFV":hfv,"HFV10":hfv10,"LFV":lfv,"FDC":fdc}
+            # omit r2 here because it doesn't mean the same thing as it does for training, would be misleading.
+            # r2 in training expresses how much of the derivative is predicted by the model, whereas in evaluation it expresses how much of the response is predicted by the model
 
-        return {'prediction':prediction, 'error_metrics':error_metrics}
+            return {'prediction':prediction, 'error_metrics':error_metrics}
+        except:
+            print("Simulation diverged.")
+            error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
 
+            return {'prediction':prediction, 'error_metrics':error_metrics}
     else:
-        return {'prediction':prediction,'error_metrics':None}
+        error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
+        return {'prediction':prediction, 'error_metrics':error_metrics}
 
