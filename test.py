@@ -5,11 +5,12 @@ import os
 import matplotlib.pyplot as plt
 import modpods
 
+# basic funcionality tests and a bit of a tutorial
 
+# some data from the CAMELS dataset
+# change the filepath to wherever you have modpods at
+filepath = "G:/My Drive/modpods/03439000_05_model_output.txt"
 
-
-# just test on some CAMELS data
-filepath = "G:/My Drive/PhD Admin and Notes/paper1/CAMELS/basin_timeseries_v1p2_modelOutput_daymet/model_output_daymet/model_output/flow_timeseries/daymet/06/03439000_05_model_output.txt"
 
 df = pd.read_csv(filepath, sep='\s+')
 print(df)
@@ -28,6 +29,8 @@ df.dropna(inplace=True)
 print(df[['OBS_RUN','RAIM']])
 
 
+# for better results (and slower run) up the max iterations, model complexity (poly_order and max_transforms), and the number of years used to train
+
 
 
 # drop all columns except for RAIM (surface water input) and OBS_RUN (observed runoff) for actual CAMELS training
@@ -42,23 +45,12 @@ df_eval = df.iloc[-(365*years + windup_timesteps):,:] # data for evaluation, not
 
 
 
-
-
 #df['ones'] = np.ones(len(df.OBS_RUN)) # to make sure MIMO error metrics are working correctly
 print(df_train)
 rainfall_runoff_model = modpods.delay_io_train(df_train, ['OBS_RUN'],['RAIM'],windup_timesteps=windup_timesteps,
-                       init_transforms=1, max_transforms=1,max_iter=50,
-                       poly_order=1)
+                       init_transforms=1, max_transforms=1,max_iter=10, verbose=True,
+                       poly_order=1, bibo_stable=True)
 
-# right now the same "forcing" from the model with one input transformation is then being changed by the subsequent optimizations
-# so the forcing needs to be saved separately for each optimization
-# I think it is the same with "simulated"
-# so "results" should be saved as a copy of those variables so they don't get overwritten
-
-
-# currently "simulated" differs between the models but "forcing" is the same (so it's the one with three trnasformations)
-# that might be fine. that forcing isn't going to be used for anything else since we've already got the simulation and the error metrics
-# and the shapes to generate the transformed forcing from the original forcing, which isn't expensive to do once
 
 print(rainfall_runoff_model)
 print(rainfall_runoff_model[1])
