@@ -82,7 +82,8 @@ def delay_io_train(system_data, dependent_columns, independent_columns, windup_t
             print(prev_model['model'].print(precision=5))
             print("R^2")
             print(prev_model['error_metrics']['r2'])
-        except:
+        except Exception as e: # and print the exception:
+            print(e)
             pass
         print("shape factors")
         print(shape_factors)
@@ -372,8 +373,9 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
             # compile all the error metrics into a dictionary
             error_metrics = {"MAE":mae,"RMSE":rmse,"NSE":nse,"alpha":alpha,"beta":beta,"HFV":hfv,"HFV10":hfv10,"LFV":lfv,"FDC":fdc,"r2":r2}
         
-        except:
-            print("Simulation diverged.")
+        except Exception as e: # and print the exception:
+            print("Exception in simulation\n")
+            print(e)
             error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN],"r2":r2}
 
             return {"error_metrics": error_metrics, "model": model, "simulated": response[1:], "response": response, "forcing": forcing, "index": index,"diverged":True}
@@ -430,7 +432,9 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
         prediction = delay_io_model[num_transforms]['final_model']['model'].simulate(system_data[delay_io_model[num_transforms]['dependent_columns']].iloc[delay_io_model[num_transforms]['windup_timesteps'],:], 
                                                                          t=np.arange(0,len(system_data.index),1)[delay_io_model[num_transforms]['windup_timesteps']:], 
                                                                          u=transformed_forcing[delay_io_model[num_transforms]['windup_timesteps']:])
-    except:
+    except Exception as e: # and print the exception:
+        print("Exception in simulation\n")
+        print(e)
         print("diverged.")
         error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
         return {'prediction':np.NAN*np.ones(shape=response[delay_io_model[num_transforms]['windup_timesteps']+1:].shape), 'error_metrics':error_metrics,"diverged":True}
@@ -488,7 +492,8 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
             # r2 in training expresses how much of the derivative is predicted by the model, whereas in evaluation it expresses how much of the response is predicted by the model
 
             return {'prediction':prediction, 'error_metrics':error_metrics,"diverged":False}
-        except:
+        except Exception as e: # and print the exception:
+            print(e)
             print("Simulation diverged.")
             error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN],"diverged":True}
 
