@@ -1,10 +1,11 @@
+from operator import le
 import pandas as pd
 import numpy as np
 import pysindy as ps
 import scipy.stats as stats
 from scipy import signal
 import matplotlib.pyplot as plt
-
+import control as control
 
 # delay model builds differential equations relating the dependent variables to transformations of all the variables
 # if there are no independent variables, then dependent_columns should be a list of all the columns in the dataframe
@@ -501,4 +502,170 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
     else:
         error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
         return {'prediction':prediction, 'error_metrics':error_metrics,"diverged":False}
+
+
+
+
+### the functions below are for generating LTI systems directly from data
+
+
+# the function below returns an LTI system (in the matrices A, B, and C) that mimic the shape of a given gamma distribution
+# scaling should be correct, but need to verify that
+def lti_from_gamma(shape, scale, location,desired_error = 0.02,verbose=False,max_state_dim=60,max_iterations=100):
+    # i've assumed here that gamma pdf is defined the same as in matlab
+    # if that's not true testing will show it soon enough
+    t50 = shape*scale + location # center of mass
+    skewness = 2 / np.sqrt(shape)
+    total_time_base = 2*t50 # not that this contains the full shape, but if we fit this much of the curve perfectly we'll be close enough
+    resolution = (t50)/(10*(skewness + location))
+
+    #resolution = 1/ skewness
+    decay_rate = 1 / resolution
+    state_dim = int(np.floor(total_time_base*decay_rate)) # this keeps the time base fixed for a given decay rate
+    if state_dim > max_state_dim:
+        state_dim = max_state_dim
+        decay_rate = state_dim / total_time_base
+        resolution = 1 / decay_rate
+    if verbose:
+        print("state dimension is ",state_dim)
+        print("decay rate is ",decay_rate)
+        print("total time base is ",total_time_base)
+        print("resolution is", resolution)
+
+
+    # make the timestep one so that the relative error is correct (dt too small makes error bigger than written)
+    #t = np.linspace(0,3*total_time_base,1000)
+    dt = total_time_base / 1000
+    desired_error = desired_error / dt
+    t = np.arange(0,2*total_time_base,dt)
+    print("dt is ",dt)
+    print("scaled desired error is ",desired_error)
+
+    gam = stats.gamma.pdf(t,shape,location,scale)
+
+    # A is a cascade with the appropriate decay rate
+    A = decay_rate*np.diag(np.ones((state_dim-1)) , -1) - decay_rate*np.diag(np.ones((state_dim)),0)
+    # influence enters at the top state only
+    B = np.concatenate((np.ones((1,1)),np.zeros((state_dim-1,1))))
+    # contributions of states to the output will be scaled to match the gamma distribution
+    C = np.ones((1,state_dim))*max(gam)
+    lti_sys = control.ss(A,B,C,0)
+
+    lti_approx = control.impulse_response(lti_sys,t)
+
+    error = np.sum(np.abs(gam - lti_approx.y))
+    if(verbose):
+        print("initial error")
+        print(error)
+        print("desired error")
+        #print(max(gam))
+        print(desired_error)
+
+    iterations = 0
+
+    speeds = [10,1.1,1.01]
+    speed_idx = 0
+    leap = speeds[speed_idx]
+    # the area under the curve is normalized to be one. so rather than basing our desired error off the 
+    # max of the distribution, it might be better to make it a percentage error, one percent or five percent
+    while (error > desired_error and iterations < max_iterations):
+        
+        og_was_best = True # start each iteration assuming that the original is the best
+        # search across the C vector
+        for i in range(C.shape[1]-1,int(-1),int(-1)): # accross the columns # start at the end and come back
+        #for i in range(int(0),C.shape[1],int(1)): # accross the columns, start at the beginning and go forward
+            
+            og_approx = control.ss(A,B,C,0)
+            og_y = np.ndarray.flatten(control.impulse_response(og_approx,t).y)
+            og_error = np.sum(np.abs(gam - og_y))
+
+            Ctwice = np.array(C, copy=True)
+            Ctwice[0,i] = leap*C[0,i]
+            twice_approx = control.ss(A,B,Ctwice,0)
+            twice_y = np.ndarray.flatten(control.impulse_response(twice_approx,t).y)
+            twice_error = np.sum(np.abs(gam - twice_y))
+
+            Chalf = np.array(C,copy=True)
+            Chalf[0,i] = (1/leap)*C[0,i]
+            half_approx = control.ss(A,B,Chalf,0)
+            half_y = np.ndarray.flatten(control.impulse_response(half_approx,t).y)
+            half_error = np.sum(np.abs(gam - half_y))
+
+            faster = np.array(A,copy=True)
+            faster[i,i] = A[i,i]*leap # faster decay
+            if i > 0: # first reservoir doesn't receive contribution from another reservoir. want to keep B at 1 for scaling
+                faster[i,i-1] = A[i,i-1]*leap # faster rise
+            faster_approx = control.ss(faster,B,C,0)
+            faster_y = np.ndarray.flatten(control.impulse_response(faster_approx,t).y)
+            faster_error = np.sum(np.abs(gam - faster_y))
+
+            slower = np.array(A,copy=True)
+            slower[i,i] = A[i,i]/leap # slower decay
+            if i > 0:
+                slower[i,i-1] = A[i,i-1]/leap # slower rise
+            slower_approx = control.ss(slower,B,C,0)
+            slower_y = np.ndarray.flatten(control.impulse_response(slower_approx,t).y)
+            slower_error = np.sum(np.abs(gam - slower_y))
+
+            all_errors = [og_error, twice_error, half_error, faster_error, slower_error]
+
+            if (twice_error <= min(all_errors) and half_error < og_error):
+                C = Ctwice
+                if twice_error < 0.999*og_error: # an appreciable difference
+                    og_was_best = False # did we change something this iteration?
+            elif (half_error <= min(all_errors) and half_error < og_error):
+                C = Chalf
+                if half_error < 0.999*og_error: # an appreciable difference
+                    og_was_best = False # did we change something this iteration?
+                
+            elif (slower_error <= min(all_errors) and slower_error < og_error):
+                A = slower
+                if slower_error < 0.999*og_error: # an appreciable difference
+                    og_was_best = False # did we change something this iteration?
+            elif (faster_error <= min(all_errors) and faster_error < og_error):
+                A = faster
+                if faster_error < 0.999*og_error: # an appreciable difference
+                    og_was_best = False # did we change something this iteration?
+
+
+
+        error = og_error
+        iterations += 1 # this shouldn't be the termination condition unless the resolution is too coarse
+        # normally the optimization should exit because the leap has become too small
+        if og_was_best: # the original was the best, so we're going to tighten up the optimization
+            speed_idx += 1
+            if speed_idx > len(speeds)-1:
+                break # we're done
+            leap = speeds[speed_idx]
+        # print the iteration count every ten
+        # comment out for production
+        if (iterations % 2 == 0 and verbose):
+            print("iterations = ", iterations)
+            print("error = ", error)
+            print("leap = ", leap)
+
+    lti_approx = control.ss(A,B,C,0)
+    y = np.ndarray.flatten(control.impulse_response(og_approx,t).y)
+    error = np.sum(np.abs(gam - og_y))
+
+    if (verbose):
+        print("final system\n")
+        print("A")
+        print(A)
+        print("B")
+        print(B)
+        print("C")
+        print(C)
+
+        print("\nfinal error")
+        print(error)
+
+
+    return {"lti_approx":lti_approx, "lti_approx_output":y, "error":error, "t":t, "gamma_pdf":gam}
+
+
+
+    
+
+
 
