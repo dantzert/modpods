@@ -29,12 +29,13 @@ import networkx as nx
 # as the model predicts derivatives, system_data must represent a *causal* system
 # that is, forcing and the response to that forcing cannot occur at the same timestep
 # it may be necessary for the user to shift the forcing data back to make the system causal (especially for time aggregated data like daily rainfall-runoff)
+# forcing_coef_constraints is a dictionary of column name and then a 1, 0, or -1 depending on whether the coefficients of that variable should be positive, unconstrained, or negative
 def delay_io_train(system_data, dependent_columns, independent_columns, 
                    windup_timesteps=0,init_transforms=1, max_transforms=4, 
                    max_iter=250, poly_order=3, transform_dependent=False, 
                    verbose=False, extra_verbose=False, include_bias=False, 
                    include_interaction=False, bibo_stable = False,
-                   transform_only = None):
+                   transform_only = None, forcing_coef_constraints=None):
     forcing = system_data[independent_columns].copy(deep=True)
 
     orig_forcing_columns = forcing.columns
@@ -102,7 +103,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
         prev_model = SINDY_delays_MI(shape_factors, scale_factors, loc_factors, system_data.index, 
                                      forcing, response,extra_verbose, poly_order , include_bias, 
                                      include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
 
         print("\nInitial model:\n")
         try:
@@ -147,7 +148,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                 sooner = SINDY_delays_MI(shape_factors ,scale_factors ,sooner_locs, 
                 system_data.index, forcing, response, extra_verbose, poly_order , 
                 include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
       
       
             later_locs = loc_factors.copy(deep=True)
@@ -155,7 +156,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
             later = SINDY_delays_MI(shape_factors , scale_factors,later_locs, 
                 system_data.index, forcing, response, extra_verbose, poly_order , 
                 include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
       
 
             shape_up = shape_factors.copy(deep=True)
@@ -163,7 +164,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
             shape_upped = SINDY_delays_MI(shape_up , scale_factors, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
       
             shape_down = shape_factors.copy(deep=True)
             shape_down[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]/speed )
@@ -173,14 +174,14 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                 shape_downed = SINDY_delays_MI(shape_down , scale_factors, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
 
             scale_up = scale_factors.copy(deep=True)
             scale_up[tuning_input][tuning_line] = float(  scale_factors[tuning_input][tuning_line]*speed*1.01 )
             scaled_up = SINDY_delays_MI(shape_factors , scale_up, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
 
 
             scale_down = scale_factors.copy(deep=True)
@@ -188,7 +189,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
             scaled_down = SINDY_delays_MI(shape_factors , scale_down, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
       
             # rounder
             rounder_shape = shape_factors.copy(deep=True)
@@ -198,7 +199,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
             rounder = SINDY_delays_MI(rounder_shape , rounder_scale, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
 
             # sharper
             sharper_shape = shape_factors.copy(deep=True)
@@ -211,7 +212,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                 sharper = SINDY_delays_MI(sharper_shape ,sharper_scale,loc_factors, 
                                             system_data.index, forcing, response, extra_verbose, poly_order , 
                                             include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
 
 
     
@@ -290,7 +291,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
     
         final_model = SINDY_delays_MI(shape_factors, scale_factors ,loc_factors,system_data.index, forcing, response, True, poly_order , 
                                       include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only)
+                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
         print("\nFinal model:\n")
         print(final_model['model'].print(precision=5))
         print("R^2")
@@ -314,7 +315,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
 
 def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, response, final_run, 
                     poly_degree, include_bias, include_interaction,windup_timesteps,bibo_stable=False,
-                    transform_dependent=False,transform_only=None):
+                    transform_dependent=False,transform_only=None, forcing_coef_constraints=None):
     if transform_only is not None:
         transformed_forcing = transform_inputs(shape_factors, scale_factors,loc_factors, index, forcing.loc[:,transform_only])
         untransformed_forcing = forcing.drop(columns=transform_only)
@@ -344,7 +345,8 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         #print(f"Features ({n_features}):", library.get_feature_names())
         # Set constraints
         n_targets = total_train.shape[1] # not sure what targets means after reading through the pysindy docs
-
+        #print("n_targets")
+        #print(n_targets)
         constraint_rhs = np.zeros((len(response.columns),1))
         # one row per constraint, one column per coefficient
         constraint_lhs = np.zeros((len(response.columns) , n_features ))
@@ -358,6 +360,46 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         # leq 0
         #print("constraint lhs")
         #print(constraint_lhs)
+
+        # forcing_coef_constraints not actually implemented yet
+        #if forcing_coef_constraints is not None:
+        if False:
+            constraint_rhs = np.zeros((n_features,)) # every feature is constrained
+            # one row per constraint, one column per coefficient
+            constraint_lhs = np.zeros((n_features , n_targets*n_features ) )
+            # bibo stability, set the highest order output autocorrelation to be negative
+            constraint_lhs[:n_targets,-len(forcing.columns)-len(response.columns):-len(forcing.columns)] = 1
+
+            print(forcing.columns)
+            forcing_constraints_array = np.ndarray(shape=(1,len(forcing.columns)))
+            for i, col in enumerate(forcing.columns):
+                if col in forcing_coef_constraints.keys(): # invert the sign because the eqn is written as "leq 0"
+                    forcing_constraints_array[0,i] = -forcing_coef_constraints[col]
+                elif str(col).replace('_tr_1','') in forcing_coef_constraints.keys():
+                    forcing_constraints_array[0,i] = -forcing_coef_constraints[str(col).replace('_tr_1','')]
+                elif str(col).replace('_tr_2','') in forcing_coef_constraints.keys():
+                    forcing_constraints_array[0,i] = -forcing_coef_constraints[str(col).replace('_tr_2','')]
+                elif str(col).replace('_tr_3','') in forcing_coef_constraints.keys():
+                    forcing_constraints_array[0,i] = -forcing_coef_constraints[str(col).replace('_tr_3','')]
+                else:
+                    forcing_constraints_array[0,i] = 0
+
+            for row in range(n_targets, n_features):
+                constraint_lhs[row, row*n_features] = forcing_constraints_array[0,row - n_targets]
+
+
+            # constrain the highest order output autocorrelation to be negative
+            # this indexing is only right for include_interaction=False, include_bias=False, and pure polynomial library
+            # for more complex libraries, some conditional logic will be needed to grab the right column
+            constraint_lhs[:n_targets,-len(forcing.columns)-len(response.columns):-len(forcing.columns)] = 1
+
+            print(forcing_constraints_array)
+
+            print('constraint lhs')
+            print(constraint_lhs)
+            print('constraint rhs')
+            print(constraint_rhs)
+
 
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
