@@ -6,6 +6,8 @@ import modpods
 
 import control as ct
 
+cartoon=False
+plot = True
 
 # define an LTI matrix where I know what the causative topology (connections) should look like
 # this is an easy test case. one input affects two states, which then affect the output. so only four connections total
@@ -38,6 +40,8 @@ parallel_reservoirs = ct.ss(A,B,C,0)
 time_base = 150
 #dt = .05
 dt = 1 
+if cartoon:
+    dt = 0.05
 u = np.zeros((int(time_base / dt),2))
 
 u[int(25/dt):int(50/dt),0] = np.random.rand(len(u[int(25/dt):int(50/dt),0]))-0.5
@@ -45,6 +49,12 @@ u[int(5/dt):int(20/dt),1] = np.random.rand(len(u[int(5/dt):int(20/dt),1]))-0.5
 u[abs(u) < 0.40] = 0 # make it sparse (~80% of timesteps set to zero)
 u[:,0] = u[:,0]*np.random.rand(len(u))*1000
 u[:,1] = u[:,1]*np.random.rand(len(u))*100
+
+
+if cartoon: # make the forcing simple
+    u = np.zeros((int(time_base / dt),2))
+    u[int(5/dt):int(6/dt),0] = 1
+    u[int(0/dt):int(1/dt),1] = 1
 
 
 T = np.arange(0,time_base,dt)
@@ -62,18 +72,18 @@ system_data['x2'] = response.states[2][:]
 system_data['x8'] = response.states[8][:]
 system_data['x9'] = response.states[9][:]
 '''
-plot = True
+
 
 if plot:
     system_data.plot(figsize=(10,5), subplots=True,legend=True)
     plt.show()
     # also make a more cartoony version
-    cartoon_plot_data = system_data[:int(len(system_data)/2)].copy()
+    cartoon_plot_data = system_data.copy()
     # normalize all the magnitudes in cartoon_plot_data such as that all columns have maximum of 1
     for col in cartoon_plot_data.columns:
         cartoon_plot_data[col] = cartoon_plot_data[col]/np.max(np.abs(cartoon_plot_data[col]))
 
-    cartoon_plot_data.plot(figsize=(5,5), subplots=False,legend=True,fontsize='xx-large',style=['r','b','g','m','k'],xticks=[],yticks=[],linewidth=5)
+    cartoon_plot_data.iloc[:int(len(cartoon_plot_data)/10)].plot(figsize=(5,5), subplots=False,legend=True,fontsize='xx-large',style=['r','b','g','m','k'],xticks=[],yticks=[],linewidth=5)
     plt.gca().axis('off') # get rid of bounding box
     plt.savefig("G:/My Drive/modpods/test_lti_system_gen_cartoon.svg")
     plt.show()
