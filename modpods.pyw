@@ -590,7 +590,9 @@ def transform_inputs(shape_factors, scale_factors, loc_factors,index, forcing):
 # REQUIRES: the output of delay_io_train, starting value of otuput, forcing timeseries
 # EFFECTS: returns a simulated response given forcing and a model
 # REQUIRED EDITS: not written to accomodate transform_dependent yet
-def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=False):
+def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=False , windup_timesteps=None):
+    if windup_timesteps is None: # user didn't specify windup timesteps, use what the model trained with.
+        windup_timesteps = delay_io_model[num_transforms]['windup_timesteps']
     forcing = system_data[delay_io_model[num_transforms]['independent_columns']].copy(deep=True)
     response = system_data[delay_io_model[num_transforms]['dependent_columns']].copy(deep=True)
             
@@ -599,15 +601,15 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
                                            loc_factors=delay_io_model[num_transforms]['loc_factors'], 
                                            index=system_data.index,forcing=forcing)
     try:
-        prediction = delay_io_model[num_transforms]['final_model']['model'].simulate(system_data[delay_io_model[num_transforms]['dependent_columns']].iloc[delay_io_model[num_transforms]['windup_timesteps'],:], 
-                                                                         t=np.arange(0,len(system_data.index),1)[delay_io_model[num_transforms]['windup_timesteps']:], 
-                                                                         u=transformed_forcing[delay_io_model[num_transforms]['windup_timesteps']:])
+        prediction = delay_io_model[num_transforms]['final_model']['model'].simulate(system_data[delay_io_model[num_transforms]['dependent_columns']].iloc[windup_timesteps,:], 
+                                                                         t=np.arange(0,len(system_data.index),1)[windup_timesteps:], 
+                                                                         u=transformed_forcing[windup_timesteps:])
     except Exception as e: # and print the exception:
         print("Exception in simulation\n")
         print(e)
         print("diverged.")
         error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
-        return {'prediction':np.NAN*np.ones(shape=response[delay_io_model[num_transforms]['windup_timesteps']+1:].shape), 'error_metrics':error_metrics,"diverged":True}
+        return {'prediction':np.NAN*np.ones(shape=response[windup_timesteps+1:].shape), 'error_metrics':error_metrics,"diverged":True}
 
     # return all the error metrics if the prediction is being evaluated against known measurements
     if (evaluation):
@@ -622,7 +624,12 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
             lfv = list()
             fdc = list()
             for col_idx in range(0,len(response.columns)): # univariate performance metrics
-                error = response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]-prediction[:,col_idx]
+                error = response.values[windup_timesteps+1:,col_idx]-prediction[:,col_idx]
+
+                initial_error_length = len(error)
+                error = error[~np.isnan(error)]
+                if (len(error) < 0.75*initial_error_length):
+                    print("WARNING: More than 25% of the entries in error were NaN")
 
                 #print("error")
                 #print(error)
@@ -632,18 +639,18 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
                 #print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
                 #print("sum of squared error between measured and model = ", np.sum((error)**2 ))
                 #print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
-                nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]-np.mean(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]  ) )**2 ) )
-                alpha.append(np.std(prediction[:,col_idx])/np.std(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]))
-                beta.append(np.mean(prediction[:,col_idx])/np.mean(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx]))
-                hfv.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.02*len(system_data.index)):])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.02*len(system_data.index)):]))
-                hfv10.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.1*len(system_data.index)):])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.1*len(system_data.index)):]))
-                lfv.append(np.sum(np.sort(prediction[:,col_idx])[:int(0.3*len(system_data.index))])/np.sum(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[:int(0.3*len(system_data.index))]))
-                fdc.append(np.mean(np.sort(prediction[:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))])/np.mean(np.sort(response.values[delay_io_model[num_transforms]['windup_timesteps']+1:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))]))
+                nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ) )
+                alpha.append(np.std(prediction[:,col_idx])/np.std(response.values[windup_timesteps+1:,col_idx]))
+                beta.append(np.mean(prediction[:,col_idx])/np.mean(response.values[windup_timesteps+1:,col_idx]))
+                hfv.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.02*len(system_data.index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.02*len(system_data.index)):]))
+                hfv10.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.1*len(system_data.index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.1*len(system_data.index)):]))
+                lfv.append(np.sum(np.sort(prediction[:,col_idx])[:int(0.3*len(system_data.index))])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[:int(0.3*len(system_data.index))]))
+                fdc.append(np.mean(np.sort(prediction[:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))])/np.mean(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))]))
             
 
             print("MAE = ", mae)
             print("RMSE = ", rmse)
-            # all the below error metrics were generated by copilot and should be checked
+            
             print("NSE = ", nse)
             # alpha nse decomposition due to gupta et al 2009
             print("alpha = ", alpha)
