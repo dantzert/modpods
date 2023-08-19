@@ -1197,5 +1197,147 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
 
     
 
+# this function takes a swmm input file and returns a dataframe of the topography
+# arguments are included that take dictionaries where the keys are the names of the object 
+# and the values are lists of the observable quantities at that object
+# each argument can also accept "ALL" as an argument, which will include all objects of that type. the observable quantities must still be specified
+def topo_from_pystorms(pystorms_scenario):
+    import pyswmm # not a requirement for any other function
+
+    A = pd.DataFrame(index = pystorms_scenario.config['states'],
+                     columns = pystorms_scenario.config['states'])
+    B = pd.DataFrame(index = pystorms_scenario.config['states'],
+                     columns = pystorms_scenario.config['action_space'])
+
+    print("A")
+    print(A)
+    print("B")
+    print(B)
+
+
+    # use pyswmm to iterate through the network
+    with pyswmm.Simulation(pystorms_scenario.config['swmm_input']) as sim:
+        # start at each subcatchment and iterate down to the outfall
+        # this should work even in the case of multiple outfalls
+        # this should capture all the causation, because ultimately everything is precip driven
+        
+        # so i can view these while debugging
+        Subcatchments = pyswmm.Subcatchments(sim)
+        Nodes = pyswmm.Nodes(sim)
+        Links = pyswmm.Links(sim)
+
+        for subcatch in pyswmm.Subcatchments(sim):
+            #print(subcatch.subcatchmentid)
+            # create a string that records the path we travel to get to the outfall
+            path_of_travel = list()
+            # can i grab the rain gage id?
+            path_of_travel.append((subcatch.subcatchmentid,"Subcatchment"))
+            current_id = subcatch.connection # grab the id of the next object downstream
+            
+            
+            try: # if the downstream connection is a subcatchment
+                current = Subcatchments[current_id]
+                current_id = current.subcatchmentid
+                subcatch = Subcatchments[current_id]
+                current_id = subcatch.connection # grab the id of the next object downstream
+                path_of_travel.append((current_id,'Subcatchment'))
+            except Exception as e:
+                print(e)
+                pass
+            
+            # other option is that downstream connection is a node
+            # in which case we'll start iterating down through nodes and links to the outfall
+            current = Nodes[current_id]
+            path_of_travel.append((current_id,'Node'))
+            while not current.is_outfall():
+                #print(path_of_travel)
+                # if the current object is a node, iterate through the links to find the downstream object
+                if current_id in pyswmm.Nodes(sim):
+                    for link in pyswmm.Links(sim):
+                        #print(link.linkid)
+                        if link.inlet_node == current_id:
+                            path_of_travel.append((link.linkid,"Link"))
+                            current_id = link.outlet_node
+                            path_of_travel.append((current_id,"Node"))
+                            break
+                # if the current object is a link, grab the downstream node
+                elif current_id in pyswmm.Links(sim):
+                    path_of_travel.append((link.linkid,"Link"))
+                    current_id = current.outlet_node
+                    path_of_travel.append((current_id,"Node"))
+
+                current = Nodes[current_id]
+
+            #print("path of travel")
+            #print(path_of_travel)
+
+            # now, use this path of travel to update the A and B matrices
+            #print("updating A and B matrices")
+            for step in path_of_travel:
+                for state in pystorms_scenario.config['states']:
+                    if step[0] == state[0]: # same id
+                        if ((step[1] == "Node" and "N" in state[1]) 
+                        or (step[1] == "Node" and 'flooding' in state[1]) 
+                        or (step[1] == "Node" and 'inflow' in state[1])): # node type
+                            # we've found a step in the path of travel which is an observable state
+                            # are there any other observable states or controllabe assets in the path of travel?
+                            for other_step in path_of_travel:
+                                if other_step == step:
+                                    continue # this is the same step, so skip it
+                                    # if you want only objects that are upstream, substitude that continue with a "break"
+
+                                # we'll include states that come after the examined state in case of feedback such as backwater effects
+                                for other_state in pystorms_scenario.config['states']:
+                                    if other_step[0] == other_state[0]: # same id
+                                        if ((other_step[1] == "Node" and "N" in other_state[1]) 
+                                            or (other_step[1] == "Node" and 'flooding' in other_state[1]) 
+                                            or (other_step[1] == "Node" and 'inflow' in other_state[1])): # node type
+                                            A.loc[[state],[other_state]] = 'd'
+                                            #print(A)
+                                        elif ((other_step[1] == "Link" and "L" in other_state[1]) 
+                                            or (other_step[1] == "Link" and 'flow' in other_state[1])):
+                                            A.loc[[state],[other_state]] = 'd'
+                                            #print(A)
+                                for control_asset in pystorms_scenario.config['action_space']:
+                                    if other_step[0] == control_asset:
+                                        B.loc[[state],[control_asset]] = 'd'
+                                        #print(B)
+                  
+                        elif ((step[1] == "Link" and "L" in state[1]) 
+                              or (step[1] == "Link" and 'flow' in state[1])):
+                            for other_step in path_of_travel:
+                                if other_step == step:
+                                    continue # this is the same step, so skip it
+                                for other_state in pystorms_scenario.config['states']:
+                                    if other_step[0] == other_state[0]: # same id
+                                        if ((other_step[1] == "Node" and "N" in other_state[1]) 
+                                            or (other_step[1] == "Node" and 'flooding' in other_state[1]) 
+                                            or (other_step[1] == "Node" and 'inflow' in other_state[1])): # node type
+                                            A.loc[[state],[other_state]] = 'd'
+                                            #print(A)
+                                        elif ((other_step[1] == "Link" and "L" in other_state[1]) 
+                                            or (other_step[1] == "Link" and 'flow' in other_state[1])):
+                                            A.loc[[state],[other_state]] = 'd'
+                                            #print(A)
+                                for control_asset in pystorms_scenario.config['action_space']:
+                                    if other_step[0] == control_asset:
+                                        B.loc[[state],[control_asset]] = 'd'
+            print(A)
+            print(B)
+        
+    # add "i's" on the diagonal of A (instantaneous autocorrelatoin)
+    for idx in A.index:
+        A.loc[[idx],[idx]] = 'i'
+    # fill the na's in A and B with 'n'
+    A.fillna('n',inplace=True)
+    B.fillna('n',inplace=True)
+    
+    # concatenate the A and B matrices column-wise and return that result
+    causative_topology = pd.concat([A,B],axis=1)
+
+    print(causative_topology)
+
+    return causative_topology
+
 
 

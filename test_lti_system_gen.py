@@ -174,4 +174,5 @@ for idx in range(len(output_columns)):
 axes[0,1].set_title("testing",fontsize='xx-large')
 
 plt.savefig("G:/My Drive/modpods/test_lti_system_gen.png")
+plt.savefig("G:/My Drive/modpods/test_lti_system_gen.svg")
 plt.show()
