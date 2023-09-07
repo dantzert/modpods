@@ -293,7 +293,10 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                                       include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
                                      transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
         print("\nFinal model:\n")
-        print(final_model['model'].print(precision=5))
+        try:
+            print(final_model['model'].print(precision=5))
+        except Exception as e:
+            print(e)
         print("R^2")
         print(prev_model['error_metrics']['r2'])
         print("shape factors")
@@ -849,22 +852,21 @@ def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,
 
 # this function takes the system data and the causative topology and returns an LTI system
 # if the causative topology isn't already defined, it needs to be created using infer_causative_topology
-# TODO: coefficients scale with the dt of system_data. which shouldn't be the case.
 def lti_system_gen(causative_topology, system_data,independent_columns,dependent_columns,max_iter=250):
 
     A = pd.DataFrame(index=dependent_columns, columns=dependent_columns)
     B = pd.DataFrame(index=dependent_columns, columns=independent_columns)
     C = pd.DataFrame(index=dependent_columns,columns=dependent_columns)
     C.loc[:,:] = np.diag(np.ones(len(dependent_columns))) # these are the states which are observable
-
+   
     # copy the corresponding entries from the causative topology into B
-    for i in range(len(dependent_columns)):
-        for j in range(len(independent_columns)):
-            B.iloc[i,j] = causative_topology.loc[dependent_columns[i],independent_columns[j]][0]
+    for row in B.index:
+        for col in B.columns:
+            B[col][row] = causative_topology[col][row]
     # and into A
-    for i in range(len(dependent_columns)):
-        for j in range(len(dependent_columns)):
-            A.iloc[i,j] = causative_topology.loc[dependent_columns[i],dependent_columns[j]][0]
+    for row in A.index:
+        for col in A.columns:
+            A[col][row] = causative_topology[col][row]
 
     print("A")
     print(A)
@@ -880,17 +882,22 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         immediate_forcing = []
         delayed_forcing = []
         for col in A.columns:
-            if A.loc[row,col] == "d":
+            if col == row:
+                continue # don't need to include the output state as a forcing variable. it's already included by default
+            if A[col][row] == "d":
                 delayed_forcing.append(col)
-            elif A.loc[row,col] == "i":
+            elif A[col][row] == "i":
                 immediate_forcing.append(col)
         for col in B.columns:
-            if B.loc[row,col] == "d":
+            if B[col][row] == "d":
                 delayed_forcing.append(col)
-            elif B.loc[row,col] == "i":
+            elif B[col][row] == "i":
                 immediate_forcing.append(col)
         # make total_forcing the union of immediate and delayed forcing
         total_forcing = immediate_forcing + delayed_forcing
+        feature_names = [row] + total_forcing
+        for feature_idx in range(len(feature_names)):
+            feature_names[feature_idx] = str(feature_names[feature_idx]) # cast to string so sindy can print
         if (delayed_forcing):
             print("training delayed model for ", row, " with forcing ", total_forcing, "\n")
             delay_models[row] = delay_io_train(system_data,[row],total_forcing,
@@ -901,17 +908,23 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
             print("training immediate model for ", row, " with forcing ", total_forcing, "\n")
             delay_models[row] = None
             # we can put immediate causation into the matrices A, B, and C now
-            feature_names = [row] + immediate_forcing
+
             model = ps.SINDy(
                 differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
                 feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False), 
                 optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0),
                 feature_names = feature_names
                 ) 
-            instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing])
-            instant_fit.print(precision=3)
-            print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing]))
-            print(instant_fit.coefficients())
+            if system_data.loc[:,immediate_forcing].empty: # the subsystem is autonomous
+                instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values)
+                instant_fit.print(precision=3)
+                print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = system_data.index.values))
+                print(instant_fit.coefficients())
+            else: # there is some forcing
+                instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing])
+                instant_fit.print(precision=3)
+                print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing]))
+                print(instant_fit.coefficients())
             for idx in range(len(feature_names)):
                 if feature_names[idx] in A.columns:
                     A.loc[row,feature_names[idx]] = instant_fit.coefficients()[0][idx]
@@ -1242,7 +1255,8 @@ def topo_from_pystorms(pystorms_scenario):
                 current_id = subcatch.connection # grab the id of the next object downstream
                 path_of_travel.append((current_id,'Subcatchment'))
             except Exception as e:
-                print(e)
+                #print("downstream connection was not another subcatchment")
+                #print(e)
                 pass
             
             # other option is that downstream connection is a node
@@ -1268,13 +1282,36 @@ def topo_from_pystorms(pystorms_scenario):
 
                 current = Nodes[current_id]
 
-            #print("path of travel")
-            #print(path_of_travel)
+            print("path of travel")
+            print(path_of_travel)
+            # cut all the entries in path_of_travel that are not observable states
+            removed_a_step = True
+            while(removed_a_step):
+                for step in path_of_travel:
+                    removed_a_step=False
+                    step_is_state = False
+                    step_is_control_input = False
+                    for state in pystorms_scenario.config['states']:
+                        if step[0] == state[0]:
+                            step_is_state = True
+                    for control_input in pystorms_scenario.config['action_space']:
+                        if step[0] == control_input[0]:
+                            step_is_control_input = True
+                    if not step_is_state and not step_is_control_input:
+                        path_of_travel.remove(step) # this will change the index, hence the "while"
+                        removed_a_step = True
+
+
+            print("observable path of travel")
+            print(path_of_travel)
 
             # now, use this path of travel to update the A and B matrices
             #print("updating A and B matrices")
+
+            # TODO: rewrite this so that it only adds objects immediately upstream and immediately downstream (one object each way)   
             for step in path_of_travel:
                 for state in pystorms_scenario.config['states']:
+                    last_step = False
                     if step[0] == state[0]: # same id
                         if ((step[1] == "Node" and "N" in state[1]) 
                         or (step[1] == "Node" and 'flooding' in state[1]) 
@@ -1282,7 +1319,10 @@ def topo_from_pystorms(pystorms_scenario):
                             # we've found a step in the path of travel which is an observable state
                             # are there any other observable states or controllabe assets in the path of travel?
                             for other_step in path_of_travel:
+                                if path_of_travel.index(step) - path_of_travel.index(other_step) > 1: # other step is not immediately upstream
+                                    continue
                                 if other_step == step:
+                                    last_step = True # we only want to look one object downstream
                                     continue # this is the same step, so skip it
                                     # if you want only objects that are upstream, substitude that continue with a "break"
 
@@ -1302,11 +1342,17 @@ def topo_from_pystorms(pystorms_scenario):
                                     if other_step[0] == control_asset:
                                         B.loc[[state],[control_asset]] = 'd'
                                         #print(B)
-                  
+                                if last_step: # just look at the next little bit downstream for backwater effects
+                                    break
+                                    
+                                
                         elif ((step[1] == "Link" and "L" in state[1]) 
-                              or (step[1] == "Link" and 'flow' in state[1])):
+                                or (step[1] == "Link" and 'flow' in state[1])):
                             for other_step in path_of_travel:
+                                if path_of_travel.index(step) - path_of_travel.index(other_step) > 1: # other step is not immediately upstream
+                                    continue
                                 if other_step == step:
+                                    last_step = True # we only want to look a limited distance downstream
                                     continue # this is the same step, so skip it
                                 for other_state in pystorms_scenario.config['states']:
                                     if other_step[0] == other_state[0]: # same id
@@ -1322,8 +1368,13 @@ def topo_from_pystorms(pystorms_scenario):
                                 for control_asset in pystorms_scenario.config['action_space']:
                                     if other_step[0] == control_asset:
                                         B.loc[[state],[control_asset]] = 'd'
-            print(A)
-            print(B)
+                                if last_step: # just look at the next little bit downstream for backwater effects
+                                    break
+                         
+                        
+
+            #print(A)
+            #print(B)
         
     # add "i's" on the diagonal of A (instantaneous autocorrelatoin)
     for idx in A.index:

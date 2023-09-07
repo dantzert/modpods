@@ -12,14 +12,17 @@ import modpods
 pd.set_option('display.max_columns', None)
 
 #epsilon_topo = modpods.topo_from_pystorms(pystorms.scenarios.epsilon())
-#theta = pystorms.scenarios.theta()
-#theta_topo = modpods.topo_from_pystorms(theta)
+theta = pystorms.scenarios.theta()
+theta_topo = modpods.topo_from_pystorms(theta)
+
+
+
 
 #beta = pystorms.scenarios.beta()
 #beta_topo = modpods.topo_from_pystorms(beta)
 
-zeta = pystorms.scenarios.zeta()
-zeta_topo = modpods.topo_from_pystorms(zeta)
+#zeta = pystorms.scenarios.zeta()
+#zeta_topo = modpods.topo_from_pystorms(zeta)
 
 print("done")
 
