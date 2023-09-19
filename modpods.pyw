@@ -691,14 +691,14 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
 # the function below returns an LTI system (in the matrices A, B, and C) that mimic the shape of a given gamma distribution
 # scaling should be correct, but need to verify that
 # max state dim, resolution, and max iterations could be icnrased to improve accuracy
-def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,max_state_dim=10,max_iterations=100):
+def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False,max_state_dim=50,max_iterations=200):
     # i've assumed here that gamma pdf is defined the same as in matlab
     # if that's not true testing will show it soon enough
     t50 = shape*scale + location # center of mass
     skewness = 2 / np.sqrt(shape)
     total_time_base = 2*t50 # not that this contains the full shape, but if we fit this much of the curve perfectly we'll be close enough
-    resolution = (t50)/((skewness + location)) # made this coarser for faster testing of the lti_system_gen function
-    #resolution = (t50)/(10*(skewness + location))
+    #resolution = (t50)/((skewness + location)) # make this coarser for faster debugging
+    resolution = (t50)/(10*(skewness + location)) # production version
 
     #resolution = 1/ skewness
     decay_rate = 1 / resolution
@@ -720,11 +720,18 @@ def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,
 
     # make the timestep one so that the relative error is correct (dt too small makes error bigger than written)
     #t = np.linspace(0,3*total_time_base,1000)
-    desired_error = desired_error / dt
-    t = np.arange(0,2*total_time_base,dt)
-    if verbose:
-        print("dt is ",dt)
-        print("scaled desired error is ",desired_error)
+    #desired_error = desired_error / dt
+    '''
+    if dt > 0: # true if numeric
+        t = np.arange(0,2*total_time_base,dt)
+    else:
+        t= np.linspace(0,2*total_time_base,num=200) 
+    '''
+    t = np.linspace(0,2*total_time_base,num=200)
+    
+    #if verbose:
+    #    print("dt is ",dt)
+    #    print("scaled desired error is ",desired_error)
 
     gam = stats.gamma.pdf(t,shape,location,scale)
 
@@ -737,23 +744,35 @@ def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,
     lti_sys = control.ss(A,B,C,0)
 
     lti_approx = control.impulse_response(lti_sys,t)
-
+    '''
     error = np.sum(np.abs(gam - lti_approx.y))
     if(verbose):
         print("initial error")
         print(error)
-        print("desired error")
+        #print("desired error")
         #print(max(gam))
-        print(desired_error)
+        #print(desired_error)
+        '''
+    NSE = 1 - (np.sum(np.square(gam - lti_approx.y)) / np.sum(np.square(gam - np.mean(gam)) ))
+    # if NSE is nan, set to -10e6
+    if np.isnan(NSE):
+        NSE = -10e6
 
+
+    if verbose:
+        print("initial NSE")
+        print(NSE)
+        print("desired NSE")
+        print(desired_NSE)
+        
     iterations = 0
 
-    speeds = [10,1.1,1.01]
+    speeds = [10,5,2,1.1,1.05,1.01,1.001]
     speed_idx = 0
     leap = speeds[speed_idx]
     # the area under the curve is normalized to be one. so rather than basing our desired error off the 
     # max of the distribution, it might be better to make it a percentage error, one percent or five percent
-    while (error > desired_error and iterations < max_iterations):
+    while (NSE < desired_NSE and iterations < max_iterations):
         
         og_was_best = True # start each iteration assuming that the original is the best
         # search across the C vector
@@ -763,19 +782,29 @@ def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,
             og_approx = control.ss(A,B,C,0)
             og_y = np.ndarray.flatten(control.impulse_response(og_approx,t).y)
             og_error = np.sum(np.abs(gam - og_y))
+            og_NSE = 1 - (np.sum((gam - og_y)**2) / np.sum((gam - np.mean(gam))**2))
 
             Ctwice = np.array(C, copy=True)
             Ctwice[0,i] = leap*C[0,i]
             twice_approx = control.ss(A,B,Ctwice,0)
             twice_y = np.ndarray.flatten(control.impulse_response(twice_approx,t).y)
             twice_error = np.sum(np.abs(gam - twice_y))
+            twice_NSE = 1 - (np.sum((gam - twice_y)**2) / np.sum((gam - np.mean(gam))**2))
 
             Chalf = np.array(C,copy=True)
             Chalf[0,i] = (1/leap)*C[0,i]
             half_approx = control.ss(A,B,Chalf,0)
             half_y = np.ndarray.flatten(control.impulse_response(half_approx,t).y)
             half_error = np.sum(np.abs(gam - half_y))
-
+            half_NSE = 1 - (np.sum((gam - half_y)**2) / np.sum((gam - np.mean(gam))**2))
+            '''
+            Cneg = np.array(C,copy=True)
+            Cneg[0,i] = -C[0,i]
+            neg_approx = control.ss(A,B,Cneg,0)
+            neg_y = np.ndarray.flatten(control.impulse_response(neg_approx,t).y)
+            neg_error = np.sum(np.abs(gam - neg_y))
+            neg_NSE = 1 - (np.sum((gam - neg_y)**2) / np.sum((gam - np.mean(gam))**2))
+            '''
             faster = np.array(A,copy=True)
             faster[i,i] = A[i,i]*leap # faster decay
             if i > 0: # first reservoir doesn't receive contribution from another reservoir. want to keep B at 1 for scaling
@@ -783,6 +812,7 @@ def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,
             faster_approx = control.ss(faster,B,C,0)
             faster_y = np.ndarray.flatten(control.impulse_response(faster_approx,t).y)
             faster_error = np.sum(np.abs(gam - faster_y))
+            faster_NSE = 1 - (np.sum((gam - faster_y)**2) / np.sum((gam - np.mean(gam))**2))
 
             slower = np.array(A,copy=True)
             slower[i,i] = A[i,i]/leap # slower decay
@@ -791,29 +821,38 @@ def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,
             slower_approx = control.ss(slower,B,C,0)
             slower_y = np.ndarray.flatten(control.impulse_response(slower_approx,t).y)
             slower_error = np.sum(np.abs(gam - slower_y))
+            slower_NSE = 1 - (np.sum((gam - slower_y)**2) / np.sum((gam - np.mean(gam))**2))
 
-            all_errors = [og_error, twice_error, half_error, faster_error, slower_error]
+            #all_errors = [og_error, twice_error, half_error, faster_error, slower_error]
+            all_NSE  = [og_NSE, twice_NSE, half_NSE, faster_NSE, slower_NSE]# , neg_NSE]
 
-            if (twice_error <= min(all_errors) and half_error < og_error):
+            if (twice_NSE >= max(all_NSE) and twice_NSE > og_NSE):
                 C = Ctwice
-                if twice_error < 0.999*og_error: # an appreciable difference
+                if twice_NSE > 1.001*og_NSE: # an appreciable difference
                     og_was_best = False # did we change something this iteration?
-            elif (half_error <= min(all_errors) and half_error < og_error):
+            elif (half_NSE >= max(all_NSE) and half_NSE > og_NSE):
                 C = Chalf
-                if half_error < 0.999*og_error: # an appreciable difference
+                if half_NSE > 1.001*og_NSE: # an appreciable difference
                     og_was_best = False # did we change something this iteration?
                 
-            elif (slower_error <= min(all_errors) and slower_error < og_error):
+            elif (slower_NSE >= max(all_NSE) and slower_NSE > og_NSE):
                 A = slower
-                if slower_error < 0.999*og_error: # an appreciable difference
+                if slower_NSE > 1.001*og_NSE: # an appreciable difference
                     og_was_best = False # did we change something this iteration?
-            elif (faster_error <= min(all_errors) and faster_error < og_error):
+            elif (faster_NSE >= max(all_NSE) and faster_NSE > og_error):
                 A = faster
-                if faster_error < 0.999*og_error: # an appreciable difference
+                if faster_NSE > 1.001*og_NSE: # an appreciable difference
                     og_was_best = False # did we change something this iteration?
+                    '''
+            elif (neg_NSE >= max(all_NSE) and neg_NSE > og_NSE):
+                C = Cneg
+                if neg_NSE > 1.001*og_NSE:
+                    og_was_best = False
+                    '''
+                    
 
 
-
+        NSE = og_NSE
         error = og_error
         iterations += 1 # this shouldn't be the termination condition unless the resolution is too coarse
         # normally the optimization should exit because the leap has become too small
@@ -827,12 +866,14 @@ def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,
         if (iterations % 2 == 0 and verbose):
             print("iterations = ", iterations)
             print("error = ", error)
+            print("NSE = ", NSE)
             print("leap = ", leap)
 
     lti_approx = control.ss(A,B,C,0)
     y = np.ndarray.flatten(control.impulse_response(og_approx,t).y)
     error = np.sum(np.abs(gam - og_y))
-
+    print("LTI_from_gamma final NSE")
+    print(NSE)
     if (verbose):
         print("final system\n")
         print("A")
@@ -852,7 +893,31 @@ def lti_from_gamma(shape, scale, location,dt,desired_error = 0.02,verbose=False,
 
 # this function takes the system data and the causative topology and returns an LTI system
 # if the causative topology isn't already defined, it needs to be created using infer_causative_topology
-def lti_system_gen(causative_topology, system_data,independent_columns,dependent_columns,max_iter=250):
+def lti_system_gen(causative_topology, system_data,independent_columns,dependent_columns,max_iter=250,
+                   swmm=False,bibo_stable = False,max_transition_state_dim=50):
+
+    # cast the columns and indices of causative_topology to strings so sindy can run properly
+    # We need the tuples to link the columns in system_data to the object names in the swmm model  
+    # so we'll cast these back to tuples once we're done
+    if swmm:
+        causative_topology.columns = causative_topology.columns.astype(str)
+        causative_topology.index = causative_topology.index.astype(str)
+
+        print("causative topology \n")
+        print(causative_topology.index)
+        print(causative_topology.columns)
+
+        # do the same for dependent_columns and independent_columns
+        dependent_columns = [str(col) for col in dependent_columns]
+        independent_columns = [str(col) for col in independent_columns]
+        print(dependent_columns)
+        print(independent_columns)
+    
+    
+        # do the same for the columns of system_data
+        system_data.columns = system_data.columns.astype(str)
+        print(system_data.columns)
+
 
     A = pd.DataFrame(index=dependent_columns, columns=dependent_columns)
     B = pd.DataFrame(index=dependent_columns, columns=independent_columns)
@@ -896,25 +961,54 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         # make total_forcing the union of immediate and delayed forcing
         total_forcing = immediate_forcing + delayed_forcing
         feature_names = [row] + total_forcing
-        for feature_idx in range(len(feature_names)):
-            feature_names[feature_idx] = str(feature_names[feature_idx]) # cast to string so sindy can print
         if (delayed_forcing):
             print("training delayed model for ", row, " with forcing ", total_forcing, "\n")
             delay_models[row] = delay_io_train(system_data,[row],total_forcing,
                                      transform_only=delayed_forcing,max_transforms=1,
-                                     poly_order=1, max_iter=max_iter)
+                                     poly_order=1, max_iter=max_iter,verbose=False,bibo_stable=bibo_stable)
             # we'll parse this delayed causation into the matrices A, B, and C later
         else:
+            ####### TODO: incorporate bibo stability constraint into instantaneous fits ########
             print("training immediate model for ", row, " with forcing ", total_forcing, "\n")
             delay_models[row] = None
             # we can put immediate causation into the matrices A, B, and C now
 
-            model = ps.SINDy(
-                differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
-                feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False), 
-                optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0),
-                feature_names = feature_names
-                ) 
+            if (bibo_stable): # negative autocorrelatoin
+                # Figure out how many library features there will be
+                library = ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False)
+                #total_train = pd.concat((response,forcing), axis='columns')
+                library.fit([ps.AxesArray(feature_names,{"ax_sample":0,"ax_coord":1})])
+                n_features = library.n_output_features_
+                #print(f"Features ({n_features}):", library.get_feature_names())
+                # Set constraints
+                #n_targets = total_train.shape[1] # not sure what targets means after reading through the pysindy docs
+                #print("n_targets")
+                #print(n_targets)
+                constraint_rhs = 0
+                # one row per constraint, one column per coefficient
+                constraint_lhs = np.zeros((1 , n_features ))
+
+                #print(constraint_rhs)
+                #print(constraint_lhs)
+                # constrain the highest order output autocorrelation to be negative
+                # this indexing is only right for include_interaction=False, include_bias=False, and pure polynomial library
+                # for more complex libraries, some conditional logic will be needed to grab the right column
+                constraint_lhs[:,0] = 1
+                
+                model = ps.SINDy(
+                            differentiation_method= ps.FiniteDifference(),
+                            feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False),
+                            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
+                            feature_names = feature_names
+                        )
+
+            else: # unoconstrained
+                model = ps.SINDy(
+                    differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
+                    feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False), 
+                    optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0),
+                    feature_names = feature_names
+                    ) 
             if system_data.loc[:,immediate_forcing].empty: # the subsystem is autonomous
                 instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values)
                 instant_fit.print(precision=3)
@@ -948,44 +1042,65 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         if delay_models[row] is None:
             pass
         else:
-            transformation_approximations = {key: None for key in delay_models[row][1]['shape_factors'].columns}
-            for key in transformation_approximations.keys():
+            transformation_approximations = {transform_key: None for transform_key in delay_models[row][1]['shape_factors'].columns}
+            for transform_key in transformation_approximations.keys():
                 delay_models[row][1]['final_model']['model'].print(precision=5)
-                shape = delay_models[row][1]['shape_factors'].loc[1,key]
-                scale = delay_models[row][1]['scale_factors'].loc[1,key]
-                loc = delay_models[row][1]['loc_factors'].loc[1,key]
+                shape = delay_models[row][1]['shape_factors'].loc[1,transform_key]
+                scale = delay_models[row][1]['scale_factors'].loc[1,transform_key]
+                loc = delay_models[row][1]['loc_factors'].loc[1,transform_key]
+                '''
                 # infer the timestep of system_data from the index
                 timestep = system_data.index[1] - system_data.index[0]
-                transformation_approximations[key] = lti_from_gamma(shape,scale,loc,dt=timestep)
-                Agam = transformation_approximations[key]['lti_approx'].A
-                Bgam = transformation_approximations[key]['lti_approx'].B
-                Cgam = transformation_approximations[key]['lti_approx'].C
+                try: # if the timestep is numeric
+                    pd.to_numeric(timestep)
+                    transformation_approximations[transform_key] = lti_from_gamma(shape,scale,loc,dt=timestep)
+                    
+                    Agam = transformation_approximations[transform_key]['lti_approx'].A / timestep
+                    Bgam = transformation_approximations[transform_key]['lti_approx'].B / timestep 
+                    Cgam = transformation_approximations[transform_key]['lti_approx'].C / timestep
+                except Exception as e: # if the timestep is something like a datetime
+                    print(e)'''
+                transformation_approximations[transform_key] = lti_from_gamma(shape,scale,loc,max_state_dim = max_transition_state_dim)
+                    
+                Agam = transformation_approximations[transform_key]['lti_approx'].A 
+                Bgam = transformation_approximations[transform_key]['lti_approx'].B # only entry is unit impulse at top state
+                Cgam = transformation_approximations[transform_key]['lti_approx'].C 
+
                 # Cgam needs to be scaled by the coefficient the forcing term had in the delay model
-                coefficients = {key: None for key in delay_models[row][1]['final_model']['model'].feature_names}
-                for key in coefficients.keys():
-                    coef_index = delay_models[row][1]['final_model']['model'].feature_names.index(key)
-                    coefficients[key] = delay_models[row][1]['final_model']['model'].coefficients()[0][coef_index]
-                    if "_tr_1" in key:
-                        Cgam = Cgam * coefficients[key] # scaling
+                coefficients = {coef_key: None for coef_key in delay_models[row][1]['final_model']['model'].feature_names}
+                for coef_key in coefficients.keys():
+                    coef_index = delay_models[row][1]['final_model']['model'].feature_names.index(coef_key)
+                    coefficients[coef_key] = delay_models[row][1]['final_model']['model'].coefficients()[0][coef_index]
+                    if "_tr_1" in coef_key and coef_key.replace("_tr_1","") == transform_key.replace("_tr_1",""):
+                        '''
+                        try: 
+                            pd.to_numeric(timestep,errors='raise')
+                            Cgam = Cgam * coefficients[coef_key] / timestep
+                        except Exception as e:
+                            print(e)
+                            Cgam = Cgam * coefficients[coef_key]
+                        '''
+                        
+                        Cgam = Cgam * coefficients[coef_key] # scaling
                     else: # these are the immediate effects, insert them now
-                        if key in A.columns:
-                            A.loc[row,key] = coefficients[key]
-                        elif key in B.columns:
-                            B.loc[row,key] = coefficients[key]
+                        if coef_key in A.columns:
+                            A.loc[row,coef_key] = coefficients[coef_key]
+                        elif coef_key in B.columns:
+                            B.loc[row,coef_key] = coefficients[coef_key]
 
                 
                 Agam_index = []
                 for idx in range(Agam.shape[0]):
-                    Agam_index.append(key.replace("_tr_1","") + "->" + row + "_" + str(idx))
+                    Agam_index.append(transform_key.replace("_tr_1","") + "->" + row + "_" + str(idx))
                 Agam = pd.DataFrame(Agam, index = Agam_index, columns = Agam_index)
-                Bgam = pd.DataFrame(Bgam, index = Agam_index, columns = [key.replace("_tr_1","")])
+                Bgam = pd.DataFrame(Bgam, index = Agam_index, columns = [transform_key.replace("_tr_1","")])
                 Cgam = pd.DataFrame(Cgam, index = [row], columns = Agam_index)
-                print("Agam")
-                print(Agam)
-                print("Bgam")
-                print(Bgam)
-                print("Cgam")
-                print(Cgam)
+                #print("Agam")
+                #print(Agam)
+                #print("Bgam")
+                #print(Bgam)
+                #print("Cgam")
+                #print(Cgam)
                 # insert these into the A, B, and C matrices
                 # for Agam, the insertion row is immediately after the source (key)
                 # the insertion column is also immediately after the source (key)
@@ -996,10 +1111,13 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                 # first need to create space for the new rows and columns
                 # create before_index and after_index variables, which record the parts of the index of A that occur before and after row
                 before_index = []
-                after_index = []
-                if key.replace("_tr_1","") not in A.index: # it's one of the forcing terms. put it in at the beginning
+                #after_index = []
+                if transform_key.replace("_tr_1","") not in A.index: # it's one of the forcing terms. put it in at the beginning
                     after_index = list(A.index) # it's a forcing variable, so we don't want it in the newA index
                 else: # it is a state variable
+                    before_index = list(A.index[:A.index.get_loc(transform_key.replace("_tr_1",""))])
+                    after_index = list(A.index[A.index.get_loc(transform_key.replace("_tr_1",""))+1:])
+                    '''
                     for idx in A.index:
                         if idx == key.replace("_tr_1",""):
                             before_index.append(idx) # if it's a state variable, we want it in the newA index
@@ -1008,10 +1126,17 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                             before_index.append(idx)
                     for idx in range(A.index.get_loc(key.replace("_tr_1",""))+1,len(A.index)):
                         after_index.append(A.index[idx])
-
-                newA = pd.DataFrame(index=before_index + Agam_index + after_index, columns = before_index + Agam_index + after_index) # state dim expands by the number of rows in Agam
-                newB = pd.DataFrame(index = before_index + Agam_index + after_index, columns = B.columns) # input dim remains consistent (columns of B)
-                newC = pd.DataFrame(index = C.index, columns = before_index +  Agam_index + after_index) # output dim remains consistent (rows of C)
+                        '''
+                if transform_key.replace("_tr_1","") in A.index: # the transform key refers to a state (x)
+                    states = before_index + [transform_key.replace("_tr_1","")] + Agam_index + after_index # state dim expands by the number of rows in Agam
+                    # include the current transform key in A because it's a state variable
+                elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
+                    states = before_index + Agam_index + after_index # state dim expands by the number of rows in Agam    
+                    # don't include the current transform key in A because it's a control input, not a state variable
+                    
+                newA = pd.DataFrame(index=states, columns = states) 
+                newB = pd.DataFrame(index = states, columns = B.columns) # input dim remains consistent (columns of B)
+                newC = pd.DataFrame(index = C.index, columns = states) # output dim remains consistent (rows of C)
 
                 # fill in newA with the corresponding entries from A
                 for idx in newA.index:
@@ -1038,12 +1163,12 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                         if idx in Cgam.index and col in Cgam.columns: # outputs from the cascades
                             newA.loc[idx,col] = Cgam.loc[idx,col]
 
-                print("newA")
-                print(newA.to_string())
-                print("newB")
-                print(newB.to_string())
-                print("newC")
-                print(newC.to_string())
+                #print("newA")
+                #print(newA.to_string())
+                #print("newB")
+                #print(newB.to_string())
+                #print("newC")
+                #print(newC.to_string())
 
                 # copy over
                 A = newA.copy(deep=True)
@@ -1055,10 +1180,49 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
     B.replace("n",0,inplace=True)
     C.replace("n",0,inplace=True)
     
+    if swmm:
+        pass
+        #############
+        # TODO: cast strings back to tuples in the indices and columns
+        #############
+        # cast the index and columns of causative_topology to tuples. they'll be of the form "(X,Y)"
+
+        # do the same for dependent_columns and independent_columns
+
+        # do the same for the columns of system_data
+    
+
+
 
     A.fillna(0,inplace=True)
     B.fillna(0,inplace=True)
     C.fillna(0,inplace=True)
+    
+    # if bibo_stable is specified and A not hurwitz, make A hurwitz by defining A' = A - I*max(real(eig(A)))
+    # this will gaurantee stability (max eigenvalue will have real part < 0)
+    if bibo_stable:
+        orig_eigs, _ = np.linalg.eig(A)
+        if any(np.real(orig_eigs) > 0):
+            print("stabilizing unstable plant by subtracting I*max(real(eig)) from A")
+            epsilon = 10e-4
+            A_stab = A - np.eye(len(A))*(1+epsilon)*max(np.real(orig_eigs)) # add factor of (1+epsilon) for stability, not marginal stabilty
+            stab_eigs, _ = np.linalg.eig(A_stab)
+            A = A_stab.copy(deep=True)
+
+    # sindy will scale the coefficients according to the timestep if the index is numeric 
+    # so the whole system needs to be scaled by the timestep if its numeric
+    try:
+        pd.to_numeric(system_data.index,errors='raise') # can the index be converted to a numeric type?
+        dt = system_data.index.values[1] - system_data.index.values[0]
+        A = A / dt
+        B = B / dt 
+        C = C # what we observe doesn't need to be adjusted, just the dynamics
+    except Exception as e:
+        print(e)
+        dt = None
+    
+
+
     lti_sys = control.ss(A,B,C,0,inputs=B.columns,outputs=C.index,states=A.columns)
 
 
@@ -1282,8 +1446,8 @@ def topo_from_pystorms(pystorms_scenario):
 
                 current = Nodes[current_id]
 
-            print("path of travel")
-            print(path_of_travel)
+            #print("path of travel")
+            #print(path_of_travel)
             # cut all the entries in path_of_travel that are not observable states
             removed_a_step = True
             while(removed_a_step):
@@ -1302,13 +1466,13 @@ def topo_from_pystorms(pystorms_scenario):
                         removed_a_step = True
 
 
-            print("observable path of travel")
-            print(path_of_travel)
+            #print("observable path of travel")
+            #print(path_of_travel)
 
             # now, use this path of travel to update the A and B matrices
             #print("updating A and B matrices")
 
-            # TODO: rewrite this so that it only adds objects immediately upstream and immediately downstream (one object each way)   
+            
             for step in path_of_travel:
                 for state in pystorms_scenario.config['states']:
                     last_step = False
@@ -1339,7 +1503,7 @@ def topo_from_pystorms(pystorms_scenario):
                                             A.loc[[state],[other_state]] = 'd'
                                             #print(A)
                                 for control_asset in pystorms_scenario.config['action_space']:
-                                    if other_step[0] == control_asset:
+                                    if other_step[0] == control_asset[0]:
                                         B.loc[[state],[control_asset]] = 'd'
                                         #print(B)
                                 if last_step: # just look at the next little bit downstream for backwater effects
@@ -1366,7 +1530,7 @@ def topo_from_pystorms(pystorms_scenario):
                                             A.loc[[state],[other_state]] = 'd'
                                             #print(A)
                                 for control_asset in pystorms_scenario.config['action_space']:
-                                    if other_step[0] == control_asset:
+                                    if other_step[0] == control_asset[0]:
                                         B.loc[[state],[control_asset]] = 'd'
                                 if last_step: # just look at the next little bit downstream for backwater effects
                                     break
