@@ -103,8 +103,8 @@ causative_topology.loc['x9','x8'] = 'i'
 causative_topology.loc['x9','x2'] = 'd'
 print(causative_topology)
 # max iterations is for learning the delay model. increase it for better accuracy
-lti_sys_from_data = modpods.lti_system_gen(causative_topology,system_data,['u1','u2'],['x2','x8','x9'],max_iter=100,bibo_stable=True)
-
+#lti_sys_from_data = modpods.lti_system_gen(causative_topology,system_data,['u1','u2'],['x2','x8','x9'],max_iter=100,bibo_stable=True)
+lti_sys_from_data = modpods.lti_system_gen(causative_topology,system_data,['u1','u2'],['x2','x8','x9'],max_iter=0,bibo_stable=False)
 # print all columns of the pandas dataframe
 pd.set_option('display.max_columns', None)
 print("final lti system")

@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import control as ct
 import dill as pickle
-use_blind = False
+
 
 
 # uncontrolled
@@ -275,11 +275,12 @@ print(training_response)
 dependent_columns = training_response.columns[4:8] # just depths at 1 through 4
 independent_columns = training_response.drop(columns = dependent_columns).columns
 
+use_blind = False
 # learn the topology from the data
 # this will be the "blind" plant model
 if use_blind: # don't have this on all the time because it's very expensive
     blind_topo = modpods.infer_causative_topology(training_response, dependent_columns = dependent_columns,
-                                                  independent_columns = independent_columns, verbose=True)
+                                                  independent_columns = independent_columns, verbose=True,swmm=True)
 
     print(blind_topo.causative_topo)
     print(blind_topo.total_graph)
@@ -309,7 +310,7 @@ if use_blind:
     print(blind_topo.causative_topo.compare(swmm_topo))
 
 # learn the dynamics now, or load a previously learned model
-
+'''
 # learn the dynamics from the trainingd response
 print("learning dynamics")
 lti_plant_approx_seeing = modpods.lti_system_gen(swmm_topo, training_response, 
@@ -325,7 +326,7 @@ with open('G:/My Drive/modpods/swmm_lti_plant_approx_seeing.pickle', 'wb') as ha
 with open('G:/My Drive/modpods/swmm_lti_plant_approx_seeing.pickle', 'rb') as handle:
     print("loading previously trained model")
     lti_plant_approx_seeing = pickle.load(handle)
-    '''
+    
 if use_blind:
     lti_plant_approx_blind = modpods.lti_system_gen(blind_topo, training_response, 
                                                  independent_columns= independent_columns,
@@ -547,36 +548,45 @@ print("{:.4e}".format(obc_perf))
 
 fig,axes = plt.subplots(4,2,figsize=(20,10))
 fig.suptitle("Pystorms Scenario Gamma")
-axes[0,0].set_title("Valves")
-axes[0,1].set_title("Storage Nodes")
+axes[0,0].set_title("Valves",fontsize='xx-large')
+axes[0,1].set_title("Storage Nodes",fontsize='xx-large')
 
 valves = ["O1","O2","O3","O4"]
 storage_nodes = ["1","2","3","4"]
+cfs2cms = 35.315
+ft2meters = 3.281
 # plot the valves
 for idx in range(4):
-    axes[idx,0].plot(uncontrolled_data['simulation_time'],uncontrolled_data['flow'][valves[idx]],label='Uncontrolled',color='k')
-    axes[idx,0].plot(ef_data['simulation_time'],ef_data['flow'][valves[idx]],label='Equal Filling',color='b')
-    axes[idx,0].plot(obc_data['simulation_time'],obc_data['flow'][valves[idx]],label='LTI Feedback',color='g')
+    axes[idx,0].plot(uncontrolled_data['simulation_time'],np.array(uncontrolled_data['flow'][valves[idx]])/cfs2cms,label='Uncontrolled',color='k',linewidth=2)
+    axes[idx,0].plot(ef_data['simulation_time'],np.array(ef_data['flow'][valves[idx]])/cfs2cms,label='Equal Filling',color='b',linewidth=2)
+    axes[idx,0].plot(obc_data['simulation_time'],np.array(obc_data['flow'][valves[idx]])/cfs2cms,label='LTI Feedback',color='g',linewidth=2)
     # add a dotted red line indicating the flow threshold
-    axes[idx,0].hlines(3.9, uncontrolled_data['simulation_time'][0],uncontrolled_data['simulation_time'][-1],label='Threshold',colors='r',linestyles='dashed')
-    axes[idx,0].set_ylabel( str(  str(valves[idx]) + " Flow" ),rotation='horizontal',labelpad=8)
+    axes[idx,0].hlines(3.9/cfs2cms, uncontrolled_data['simulation_time'][0],uncontrolled_data['simulation_time'][-1],label='Threshold',colors='r',linestyles='dashed',linewidth=2)
+    #axes[idx,0].set_ylabel( str(  str(valves[idx]) + " Flow" ),rotation='horizontal',labelpad=8)
+    axes[idx,0].annotate(str(  str(valves[idx]) + " Flow" ),xy=(0.5,0.8),xycoords='axes fraction',fontsize='xx-large')
     if idx == 0:
-        axes[idx,0].legend()
+        axes[idx,0].legend(fontsize='xx-large')
+    if idx != 3:
+        axes[idx,0].set_xticks([])
        
 
 # plot the storage nodes
 for idx in range(4):
-    axes[idx,1].plot(uncontrolled_data['simulation_time'],uncontrolled_data['depthN'][storage_nodes[idx]],label='Uncontrolled',color='k')
-    axes[idx,1].plot(ef_data['simulation_time'],ef_data['depthN'][storage_nodes[idx]],label='Equal Filling',color='b')
-    axes[idx,1].plot(obc_data['simulation_time'],obc_data['depthN'][storage_nodes[idx]],label='LTI Feedback',color='g')
-    axes[idx,1].set_ylabel( str( str(storage_nodes[idx]) + " Depth"),rotation='horizontal',labelpad=8)
+    axes[idx,1].plot(uncontrolled_data['simulation_time'],np.array(uncontrolled_data['depthN'][storage_nodes[idx]])/ft2meters,label='Uncontrolled',color='k',linewidth=2)
+    axes[idx,1].plot(ef_data['simulation_time'],np.array(ef_data['depthN'][storage_nodes[idx]])/ft2meters,label='Equal Filling',color='b',linewidth=2)
+    axes[idx,1].plot(obc_data['simulation_time'],np.array(obc_data['depthN'][storage_nodes[idx]])/ft2meters,label='LTI Feedback',color='g',linewidth=2)
+    #axes[idx,1].set_ylabel( str( str(storage_nodes[idx]) + " Depth"),rotation='horizontal',labelpad=8)
+    axes[idx,1].annotate( str( str(storage_nodes[idx]) + " Depth"),xy=(0.5,0.8),xycoords='axes fraction',fontsize='xx-large')
+    
     # add a dotted red line indicating the depth threshold
-    axes[idx,1].hlines(basin_max_depths_all[idx],uncontrolled_data['simulation_time'][0],uncontrolled_data['simulation_time'][-1],label='Threshold',colors='r',linestyles='dashed')
+    axes[idx,1].hlines(basin_max_depths_all[idx]/ft2meters,uncontrolled_data['simulation_time'][0],uncontrolled_data['simulation_time'][-1],label='Threshold',colors='r',linestyles='dashed',linewidth=2)
+    if idx != 3:
+        axes[idx,1].set_xticks([])
 
 plt.tight_layout()
 plt.savefig("G:/My Drive/modpods/pystorms_gamma_comparison.png",dpi=450)
 plt.savefig("G:/My Drive/modpods/pystorms_gamma_comparison.svg",dpi=450)
-plt.show()
+#plt.show()
 
 print("done")
 

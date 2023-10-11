@@ -1240,7 +1240,21 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
 # we'll assume there are always self-loops (the derivative always depends on the current value of the variable)
 # this will also be returned as an adjacency matrix
 # this doesn't go all the way to turning the data into an LTI system. that will be another function that uses this one
-def infer_causative_topology(system_data, dependent_columns, independent_columns, graph_type='Weak-Conn',verbose=False,max_iter = 250):
+def infer_causative_topology(system_data, dependent_columns, independent_columns, graph_type='Weak-Conn',verbose=False,max_iter = 250,swmm=False):
+
+    if swmm:
+        # do the same for dependent_columns and independent_columns
+        dependent_columns = [str(col) for col in dependent_columns]
+        independent_columns = [str(col) for col in independent_columns]
+        print(dependent_columns)
+        print(independent_columns)
+    
+    
+        # do the same for the columns of system_data
+        system_data.columns = system_data.columns.astype(str)
+        print(system_data.columns)
+
+
     # first, identify any immediate causal relationships (no delay)
     # only using linear models for the sake of speed.
     immediate_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0)
