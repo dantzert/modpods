@@ -19,6 +19,22 @@ dt = 0.1 # pretend this was the sampling frequency of the data from which we got
 
 # will also need to match the dt at which the gamma distribution is sampled
 
+# make something very sharp and fast
+shape = 1
+scale = 0.1
+loc = 0
+
+# make something very diffuse and slow - peak at 1000 timesteps with half-maximum width of about 200 timesteps
+#shape = 100
+#scale = 10
+#loc = 0
+
+# a transformation that generates a decay rate within the bounds should have a very accurate approximation
+shape = 10
+scale = 1
+loc = 0
+
+
 print("shape, scale, loc: ", shape, scale, loc)
 
 

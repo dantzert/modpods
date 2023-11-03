@@ -691,7 +691,11 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
 # the function below returns an LTI system (in the matrices A, B, and C) that mimic the shape of a given gamma distribution
 # scaling should be correct, but need to verify that
 # max state dim, resolution, and max iterations could be icnrased to improve accuracy
-def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False,max_state_dim=50,max_iterations=200):
+def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False,
+                   max_state_dim=50,max_iterations=200, max_pole_speed = 5, min_pole_speed = 0.01):
+    # a pole of speed -5 decays to less than 1% of it's value after one timestep
+    # a pole of speed -0.01 decays to more than 99% of it's value after one timestep
+
     # i've assumed here that gamma pdf is defined the same as in matlab
     # if that's not true testing will show it soon enough
     t50 = shape*scale + location # center of mass
@@ -702,6 +706,7 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
 
     #resolution = 1/ skewness
     decay_rate = 1 / resolution
+    decay_rate = np.clip(decay_rate ,min_pole_speed, max_pole_speed)
     state_dim = int(np.floor(total_time_base*decay_rate)) # this keeps the time base fixed for a given decay rate
     if state_dim > max_state_dim:
         state_dim = max_state_dim
@@ -711,6 +716,9 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
         state_dim = 1
         decay_rate = state_dim / total_time_base
         resolution = 1 / decay_rate
+        
+    decay_rate = np.clip(decay_rate ,min_pole_speed, max_pole_speed)
+
     if verbose:
         print("state dimension is ",state_dim)
         print("decay rate is ",decay_rate)
@@ -807,21 +815,27 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
             '''
             faster = np.array(A,copy=True)
             faster[i,i] = A[i,i]*leap # faster decay
-            if i > 0: # first reservoir doesn't receive contribution from another reservoir. want to keep B at 1 for scaling
-                faster[i,i-1] = A[i,i-1]*leap # faster rise
-            faster_approx = control.ss(faster,B,C,0)
-            faster_y = np.ndarray.flatten(control.impulse_response(faster_approx,t).y)
-            faster_error = np.sum(np.abs(gam - faster_y))
-            faster_NSE = 1 - (np.sum((gam - faster_y)**2) / np.sum((gam - np.mean(gam))**2))
+            if abs(faster[i,i]) < abs(max_pole_speed):
+                if i > 0: # first reservoir doesn't receive contribution from another reservoir. want to keep B at 1 for scaling
+                    faster[i,i-1] = A[i,i-1]*leap # faster rise
+                faster_approx = control.ss(faster,B,C,0)
+                faster_y = np.ndarray.flatten(control.impulse_response(faster_approx,t).y)
+                faster_error = np.sum(np.abs(gam - faster_y))
+                faster_NSE = 1 - (np.sum((gam - faster_y)**2) / np.sum((gam - np.mean(gam))**2))
+            else:
+                faster_NSE = -10e6 # disallowed because the pole is too fast
 
             slower = np.array(A,copy=True)
             slower[i,i] = A[i,i]/leap # slower decay
-            if i > 0:
-                slower[i,i-1] = A[i,i-1]/leap # slower rise
-            slower_approx = control.ss(slower,B,C,0)
-            slower_y = np.ndarray.flatten(control.impulse_response(slower_approx,t).y)
-            slower_error = np.sum(np.abs(gam - slower_y))
-            slower_NSE = 1 - (np.sum((gam - slower_y)**2) / np.sum((gam - np.mean(gam))**2))
+            if abs(slower[i,i]) > abs(min_pole_speed):
+                if i > 0:
+                    slower[i,i-1] = A[i,i-1]/leap # slower rise
+                slower_approx = control.ss(slower,B,C,0)
+                slower_y = np.ndarray.flatten(control.impulse_response(slower_approx,t).y)
+                slower_error = np.sum(np.abs(gam - slower_y))
+                slower_NSE = 1 - (np.sum((gam - slower_y)**2) / np.sum((gam - np.mean(gam))**2))
+            else:
+                slower_NSE = -10e6 # disallowed because the pole is too slow
 
             #all_errors = [og_error, twice_error, half_error, faster_error, slower_error]
             all_NSE  = [og_NSE, twice_NSE, half_NSE, faster_NSE, slower_NSE]# , neg_NSE]
@@ -839,7 +853,7 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
                 A = slower
                 if slower_NSE > 1.001*og_NSE: # an appreciable difference
                     og_was_best = False # did we change something this iteration?
-            elif (faster_NSE >= max(all_NSE) and faster_NSE > og_error):
+            elif (faster_NSE >= max(all_NSE) and faster_NSE > og_NSE):
                 A = faster
                 if faster_NSE > 1.001*og_NSE: # an appreciable difference
                     og_was_best = False # did we change something this iteration?
@@ -885,6 +899,11 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
 
         print("\nfinal error")
         print(error)
+
+    # are any of the final eigenvalues outside the bounds specified?
+    E = np.linalg.eigvals(A)
+    if (np.any(np.abs(E) > max_pole_speed) or np.any(np.abs(E) < min_pole_speed)):
+        print("WARNING: final eigenvalues are outside the bounds specified")
 
 
     return {"lti_approx":lti_approx, "lti_approx_output":y, "error":error, "t":t, "gamma_pdf":gam}
@@ -1176,9 +1195,9 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                 C = newC.copy(deep=True)
 
 
-    A.replace("n",0,inplace=True)
-    B.replace("n",0,inplace=True)
-    C.replace("n",0,inplace=True)
+    A.replace("n",0.0,inplace=True)
+    B.replace("n",0.0,inplace=True)
+    C.replace("n",0.0,inplace=True)
     
     if swmm:
         pass
@@ -1194,9 +1213,9 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
 
 
 
-    A.fillna(0,inplace=True)
-    B.fillna(0,inplace=True)
-    C.fillna(0,inplace=True)
+    A.fillna(0.0,inplace=True)
+    B.fillna(0.0,inplace=True)
+    C.fillna(0.0,inplace=True)
     
     # if bibo_stable is specified and A not hurwitz, make A hurwitz by defining A' = A - I*max(real(eig(A)))
     # this will gaurantee stability (max eigenvalue will have real part < 0)
@@ -1217,11 +1236,16 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         A = A / dt
         B = B / dt 
         C = C # what we observe doesn't need to be adjusted, just the dynamics
+        print("system response data index converted to numeric type. dt = ")
+        print(dt)
     except Exception as e:
         print(e)
         dt = None
     
-
+    # cast all of A, B, and C to type float (integers cause issues with LQR / LQE calculations)
+    A = A.astype(float)
+    B = B.astype(float)
+    C = C.astype(float)
 
     lti_sys = control.ss(A,B,C,0,inputs=B.columns,outputs=C.index,states=A.columns)
 
