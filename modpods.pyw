@@ -1281,11 +1281,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
 
     # first, identify any immediate causal relationships (no delay)
     # only using linear models for the sake of speed.
-<<<<<<< Updated upstream
-    immediate_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0)
-=======
     immediate_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
->>>>>>> Stashed changes
     # read as: row variable is affected by column variable
     # that way we can read each row (kind of) as a linear differential equation (not exactly, because they're all trained separately)
     for dep_col in dependent_columns: # for each column which is out
@@ -1313,11 +1309,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                 print(immediate_impact_strength)
 
     # set the entries in immediate_impact_strength to 0 if they explain less than X% of the variatnce
-<<<<<<< Updated upstream
-    immediate_impact_strength[immediate_impact_strength < 1/(2*len(system_data.columns))] = 0
-=======
     immediate_impact_strength[immediate_impact_strength < 1/(2*len(system_data.columns))] = 0.0
->>>>>>> Stashed changes
     print(immediate_impact_strength)
 
     # is system already weakly connected?
@@ -1338,11 +1330,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
    
     
     # then, test every pair of variables for a causal relationship using delay_io_train. record the r2 score achieved with a siso model
-<<<<<<< Updated upstream
-    delayed_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0)
-=======
     delayed_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
->>>>>>> Stashed changes
     # this is read the same way as immediate_impact_strength
     
     for dep_col in dependent_columns: # for each column which is not forcing
@@ -1403,11 +1391,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
             total_graph.loc[max_r2_row,max_r2_col] = max_r2
             causative_topo.loc[max_r2_row,max_r2_col] = "d"
         # remove that edge from delayed_impact_strength
-<<<<<<< Updated upstream
-        delayed_impact_strength.loc[max_r2_row,max_r2_col] = 0
-=======
         delayed_impact_strength.loc[max_r2_row,max_r2_col] = 0.0
->>>>>>> Stashed changes
 
         # make weakest_row the sum of the row of total_graph with the lowest sum
         weakest_row = total_graph.loc[dependent_columns,:].sum(axis='columns').min()
