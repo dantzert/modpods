@@ -1264,7 +1264,9 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
 # we'll assume there are always self-loops (the derivative always depends on the current value of the variable)
 # this will also be returned as an adjacency matrix
 # this doesn't go all the way to turning the data into an LTI system. that will be another function that uses this one
-def infer_causative_topology(system_data, dependent_columns, independent_columns, graph_type='Weak-Conn',verbose=False,max_iter = 250,swmm=False):
+def infer_causative_topology(system_data, dependent_columns, independent_columns, 
+                             graph_type='Weak-Conn',verbose=False,max_iter = 250,swmm=False,
+                             method='ccm'):
 
     if swmm:
         # do the same for dependent_columns and independent_columns
@@ -1278,133 +1280,335 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         system_data.columns = system_data.columns.astype(str)
         print(system_data.columns)
 
+    if method == 'granger': # granger causality
+        from statsmodels.tsa.stattools import grangercausalitytests
+        causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
 
-    # first, identify any immediate causal relationships (no delay)
-    # only using linear models for the sake of speed.
-    immediate_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
-    # read as: row variable is affected by column variable
-    # that way we can read each row (kind of) as a linear differential equation (not exactly, because they're all trained separately)
-    for dep_col in dependent_columns: # for each column which is out
-        response = np.array(system_data[dep_col].values)
-        for other_col in system_data.columns: # for every other variable (input)
-            if other_col == dep_col:
-                continue # we're already accounting for autocorrelatoin in every fit
+        # first add instantaneous causation (max lag of 1)
+        for dep_col in dependent_columns: # for each column which is out
+            response = np.array(system_data[dep_col].values)
             
-            print("fitting ", dep_col, " to ", other_col)
-            forcing = np.array(system_data[other_col].values)
+            for other_col in system_data.columns: # for every other variable (input)
+                if other_col == dep_col:
+                    continue # we're already accounting for autocorrelatoin in every fit
+                print("check if ", other_col, " granger causes ", dep_col)
+                #print(system_data[[dep_col,other_col]])
+                gc_res = grangercausalitytests(system_data[[dep_col,other_col]],maxlag=[1],verbose=True)
+                
+                f_test_p_value = gc_res[1][0]['ssr_ftest'][1] # should only be one result
+                if f_test_p_value < 0.05:
+                    causative_topo.loc[dep_col,other_col] = "i"
+        print(causative_topo)
+
+        max_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(-1.0)        
+        min_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(2.0)
+        median_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(2.0)
+        three_quarters_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(2.0)
+        one_quarter_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(2.0)
+        min_p_lag = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(-1)
+        max_p_lag = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(-1)
+        
+        derivative = False
+        # first column in df is the output (granger caused by other)
+        # second column is the proposed forcer
+        for dep_col in dependent_columns: # for each column which is out
+            if derivative:
+                response = np.array(system_data[dep_col].diff().values[1:])
+            else:
+                response = np.array(system_data[dep_col].values)
             
-            model = ps.SINDy(
-                    differentiation_method= ps.FiniteDifference(),
-                    feature_library=ps.PolynomialLibrary(degree=1,include_bias = False), 
-                    optimizer = ps.STLSQ(threshold=0),
-                    feature_names = [str(dep_col),str(other_col)]
-            )
+            for other_col in system_data.columns: # for every other variable (input)
+                if other_col == dep_col:
+                    continue # we're already accounting for autocorrelatoin in every fit
+                print("check if ", other_col, " granger causes ", dep_col)
+                #print(system_data[[dep_col,other_col]])
+                gc_res = grangercausalitytests(system_data[[dep_col,other_col]],maxlag=10,verbose=True)
+                # iterate through the dictionary and compute the maximum and minimum p values for the F test
+                p_values = []
+                for key in gc_res.keys():
+                    f_test_p_value = gc_res[key][0]['ssr_ftest'][1]
+                    p_values.append(f_test_p_value)
+                    if f_test_p_value > max_p.loc[dep_col,other_col]:
+                        max_p.loc[dep_col,other_col] = f_test_p_value
+                        max_p_lag.loc[dep_col,other_col] = key
+                        
+                    if f_test_p_value < min_p.loc[dep_col,other_col]:
+                        min_p.loc[dep_col,other_col] = f_test_p_value
+                        min_p_lag.loc[dep_col,other_col] = key
+                    
+                median_p.loc[dep_col,other_col] = np.median(p_values)
+                three_quarters_p.loc[dep_col,other_col] = np.quantile(p_values,0.75)
+                one_quarter_p.loc[dep_col,other_col] = np.quantile(p_values,0.25)
+        
+        print("max p values")  
+        print(max_p)
+        print("max p lag")
+        print(max_p_lag)
+        print("min p values")
+        print(min_p)
+        print("min p lag")
+        print(min_p_lag)
+        print("median p values")
+        print(median_p)
+        
+        
+        print("now determine causative topology based on connectivity constraint")
+        # start with the maximum p values, taking the significant links, then move down through the quantiles
+        # if the graph is not connected, we'll move down to the next quantile
+        # keep going until you satisfy the connectivity criteria
+        if graph_type == 'Weak-Conn':
+            # should I just build delay models for all of them?
+            print("uhhhh")
+    
+        
+                
 
-            # windup latent states (if your windup is too long, this will error)
-            model.fit(response, u = forcing)
-            # training data score
-            immediate_impact_strength.loc[dep_col,other_col] = model.score(response, u = forcing) 
-            if verbose:
-                model.print(precision=5)
-                print(immediate_impact_strength)
+    elif method == 'ccm': # convergent cross mapping per sugihara 2012
+        derivative = True
+        correlations = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)        
+        p_values = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(1.0)
+        best_taus = pd.DataFrame(index=system_data.columns,columns=system_data.columns)
+        best_Es = pd.DataFrame(index=system_data.columns,columns=system_data.columns)
+        # the hope is that this will be significantly faster than actually building models between all variables
+        from causal_ccm.causal_ccm import ccm # move to initial imports if this ends up working
+        
+        for dep_col in dependent_columns: # for each column which is out
+            if derivative:
+                response = np.array(system_data[dep_col].diff().values[1:])
+            else:
+                response = np.array(system_data[dep_col].values)
+            
+            for other_col in system_data.columns: # for every other variable (input)
+                plt.close('all')
+                if other_col == dep_col:
+                    continue # we're already accounting for autocorrelatoin in every fit
+                print("check if ", other_col, " drives ", dep_col)
+                if derivative:
+                    forcing = np.array(system_data[other_col].values[:-1])
+                else:
+                    forcing = np.array(system_data[other_col].values)
+                
+                # start with tau_options to be between 1 and 25 timesteps
+                tau_options = np.arange(1,21)
+                E_options = np.arange(1,6) # number of embedding dimensions
+                best_p_value = 1.0 # null hypothesis is that there is no causality
+                best_tau = -1 # then we'll know if no lags had good results
+                for tau in tau_options:
+                    for E in E_options:
+                        cross_map = ccm(forcing,response,tau=tau,E=E,L=len(response))
+                        correlation, p_value = cross_map.causality()
+                        if p_value < best_p_value:
+                            best_p_value = p_value
+                            best_correlation = correlation
+                            best_tau = tau
+                            best_E = E
+                            print("tau = ", tau, "E = ",E," | p = ", p_value, " | corr = ", correlation)
+                            #cross_map.visualize_cross_mapping()
+                            #cross_map.plot_ccm_correls()
+                
+                cross_map = ccm(forcing,response,best_tau,best_E)
+                '''
+                if best_tau > 0:
+                    cross_map.visualize_cross_mapping()
+                cross_map.plot_ccm_correls()
+                '''
+                correlation, p_value = cross_map.causality()
+                correlations.loc[dep_col,other_col] = correlation
+                p_values.loc[dep_col,other_col] = p_value
+                best_taus.loc[dep_col,other_col] = best_tau
+                best_Es.loc[dep_col,other_col] = best_E
+                
+                lengths = np.linspace(250, len(response), 100,dtype='int')
+                corr_L = lengths*0.0
+                for length_idx in range(len(lengths)):
+                    trunc_forcing = forcing[:lengths[length_idx]]
+                    trunc_response = response[:lengths[length_idx]]
+                    cross_map = ccm(trunc_forcing,trunc_response,tau=best_tau,E=best_E)
+                    correlation, p_value = cross_map.causality()
+                    corr_L[length_idx] = correlation
+                   
+                
+                plt.plot(corr_L)
+                plt.ylabel("correlation")
+                plt.show(block=True)
+                
+        print(correlations)
+        print(p_values)
+        print(best_taus)
+        print(best_Es)
+        print("done")
 
-    # set the entries in immediate_impact_strength to 0 if they explain less than X% of the variatnce
-    immediate_impact_strength[immediate_impact_strength < 1/(2*len(system_data.columns))] = 0.0
-    print(immediate_impact_strength)
+                    
 
-    # is system already weakly connected?
-    # if not, we'll need to add edges to make it weakly connected
-    print("immediate impact already weakly connected?")
-    print(nx.is_weakly_connected(nx.from_pandas_adjacency(immediate_impact_strength,create_using=nx.DiGraph)))
 
-    # if graph_type == "Weak-Conn" - find the best weakly connected graph - the undirected graph can be fully traversed
-    # this is a weak constraint. it's essentailly saying all the data belong to the same system and none of it can be completely isolated
-    # every DAG is weakly connected, but not every weakly connected graph is a DAG (ex: node has no in-edges and an out-edge into a three node cycle)
-    # "Weak-Conn" is the default value
+    elif method == 'modpods':
+        # first, identify any immediate causal relationships (no delay)
+        # only using linear models for the sake of speed.
+        immediate_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
+        # read as: row variable is affected by column variable
+        # that way we can read each row (kind of) as a linear differential equation (not exactly, because they're all trained separately)
+        for dep_col in dependent_columns: # for each column which is out
+            response = np.array(system_data[dep_col].values)
+            for other_col in system_data.columns: # for every other variable (input)
+                if other_col == dep_col:
+                    continue # we're already accounting for autocorrelatoin in every fit
+            
+                print("fitting ", dep_col, " to ", other_col)
+                forcing = np.array(system_data[other_col].values)
+            
+                model = ps.SINDy(
+                        differentiation_method= ps.FiniteDifference(),
+                        feature_library=ps.PolynomialLibrary(degree=1,include_bias = False), 
+                        optimizer = ps.STLSQ(threshold=0),
+                        feature_names = [str(dep_col),str(other_col)]
+                )
 
-    # if graph_type == "Strong-Conn" - find the best strongly connected graph - the directed graph can be fully traversed
-    # this is a stronger constraint. it means that every variable is affected by every other variable. every strongly connected graph is weakly connected
+                # windup latent states (if your windup is too long, this will error)
+                model.fit(response, u = forcing)
+                # training data score
+                immediate_impact_strength.loc[dep_col,other_col] = model.score(response, u = forcing) 
+                if verbose:
+                    model.print(precision=5)
+                    print(model.score(response, u = forcing))
 
-    # could add unilaterally connected graphs
+        # set the entries in immediate_impact_strength to 0 if they explain less than X% of the variatnce
+        immediate_impact_strength[immediate_impact_strength < 1/(len(dependent_columns))] = 0.0
+        print(immediate_impact_strength)
 
+        # is system already weakly connected?
+        # if not, we'll need to add edges to make it weakly connected
+        print("immediate impact already weakly connected?")
+        print(nx.is_weakly_connected(nx.from_pandas_adjacency(immediate_impact_strength,create_using=nx.DiGraph)))
+
+        # if graph_type == "Weak-Conn" - find the best weakly connected graph - the undirected graph can be fully traversed
+        # this is a weak constraint. it's essentailly saying all the data belong to the same system and none of it can be completely isolated
+        # every DAG is weakly connected, but not every weakly connected graph is a DAG (ex: node has no in-edges and an out-edge into a three node cycle)
+        # "Weak-Conn" is the default value
+
+        # if graph_type == "Strong-Conn" - find the best strongly connected graph - the directed graph can be fully traversed
+        # this is a stronger constraint. it means that every variable is affected by every other variable. every strongly connected graph is weakly connected
+
+        # could add unilaterally connected graphs
+
+        # if verbose, plot the network after immediate impacts are accounted for
+        if verbose:
+            edges = immediate_impact_strength.stack().rename_axis(['source', 'target']).rename('weight').reset_index().query('(source != target) & (weight > 0.0)')
+
+            G = nx.from_pandas_edgelist(edges, source='source', target='target', edge_attr='weight', create_using=nx.DiGraph)
+            try:
+                pos = nx.planr_layout(G)
+            except:
+                pos = nx.kamada_kawai_layout(G)
+            
+            nx.draw_networkx_nodes(G, pos, node_size=100)
+            nx.draw_networkx_labels(G, pos, font_size=10, font_family='sans-serif')
+            edges = G.edges()
+            weights = [G[u][v]['weight'] for u, v in edges]
+            nx.draw_networkx_edges(G, pos, edgelist=edges, width=weights)
+            plt.axis('off')
+            plt.show(block=False)
+            plt.pause(10)
+            plt.close('all')
    
     
-    # then, test every pair of variables for a causal relationship using delay_io_train. record the r2 score achieved with a siso model
-    delayed_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
-    # this is read the same way as immediate_impact_strength
+        # then, test every pair of variables for a causal relationship using delay_io_train. record the r2 score achieved with a siso model
+        delayed_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
+        # this is read the same way as immediate_impact_strength
     
-    for dep_col in dependent_columns: # for each column which is not forcing
+        for dep_col in dependent_columns: # for each column which is not forcing
 
-        for other_col in system_data.columns: # for every other variable (including forcing)
-            if other_col == dep_col:
-                continue # we're already accounting for autocorrelatoin in every fit
+            for other_col in system_data.columns: # for every other variable (including forcing)
+                if other_col == dep_col:
+                    continue # we're already accounting for autocorrelatoin in every fit
             
-            print("fitting ", dep_col, " to ", other_col)
+                if verbose:
+                    print("fitting ", dep_col, " to ", other_col)
 
-            subset = system_data[[dep_col,other_col]]
-            # max iterations is very low here because we're not trying to create an accurate model, just trying to see what affects what
-            # creating the accurate model is a later task for a different function
-            # it would be wasteful to spend 100 iterations on each pair of variables
-            # up the iterations to 10 or so for production. 1 is jsut for development
-            results = delay_io_train(subset, [dep_col], [other_col], windup_timesteps=0,init_transforms=1, max_transforms=1, max_iter=max_iter, poly_order=1, 
-                                     transform_dependent=False, verbose=False, extra_verbose=False, 
-                                     include_bias=False, include_interaction=False, bibo_stable = False)
+                subset = system_data[[dep_col,other_col]]
+                # max iterations is very low here because we're not trying to create an accurate model, just trying to see what affects what
+                # creating the accurate model is a later task for a different function
+                # it would be wasteful to spend 100 iterations on each pair of variables
+                # up the iterations to 10 or so for production. 1 is jsut for development
+                results = delay_io_train(subset, [dep_col], [other_col], windup_timesteps=0,init_transforms=1, max_transforms=1, max_iter=max_iter, poly_order=1, 
+                                         transform_dependent=False, verbose=False, extra_verbose=False, 
+                                         include_bias=False, include_interaction=False, bibo_stable = False)
 
-            delayed_impact_strength.loc[dep_col,other_col] = results[1]['final_model']['error_metrics']['r2']
-            if verbose:
-                print(delayed_impact_strength)
+                delayed_impact_strength.loc[dep_col,other_col] = results[1]['final_model']['error_metrics']['r2']
+            
+                if verbose:
+                    print("R2 score:",  results[1]['final_model']['error_metrics']['r2'])
     
-    # iteratively add edges from delayed_impact_strength until the total graph is weakly connected
-    causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-    # wherever there is a nonzero entry in immediate_impact_strength, put an "i" in causative_topo
-    causative_topo[immediate_impact_strength > 0] = "i"
+        # iteratively add edges from delayed_impact_strength until the total graph is weakly connected
+        causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
+        # wherever there is a nonzero entry in immediate_impact_strength, put an "i" in causative_topo
+        causative_topo[immediate_impact_strength > 0] = "i"
 
-    total_graph = immediate_impact_strength.copy(deep=True)
-    weakest_row = 0
+        total_graph = immediate_impact_strength.copy(deep=True)
+        weakest_row = 0
     
-    while not nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph)) and weakest_row < 0.5:
-        # find the edge with the highest r2 score
-        max_r2 = delayed_impact_strength.max().max()
-        max_r2_row = delayed_impact_strength.max(axis='columns').idxmax()
-        max_r2_col = delayed_impact_strength.max(axis='index').idxmax()
-        print("\n")
-        print("max_r2_row", max_r2_row)
-        print("max_r2_col", max_r2_col)
-        print("max_r2", max_r2)
-        print("already exists path from row to col?")
-        print(nx.has_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
-        if nx.has_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col):
-            print("shortest path from row to col")
-            print(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
-            print("shortest path length from row to col")
-            print(len(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col)))
-            shortest_path = len(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
-        else:
-            shortest_path = 0 # no path exists, so the shortest path is 0
+        while not nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph)) and weakest_row < 0.5:
+            # find the edge with the highest r2 score
+            max_r2 = delayed_impact_strength.max().max()
+            max_r2_row = delayed_impact_strength.max(axis='columns').idxmax()
+            max_r2_col = delayed_impact_strength.max(axis='index').idxmax()
+            print("\n")
+            print("max_r2_row", max_r2_row)
+            print("max_r2_col", max_r2_col)
+            print("max_r2", max_r2)
+            print("already exists path from row to col?")
+            print(nx.has_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
+            if nx.has_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col):
+                print("shortest path from row to col")
+                print(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
+                print("shortest path length from row to col")
+                print(len(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col)))
+                shortest_path = len(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
+            else:
+                shortest_path = 0 # no path exists, so the shortest path is 0
 
-        # add that edge to the total graph if it's r2 score is more than twice the corresponding entry in immediate_impact_strength
-        # and there is not already a path from the row to the column in the total graph
-        # constraint 1 is to not include representation of delay when it's not necessary, because it's expensive
-        # constarint 2 is to not "leapfrog" intervening states when there is some chain of instantaneously related states that allow that causality to flow 
-        if (max_r2 > 2*immediate_impact_strength.loc[max_r2_row,max_r2_col] 
-        and (shortest_path < 3 ) ):
-            total_graph.loc[max_r2_row,max_r2_col] = max_r2
-            causative_topo.loc[max_r2_row,max_r2_col] = "d"
-        # remove that edge from delayed_impact_strength
-        delayed_impact_strength.loc[max_r2_row,max_r2_col] = 0.0
+            # add that edge to the total graph if it's r2 score is more than twice the corresponding entry in immediate_impact_strength
+            # and there is not already a path from the row to the column in the total graph
+            # constraint 1 is to not include representation of delay when it's not necessary, because it's expensive
+            # constarint 2 is to not "leapfrog" intervening states when there is some chain of instantaneously related states that allow that causality to flow 
+            if (max_r2 > 2*immediate_impact_strength.loc[max_r2_row,max_r2_col] 
+            and (shortest_path < 3 ) ):
+                total_graph.loc[max_r2_row,max_r2_col] = max_r2
+                causative_topo.loc[max_r2_row,max_r2_col] = "d"
+            # remove that edge from delayed_impact_strength
+            delayed_impact_strength.loc[max_r2_row,max_r2_col] = 0.0
 
-        # make weakest_row the sum of the row of total_graph with the lowest sum
-        weakest_row = total_graph.loc[dependent_columns,:].sum(axis='columns').min()
+            # make weakest_row the sum of the row of total_graph with the lowest sum
+            weakest_row = total_graph.loc[dependent_columns,:].sum(axis='columns').min()
         
-        print("total graph")
-        print(total_graph)
-        print("delayed impact strength")
-        print(delayed_impact_strength)
-        print("\n")
-    print("total graph is now weakly connected")
-    print(total_graph)
-    print("causative topo")
-    print(causative_topo)
+            print("total graph")
+            print(total_graph)
+            print("delayed impact strength")
+            print(delayed_impact_strength)
+            print("\n")
+    
+        print("total graph is now weakly connected")
+        if verbose:
+            print(total_graph)
+            print("causative topo")
+            print(causative_topo)
+            edges = total_graph.stack().rename_axis(['source', 'target']).rename('weight').reset_index().query('(source != target) & (weight > 0.0)')
+
+            G = nx.from_pandas_edgelist(edges, source='source', target='target', edge_attr='weight', create_using=nx.DiGraph)
+            try:
+                pos = nx.planr_layout(G)
+            except:
+                pos = nx.kamada_kawai_layout(G)
+            
+            nx.draw_networkx_nodes(G, pos, node_size=100)
+            nx.draw_networkx_labels(G, pos, font_size=10, font_family='sans-serif')
+            edges = G.edges()
+            weights = [G[u][v]['weight'] for u, v in edges]
+            nx.draw_networkx_edges(G, pos, edgelist=edges, width=weights)
+            plt.axis('off')
+            plt.show(block=False)
+            plt.pause(10)
+            plt.close('all')
+    
     # return an adjacency matrix with "i" for immediate, "d" for delayed, and "n" for no causal relationship
     # use "d" if there is strong immediate and delayed causation. immediate causation is always cheap to include, so it'll be in any delayed causation model
 

@@ -103,17 +103,18 @@ system_data['x9'] = response.states[9][:]
 
 plot = False
 
+system_data.plot(figsize=(10,5), subplots=True,legend=True)
+plt.savefig('test_topo_inference.png')
 if plot:
-    system_data.plot(figsize=(10,5), subplots=True,legend=True)
     plt.show()
-
+plt.close('all')
 
 # now try to infer the topology
 # assume i know this is data from a drainage system and so I assume it's a directed acyclic graph
 causative_topo = modpods.infer_causative_topology(system_data,dependent_columns=['x2','x8','x9'], 
-independent_columns=['u1','u2'], verbose=True, max_iter=0)
+    independent_columns=['u1','u2'], verbose=True, max_iter=0, method='granger')
 # the correct answer here is that there is immediate causation flowing from u2 to x8 to x9
-# and there is delayed causation flowing from u1 to x5 to x9
+# and there is delayed causation flowing from u1 to x2 to x9
 
 #modpods.delay_io_train(system_data, dependent_columns=['x5','x8','x9'], independent_columns=['u1','u2'], 
 #    max_transforms=1,max_iter=250,poly_order=1,transform_dependent=True,bibo_stable=True,verbose=True)
