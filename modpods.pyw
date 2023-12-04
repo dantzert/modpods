@@ -1283,7 +1283,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
     if method == 'granger': # granger causality
         from statsmodels.tsa.stattools import grangercausalitytests
         causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-
+        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
         # first add instantaneous causation (max lag of 1)
         for dep_col in dependent_columns: # for each column which is out
             response = np.array(system_data[dep_col].values)
@@ -1298,15 +1298,17 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                 f_test_p_value = gc_res[1][0]['ssr_ftest'][1] # should only be one result
                 if f_test_p_value < 0.05:
                     causative_topo.loc[dep_col,other_col] = "i"
+                    total_graph.loc[dep_col,other_col] = f_test_p_value
+                    
         print(causative_topo)
 
-        max_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(-1.0)        
-        min_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(2.0)
-        median_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(2.0)
-        three_quarters_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(2.0)
-        one_quarter_p = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(2.0)
-        min_p_lag = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(-1)
-        max_p_lag = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(-1)
+        max_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)        
+        min_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
+        median_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
+        three_quarters_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
+        one_quarter_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
+        min_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
+        max_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
         
         derivative = False
         # first column in df is the output (granger caused by other)
@@ -1335,7 +1337,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     if f_test_p_value < min_p.loc[dep_col,other_col]:
                         min_p.loc[dep_col,other_col] = f_test_p_value
                         min_p_lag.loc[dep_col,other_col] = key
-                    
+                
                 median_p.loc[dep_col,other_col] = np.median(p_values)
                 three_quarters_p.loc[dep_col,other_col] = np.quantile(p_values,0.75)
                 one_quarter_p.loc[dep_col,other_col] = np.quantile(p_values,0.25)
@@ -1357,8 +1359,65 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         # if the graph is not connected, we'll move down to the next quantile
         # keep going until you satisfy the connectivity criteria
         if graph_type == 'Weak-Conn':
-            # should I just build delay models for all of them?
-            print("uhhhh")
+            # locate the smallest value of p in max_p which corresponds to an "n" in causative topo
+            # this will be the first link we add
+            i = 0
+            while(i < 10e3):
+                i += 1
+                min_p_value = 2.0
+                min_p_row = None
+                min_p_col = None
+                for row in causative_topo.index:
+                    for col in causative_topo.columns:
+                        if max_p.loc[row,col] < 0: 
+                            continue # not valid
+                        if max_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
+                            min_p_value = max_p.loc[row,col]
+                            min_p_row = row
+                            min_p_col = col
+                if min_p_value < 0.05:
+                    causative_topo.loc[min_p_row,min_p_col] = 'd'
+                    total_graph.loc[min_p_row,min_p_col] = min_p_value
+                    print("added link from ", min_p_col, " to ", min_p_row, " with p = ", min_p_value)
+                    print(causative_topo)
+                    print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
+                    if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
+                        print("graph is connected")
+                        break
+                else:
+                    print("no significant links found")
+                    break
+            print("done adding from max_p, now adding from 3/4 quantile p")
+            # move to the 3/4 quantile
+            i = 0
+            while(i < 10e3):
+                i += 1
+                min_p_value = 2.0
+                min_p_row = None
+                min_p_col = None
+                for row in causative_topo.index:
+                    for col in causative_topo.columns:
+                        if three_quarters_p.loc[row,col] < 0: 
+                            continue
+                        if three_quarters_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
+                            min_p_value = three_quarters_p.loc[row,col]
+                            min_p_row = row
+                            min_p_col = col
+                if min_p_value < 0.05:
+                    causative_topo.loc[min_p_row,min_p_col] = 'd'
+                    total_graph.loc[min_p_row,min_p_col] = min_p_value
+                    print("added link from ", min_p_col, " to ", min_p_row, " with p = ", min_p_value)
+                    print(causative_topo)
+                    print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
+                    if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
+                        print("graph is connected")
+                        break
+                else:
+                    print("no significant links found")
+                    break
+                print("done adding from 3/4 quantile p, now adding from median p")
+                # move to the median quantile
+
     
         
                 
