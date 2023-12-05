@@ -1305,7 +1305,11 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     continue # we're already accounting for autocorrelatoin in every fit
                 print("check if ", other_col, " granger causes ", dep_col)
                 #print(system_data[[dep_col,other_col]])
-                gc_res = grangercausalitytests(system_data[[dep_col,other_col]],maxlag=25,verbose=False)
+                try:
+                    gc_res = grangercausalitytests(system_data[[dep_col,other_col]],maxlag=25,verbose=False)
+                except Exception as e:
+                    print(e)    
+                    continue
                 # iterate through the dictionary and compute the maximum and minimum p values for the F test
                 p_values = []
                 for key in gc_res.keys():
@@ -1938,7 +1942,7 @@ def topo_from_pystorms(pystorms_scenario):
                         if step[0] == state[0]:
                             step_is_state = True
                     for control_input in pystorms_scenario.config['action_space']:
-                        if step[0] == control_input[0]:
+                        if step[0] == control_input[0] or step[0] == control_input:
                             step_is_control_input = True
                     if not step_is_state and not step_is_control_input:
                         path_of_travel.remove(step) # this will change the index, hence the "while"
