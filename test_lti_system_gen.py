@@ -7,7 +7,7 @@ import modpods
 import control as ct
 
 cartoon=False
-plot = False
+plot = True
 
 # define an LTI matrix where I know what the causative topology (connections) should look like
 # this is an easy test case. one input affects two states, which then affect the output. so only four connections total
@@ -40,8 +40,11 @@ parallel_reservoirs = ct.ss(A,B,C,0,inputs=['u1','u2'],outputs=['x2','x8','x9'])
 time_base = 150
 # dt = .1
 # dt = 0.5
-dt = 1 
+# dt = 1 
 # dt = 2
+
+dt = .05
+
 if cartoon:
     dt = 0.05
 u = np.zeros((int(time_base / dt),2))
@@ -79,34 +82,44 @@ system_data['x9'] = response.states[9][:]
 if plot:
     system_data.plot(figsize=(10,5), subplots=True,legend=True)
     plt.show()
-    # also make a more cartoony version
-    cartoon_plot_data = system_data.copy()
-    # normalize all the magnitudes in cartoon_plot_data such as that all columns have maximum of 1
-    for col in cartoon_plot_data.columns:
-        cartoon_plot_data[col] = cartoon_plot_data[col]/np.max(np.abs(cartoon_plot_data[col]))
+    if cartoon:
+        # also make a more cartoony version
+        cartoon_plot_data = system_data.copy()
+        # normalize all the magnitudes in cartoon_plot_data such as that all columns have maximum of 1
+        for col in cartoon_plot_data.columns:
+            cartoon_plot_data[col] = cartoon_plot_data[col]/np.max(np.abs(cartoon_plot_data[col]))
 
-    cartoon_plot_data.iloc[:int(len(cartoon_plot_data)/10)].plot(figsize=(5,5), subplots=False,legend=True,fontsize='xx-large',style=['r','b','g','m','k'],xticks=[],yticks=[],linewidth=5)
-    plt.gca().axis('off') # get rid of bounding box
-    plt.savefig("G:/My Drive/modpods/test_lti_system_gen_cartoon.svg")
-    plt.show()
+        cartoon_plot_data.iloc[:int(len(cartoon_plot_data)/10)].plot(figsize=(5,5), subplots=False,legend=True,fontsize='xx-large',style=['r','b','g','m','k'],xticks=[],yticks=[],linewidth=5)
+        plt.gca().axis('off') # get rid of bounding box
+        plt.savefig("C:/modpods/test_lti_system_gen_cartoon.svg")
+        plt.show()
     
 
+blind = True
+if blind:
+    # define the causative topology from the response data
+    causative_topology, total_graph = modpods.infer_causative_topology(system_data,dependent_columns=['x2','x8','x9'], 
+        independent_columns=['u1','u2'], verbose=True, max_iter=0, method='ccm')
+else: # assume we know the topology
+    # define the causative topology
+    # if this wasn't known a priori, we could use the modpods.infer_causative_topology function to find it
+    # but that function is expensive so I excluded it from this testing script
+    causative_topology = pd.DataFrame(index=['u1','u2','x2','x8','x9'], columns=['u1','u2','x2','x8','x9']).fillna('n')
+    causative_topology.loc['x2','u1'] = 'd'
+    causative_topology.loc['x8','u2'] = 'i'
+    causative_topology.loc['x9','x8'] = 'i'
+    causative_topology.loc['x9','x2'] = 'd'
 
-
-# define the causative topology
-# if this wasn't known a priori, we could use the modpods.infer_causative_topology function to find it
-# but that function is expensive so I excluded it from this testing script
-causative_topology = pd.DataFrame(index=['u1','u2','x2','x8','x9'], columns=['u1','u2','x2','x8','x9']).fillna('n')
-causative_topology.loc['x2','u1'] = 'd'
-causative_topology.loc['x8','u2'] = 'i'
-causative_topology.loc['x9','x8'] = 'i'
-causative_topology.loc['x9','x2'] = 'd'
 print(causative_topology)
+
+
 # max iterations is for learning the delay model. increase it for better accuracy
-#lti_sys_from_data = modpods.lti_system_gen(causative_topology,system_data,['u1','u2'],['x2','x8','x9'],max_iter=100,bibo_stable=True)
-lti_sys_from_data = modpods.lti_system_gen(causative_topology,system_data,['u1','u2'],['x2','x8','x9'],max_iter=0,bibo_stable=False)
+lti_sys_from_data = modpods.lti_system_gen(causative_topology,system_data,['u1','u2'],['x2','x8','x9'],max_iter=100,bibo_stable=True)
+#lti_sys_from_data = modpods.lti_system_gen(causative_topology,system_data,['u1','u2'],['x2','x8','x9'],max_iter=25,bibo_stable=False)
 # print all columns of the pandas dataframe
 pd.set_option('display.max_columns', None)
+
+'''
 print("final lti system")
 print("A")
 print(lti_sys_from_data['A'])
@@ -114,7 +127,7 @@ print("B")
 print(lti_sys_from_data['B'])
 print("C")
 print(lti_sys_from_data['C'])
-
+'''
 # how good is the system response aproximation for the training forcing?
 approx_response = ct.forced_response(lti_sys_from_data['system'],T,np.transpose(u))
 approx_data = pd.DataFrame(index=T)
@@ -175,8 +188,8 @@ for idx in range(len(output_columns)):
     
 axes[0,1].set_title("testing",fontsize='xx-large')
 plt.tight_layout()
-plt.savefig("G:/My Drive/modpods/test_lti_system_gen.png")
-plt.savefig("G:/My Drive/modpods/test_lti_system_gen.svg")
+plt.savefig("C:/modpods/test_lti_system_gen.png")
+plt.savefig("C:/modpods/test_lti_system_gen.svg")
 plt.show()
 #plt.close()
 
@@ -256,8 +269,8 @@ for noise_level_idx in range(2):
             axes[idx,noise_level_idx].set_ylabel(graph_labels[idx],fontsize='xx-large',rotation='horizontal')
     
 plt.tight_layout()
-plt.savefig("G:/My Drive/modpods/test_lti_system_gen_obc.png")
-plt.savefig("G:/My Drive/modpods/test_lti_system_gen_obc.svg")
+plt.savefig("C:/modpods/test_lti_system_gen_obc.png")
+plt.savefig("C:/modpods/test_lti_system_gen_obc.svg")
 plt.show()
 
 print("done")

@@ -6,6 +6,7 @@ from scipy import signal
 import matplotlib.pyplot as plt
 import control as control
 import networkx as nx
+import sys
 
 # delay model builds differential equations relating the dependent variables to transformations of all the variables
 # if there are no independent variables, then dependent_columns should be a list of all the columns in the dataframe
@@ -1266,7 +1267,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
 # this doesn't go all the way to turning the data into an LTI system. that will be another function that uses this one
 def infer_causative_topology(system_data, dependent_columns, independent_columns, 
                              graph_type='Weak-Conn',verbose=False,max_iter = 250,swmm=False,
-                             method='ccm'):
+                             method='granger'):
 
     if swmm:
         # do the same for dependent_columns and independent_columns
@@ -1284,22 +1285,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         from statsmodels.tsa.stattools import grangercausalitytests
         causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
         total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
-        # first add instantaneous causation (max lag of 1)
-        for dep_col in dependent_columns: # for each column which is out
-            response = np.array(system_data[dep_col].values)
-            
-            for other_col in system_data.columns: # for every other variable (input)
-                if other_col == dep_col:
-                    continue # we're already accounting for autocorrelatoin in every fit
-                print("check if ", other_col, " granger causes ", dep_col)
-                #print(system_data[[dep_col,other_col]])
-                gc_res = grangercausalitytests(system_data[[dep_col,other_col]],maxlag=[1],verbose=True)
-                
-                f_test_p_value = gc_res[1][0]['ssr_ftest'][1] # should only be one result
-                if f_test_p_value < 0.05:
-                    causative_topo.loc[dep_col,other_col] = "i"
-                    total_graph.loc[dep_col,other_col] = f_test_p_value
-                    
+
         print(causative_topo)
 
         max_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)        
@@ -1314,17 +1300,12 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         # first column in df is the output (granger caused by other)
         # second column is the proposed forcer
         for dep_col in dependent_columns: # for each column which is out
-            if derivative:
-                response = np.array(system_data[dep_col].diff().values[1:])
-            else:
-                response = np.array(system_data[dep_col].values)
-            
             for other_col in system_data.columns: # for every other variable (input)
                 if other_col == dep_col:
                     continue # we're already accounting for autocorrelatoin in every fit
                 print("check if ", other_col, " granger causes ", dep_col)
                 #print(system_data[[dep_col,other_col]])
-                gc_res = grangercausalitytests(system_data[[dep_col,other_col]],maxlag=10,verbose=True)
+                gc_res = grangercausalitytests(system_data[[dep_col,other_col]],maxlag=25,verbose=False)
                 # iterate through the dictionary and compute the maximum and minimum p values for the F test
                 p_values = []
                 for key in gc_res.keys():
@@ -1352,7 +1333,6 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         print(min_p_lag)
         print("median p values")
         print(median_p)
-        
         
         print("now determine causative topology based on connectivity constraint")
         # start with the maximum p values, taking the significant links, then move down through the quantiles
@@ -1383,12 +1363,13 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
                     if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
                         print("graph is connected")
-                        break
+                        print(causative_topo)
+                        print(total_graph)
+                        return causative_topo, total_graph
                 else:
                     print("no significant links found")
                     break
-            print("done adding from max_p, now adding from 3/4 quantile p")
-            # move to the 3/4 quantile
+            print("done adding from max_p, now adding from 3/4 p")
             i = 0
             while(i < 10e3):
                 i += 1
@@ -1398,7 +1379,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                 for row in causative_topo.index:
                     for col in causative_topo.columns:
                         if three_quarters_p.loc[row,col] < 0: 
-                            continue
+                            continue # not valid
                         if three_quarters_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
                             min_p_value = three_quarters_p.loc[row,col]
                             min_p_row = row
@@ -1411,24 +1392,114 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
                     if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
                         print("graph is connected")
-                        break
+                        print(causative_topo)
+                        print(total_graph)
+                        return causative_topo, total_graph
                 else:
                     print("no significant links found")
                     break
-                print("done adding from 3/4 quantile p, now adding from median p")
-                # move to the median quantile
+            print("done adding from three_quarters_p, now adding from median p")
+            # move to the median
+            i = 0
+            while(i < 10e3):
+                i += 1
+                min_p_value = 2.0
+                min_p_row = None
+                min_p_col = None
+                for row in causative_topo.index:
+                    for col in causative_topo.columns:
+                        if median_p.loc[row,col] < 0: 
+                            continue
+                        if median_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
+                            min_p_value = median_p.loc[row,col]
+                            min_p_row = row
+                            min_p_col = col
+                if min_p_value < 0.05:
+                    causative_topo.loc[min_p_row,min_p_col] = 'd'
+                    total_graph.loc[min_p_row,min_p_col] = min_p_value
+                    print("added link from ", min_p_col, " to ", min_p_row, " with p = ", min_p_value)
+                    print(causative_topo)
+                    print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
+                    if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
+                        print("graph is connected")
+                        print(causative_topo)
+                        print(total_graph)
+                        return causative_topo, total_graph
+                else:
+                    print("no significant links found")
+                    break
+            print("done adding from median p, now adding from min p")
+            i = 0
+            while(i < 10e3):
+                i += 1
+                min_p_value = 2.0
+                min_p_row = None
+                min_p_col = None
+                for row in causative_topo.index:
+                    for col in causative_topo.columns:
+                        if one_quarter_p.loc[row,col] < 0: 
+                            continue
+                        if one_quarter_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
+                            min_p_value = one_quarter_p.loc[row,col]
+                            min_p_row = row
+                            min_p_col = col
+                if min_p_value < 0.05:
+                    causative_topo.loc[min_p_row,min_p_col] = 'd'
+                    total_graph.loc[min_p_row,min_p_col] = min_p_value
+                    print("added link from ", min_p_col, " to ", min_p_row, " with p = ", min_p_value)
+                    print(causative_topo)
+                    print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
+                    if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
+                        print("graph is connected")
+                        print(causative_topo)
+                        print(total_graph)
+                        return causative_topo, total_graph
+                else:
+                    print("no significant links found")
+                    break
+            print("done adding from median p, now adding from min p")
+            # move to the min
+            i = 0
+            while(i < 10e3):
+                i += 1
+                min_p_value = 2.0
+                min_p_row = None
+                min_p_col = None
+                for row in causative_topo.index:
+                    for col in causative_topo.columns:
+                        if min_p.loc[row,col] < 0: 
+                            continue
+                        if min_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
+                            min_p_value = min_p.loc[row,col]
+                            min_p_row = row
+                            min_p_col = col
+                if min_p_value < 0.05:
+                    causative_topo.loc[min_p_row,min_p_col] = 'd'
+                    total_graph.loc[min_p_row,min_p_col] = min_p_value
+                    print("added link from ", min_p_col, " to ", min_p_row, " with p = ", min_p_value)
+                    print(causative_topo)
+                    print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
+                    if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
+                        print("graph is connected")
+                        print(causative_topo)
+                        print(total_graph)
+                        return causative_topo, total_graph
+                else:
+                    print("no significant links found")
+                    break
+            print("done adding from min p. if graph not connected now, it won't be")
+            print(causative_topo)
+            print(total_graph)
+            return causative_topo, total_graph
 
     
-        
-                
-
     elif method == 'ccm': # convergent cross mapping per sugihara 2012
-        derivative = True
-        correlations = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)        
-        p_values = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(1.0)
-        best_taus = pd.DataFrame(index=system_data.columns,columns=system_data.columns)
-        best_Es = pd.DataFrame(index=system_data.columns,columns=system_data.columns)
-        # the hope is that this will be significantly faster than actually building models between all variables
+        derivative = False
+        correlations = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)        
+        p_values = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+        best_taus = pd.DataFrame(index=dependent_columns,columns=system_data.columns)
+        best_Es = pd.DataFrame(index=dependent_columns,columns=system_data.columns)
+
         from causal_ccm.causal_ccm import ccm # move to initial imports if this ends up working
         
         for dep_col in dependent_columns: # for each column which is out
@@ -1448,8 +1519,8 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     forcing = np.array(system_data[other_col].values)
                 
                 # start with tau_options to be between 1 and 25 timesteps
-                tau_options = np.arange(1,21)
-                E_options = np.arange(1,6) # number of embedding dimensions
+                tau_options = np.arange(1,2)#1)
+                E_options = np.arange(1,3) # number of embedding dimensions
                 best_p_value = 1.0 # null hypothesis is that there is no causality
                 best_tau = -1 # then we'll know if no lags had good results
                 for tau in tau_options:
@@ -1464,41 +1535,148 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                             print("tau = ", tau, "E = ",E," | p = ", p_value, " | corr = ", correlation)
                             #cross_map.visualize_cross_mapping()
                             #cross_map.plot_ccm_correls()
-                
-                cross_map = ccm(forcing,response,best_tau,best_E)
-                '''
-                if best_tau > 0:
-                    cross_map.visualize_cross_mapping()
-                cross_map.plot_ccm_correls()
-                '''
-                correlation, p_value = cross_map.causality()
-                correlations.loc[dep_col,other_col] = correlation
-                p_values.loc[dep_col,other_col] = p_value
-                best_taus.loc[dep_col,other_col] = best_tau
-                best_Es.loc[dep_col,other_col] = best_E
-                
-                lengths = np.linspace(250, len(response), 100,dtype='int')
-                corr_L = lengths*0.0
-                for length_idx in range(len(lengths)):
-                    trunc_forcing = forcing[:lengths[length_idx]]
-                    trunc_response = response[:lengths[length_idx]]
-                    cross_map = ccm(trunc_forcing,trunc_response,tau=best_tau,E=best_E)
+                if best_tau > -1:
+                    cross_map = ccm(forcing,response,best_tau,best_E)
+                    '''
+                    if best_tau > 0:
+                        cross_map.visualize_cross_mapping()
+                    cross_map.plot_ccm_correls()
+                    '''
                     correlation, p_value = cross_map.causality()
-                    corr_L[length_idx] = correlation
+                    correlations.loc[dep_col,other_col] = correlation
+                    p_values.loc[dep_col,other_col] = p_value
+                    if p_value == 0: # if the p value is exactly zero, make it the minimum float value
+                        p_values.loc[dep_col,other_col] = sys.float_info.min
+                    best_taus.loc[dep_col,other_col] = best_tau
+                    best_Es.loc[dep_col,other_col] = best_E
+                    '''
+                    lengths = np.linspace(250, len(response), 100,dtype='int')
+                    corr_L = lengths*0.0
+                    for length_idx in range(len(lengths)):
+                        trunc_forcing = forcing[:lengths[length_idx]]
+                        trunc_response = response[:lengths[length_idx]]
+                        cross_map = ccm(trunc_forcing,trunc_response,tau=best_tau,E=best_E)
+                        correlation, p_value = cross_map.causality()
+                        corr_L[length_idx] = correlation
                    
                 
-                plt.plot(corr_L)
-                plt.ylabel("correlation")
-                plt.show(block=True)
+                    plt.plot(corr_L)
+                    plt.ylabel("correlation")
+                    plt.show(block=True)
+                    '''
+                elif best_tau == -1:
+                    print("no good lags found for ", dep_col, " and ", other_col)
+                    correlations.loc[dep_col,other_col] = 0.0
+                    p_values.loc[dep_col,other_col] = 1.0
+                    best_taus.loc[dep_col,other_col] = -1
+                    best_Es.loc[dep_col,other_col] = -1    
                 
         print(correlations)
         print(p_values)
         print(best_taus)
         print(best_Es)
         print("done")
-
+        causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
+        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+        i = 0
+        while(i < 10e3):
+            i += 1
+            min_p_value = 2.0
+            min_p_row = None
+            min_p_col = None
+            for row in causative_topo.index:
+                for col in causative_topo.columns:
+                    if p_values.loc[row,col] < 0: 
+                        continue
+                    if p_values.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
+                        min_p_value = p_values.loc[row,col]
+                        min_p_row = row
+                        min_p_col = col
+            if min_p_value < 0.05:
+                causative_topo.loc[min_p_row,min_p_col] = 'd'
+                total_graph.loc[min_p_row,min_p_col] = min_p_value
+                print("added link from ", min_p_col, " to ", min_p_row, " with p = ", min_p_value)
+                print(causative_topo)
+                print(total_graph.replace(1.0,0))
+                print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
+                if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
+                    print("graph is connected")
+                    break
+            else:
+                print("no significant links found")
+                break
+        
+        print(causative_topo)
+        print(total_graph)
+        return causative_topo, total_graph
                     
+    elif method == 'transfer-entropy':
+        derivative = True
+        transfer_entropies = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)        
+        
+        from PyIF import te_compute as te
+        
+        for dep_col in dependent_columns: # for each column which is out
+            if derivative:
+                response = np.array(system_data[dep_col].diff().values[1:])
+            else:
+                response = np.array(system_data[dep_col].values)
+            
+            for other_col in system_data.columns: # for every other variable (input)
+                plt.close('all')
+                if other_col == dep_col:
+                    continue # we're already accounting for autocorrelatoin in every fit
+                print("check if ", other_col, " drives ", dep_col)
+                if derivative:
+                    forcing = np.array(system_data[other_col].values[:-1])
+                else:
+                    forcing = np.array(system_data[other_col].values)
+                
+               
+                k_options = np.arange(1,11) # number of neighbors used in KD-tree queries
+                E_options = np.arange(1,11) # number of embedding dimensions (delay)
+                best_TE = -1.0 # best transfer entropy so far
+                for k in k_options:
+                    for E in E_options:
+                        TE = te.te_compute(forcing,response,k,E) # "information transfer from X to Y"
+                        if TE > best_TE:
+                            best_TE = TE
+                            best_k = k
+                            best_E = E
+                            print("k (# neighbors) = ", k, "E (embedding dim) = ",E, " | Transfer Entropy = ", TE)
+                transfer_entropies.loc[dep_col,other_col] = best_TE
+                  
+        print("transfer entropies")
+        print(transfer_entropies)
+        
+        causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
+        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)
+        i = 0
+        while(i < 10e3):
+            i += 1
+            max_te = 0.0
+            max_te_row = None
+            max_te_col = None
+            for row in causative_topo.index:
+                for col in causative_topo.columns:
+                    if transfer_entropies.loc[row,col] > max_te and causative_topo.loc[row,col] == 'n':
+                        max_te = transfer_entropies.loc[row,col]
+                        max_te_row = row
+                        max_te_col = col
+            
+            causative_topo.loc[max_te_row,max_te_col] = 'd'
+            total_graph.loc[max_te_row,max_te_col] = max_te
+            print("added link from ", max_te_col, " to ", max_te_row, " with p = ", max_te)
+            print(causative_topo)
 
+            print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph)))
+            if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph)):
+                print("graph is connected")
+                break
+
+        print(causative_topo)
+        print(total_graph)
+        return causative_topo, total_graph
 
     elif method == 'modpods':
         # first, identify any immediate causal relationships (no delay)
