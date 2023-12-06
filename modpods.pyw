@@ -1931,31 +1931,91 @@ def topo_from_pystorms(pystorms_scenario):
 
             #print("path of travel")
             #print(path_of_travel)
-            # cut all the entries in path_of_travel that are not observable states
-            removed_a_step = True
-            while(removed_a_step):
-                for step in path_of_travel:
-                    removed_a_step=False
-                    step_is_state = False
-                    step_is_control_input = False
-                    for state in pystorms_scenario.config['states']:
-                        if step[0] == state[0]:
-                            step_is_state = True
-                    for control_input in pystorms_scenario.config['action_space']:
-                        if step[0] == control_input[0] or step[0] == control_input:
-                            step_is_control_input = True
-                    if not step_is_state and not step_is_control_input:
-                        path_of_travel.remove(step) # this will change the index, hence the "while"
-                        removed_a_step = True
-
-
-            #print("observable path of travel")
-            #print(path_of_travel)
+            # cut all the entries in path_of_travel that are not observable states or actions
+            original_path_of_travel = path_of_travel.copy()
+            
+            for step in original_path_of_travel:
+                step_is_state = False
+                step_is_control_input = False
+                for state in pystorms_scenario.config['states']:
+                    if step[0] == state[0]:
+                        step_is_state = True
+                for control_input in pystorms_scenario.config['action_space']:
+                    if step[0] == control_input:
+                        step_is_control_input = True
+                if not step_is_state and not step_is_control_input:
+                    path_of_travel.remove(step) # this will change the index, hence the "while"
+                    
+            print("full path of travel")
+            print(original_path_of_travel)
+            print("observable path of travel")
+            print(path_of_travel)
+            
+            # iterate through the path of travel and rename the steps to align with the columns and indices of A and B
+            for step in path_of_travel:
+                for state in pystorms_scenario.config['states']:
+                    if step[0] == state[0]:
+                        path_of_travel[path_of_travel.index(step)] = state
+                for control_input in pystorms_scenario.config['action_space']:
+                    if step[0] == control_input:
+                        path_of_travel[path_of_travel.index(step)] =control_input
+                        
+            print("observable path of travel")
+            print(path_of_travel)
 
             # now, use this path of travel to update the A and B matrices
             #print("updating A and B matrices")
+            import re
+            # only use "i" if the entries have the same id. otherwise characterize everything as delayed, "d"
+            # because our path of travel only includes the observable states and the action space, we just need to look immediately up and downstream
+            # only looking upstream would simplify things and be sufficient for many scenarios, but it would miss backwater effects
+            for step in path_of_travel: # all of these are either observable states or actions
+                if path_of_travel.index(step) == 0: # first entry, previous step not meaningful
+                    prev_step = False
+                else:    
+                    prev_step = path_of_travel[path_of_travel.index(step)-1]
+                if path_of_travel.index(step) == len(path_of_travel)-1: # last entry, next step not meaningful)
+                    next_step = False
+                else:
+                    next_step = path_of_travel[path_of_travel.index(step)+1]
 
+                if step in pystorms_scenario.config['action_space']: 
+                    continue # we're not learning models for the control inputs, so skip them
+
+                if prev_step and prev_step in pystorms_scenario.config['states']:
+                    print(re.search(r'\d+', ''.join(prev_step)).group())
+                    print(re.search(r'\d+', ''.join(step)).group())
+                    if re.search(r'\d+', ''.join(prev_step)).group() == re.search(r'\d+', ''.join(step)).group(): # same integer id
+                        A.loc[[step],[prev_step]] = 'i'
+                    else:
+                        A.loc[[step],[prev_step]] = 'd'
+                elif prev_step and prev_step in pystorms_scenario.config['action_space']:
+                    print(re.search(r'\d+', ''.join(prev_step)).group())
+                    print(re.search(r'\d+', ''.join(step)).group())
+                    if re.search(r'\d+', ''.join(prev_step)).group() == re.search(r'\d+', ''.join(step)).group(): # same integer id
+                        B.loc[[step],[prev_step]] = 'i'
+                    else:
+                        B.loc[[step],[prev_step]] = 'd'
+                if next_step and next_step[0] in pystorms_scenario.config['states'] or next_step in pystorms_scenario.config['states']:
+                    print(re.search(r'\d+', ''.join(next_step)).group())
+                    print(re.search(r'\d+', ''.join(step)).group())
+                    if re.search(r'\d+', ''.join(next_step)).group() == re.search(r'\d+', ''.join(step)).group(): 
+                        A.loc[[step],[next_step]] = 'i'
+                    else:
+                        A.loc[[step],[next_step]] = 'd'
+                elif next_step and next_step[0] in pystorms_scenario.config['action_space'] or next_step in pystorms_scenario.config['action_space']:
+                    print(re.search(r'\d+', ''.join(next_step)).group())
+                    print(re.search(r'\d+', ''.join(step)).group())
+                    if re.search(r'\d+', ''.join(next_step)).group() == re.search(r'\d+', ''.join(step)).group():
+                        B.loc[[step],[next_step]] = 'i'
+                    else:
+                        B.loc[[step],[next_step]] = 'd'
             
+                            
+
+
+
+            '''
             for step in path_of_travel:
                 for state in pystorms_scenario.config['states']:
                     last_step = False
@@ -2017,8 +2077,11 @@ def topo_from_pystorms(pystorms_scenario):
                                         B.loc[[state],[control_asset]] = 'd'
                                 if last_step: # just look at the next little bit downstream for backwater effects
                                     break
-                         
-                        
+                for action in pystorms_scenario.config['action_space']:
+                    if step[0] == action[0] or step[0] == action:
+                        print(step)
+                        print(action)
+                   '''     
 
             #print(A)
             #print(B)
