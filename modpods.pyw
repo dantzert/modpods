@@ -1267,7 +1267,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
 # this doesn't go all the way to turning the data into an LTI system. that will be another function that uses this one
 def infer_causative_topology(system_data, dependent_columns, independent_columns, 
                              graph_type='Weak-Conn',verbose=False,max_iter = 250,swmm=False,
-                             method='granger'):
+                             method='granger', derivative=False):
 
     if swmm:
         # do the same for dependent_columns and independent_columns
@@ -1296,7 +1296,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         min_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
         max_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
         
-        derivative = False
+        
         # first column in df is the output (granger caused by other)
         # second column is the proposed forcer
         for dep_col in dependent_columns: # for each column which is out
@@ -1498,7 +1498,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
 
     
     elif method == 'ccm': # convergent cross mapping per sugihara 2012
-        derivative = False
+        
         correlations = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)        
         p_values = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
         best_taus = pd.DataFrame(index=dependent_columns,columns=system_data.columns)
@@ -1615,7 +1615,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         return causative_topo, total_graph
                     
     elif method == 'transfer-entropy':
-        derivative = True
+        
         transfer_entropies = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)        
         
         from PyIF import te_compute as te
@@ -1869,10 +1869,10 @@ def topo_from_pystorms(pystorms_scenario):
     B = pd.DataFrame(index = pystorms_scenario.config['states'],
                      columns = pystorms_scenario.config['action_space'])
 
-    print("A")
-    print(A)
-    print("B")
-    print(B)
+    #print("A")
+    #print(A)
+    #print("B")
+    #print(B)
 
 
     # use pyswmm to iterate through the network
@@ -1945,12 +1945,12 @@ def topo_from_pystorms(pystorms_scenario):
                         step_is_control_input = True
                 if not step_is_state and not step_is_control_input:
                     path_of_travel.remove(step) # this will change the index, hence the "while"
-                    
+            '''        
             print("full path of travel")
             print(original_path_of_travel)
             print("observable path of travel")
             print(path_of_travel)
-            
+            '''
             # iterate through the path of travel and rename the steps to align with the columns and indices of A and B
             for step in path_of_travel:
                 for state in pystorms_scenario.config['states']:
@@ -1960,8 +1960,8 @@ def topo_from_pystorms(pystorms_scenario):
                     if step[0] == control_input:
                         path_of_travel[path_of_travel.index(step)] =control_input
                         
-            print("observable path of travel")
-            print(path_of_travel)
+            #print("observable path of travel")
+            #print(path_of_travel)
 
             # now, use this path of travel to update the A and B matrices
             #print("updating A and B matrices")
@@ -1983,29 +1983,25 @@ def topo_from_pystorms(pystorms_scenario):
                     continue # we're not learning models for the control inputs, so skip them
 
                 if prev_step and prev_step in pystorms_scenario.config['states']:
-                    print(re.search(r'\d+', ''.join(prev_step)).group())
-                    print(re.search(r'\d+', ''.join(step)).group())
+                   
                     if re.search(r'\d+', ''.join(prev_step)).group() == re.search(r'\d+', ''.join(step)).group(): # same integer id
                         A.loc[[step],[prev_step]] = 'i'
                     else:
                         A.loc[[step],[prev_step]] = 'd'
                 elif prev_step and prev_step in pystorms_scenario.config['action_space']:
-                    print(re.search(r'\d+', ''.join(prev_step)).group())
-                    print(re.search(r'\d+', ''.join(step)).group())
+                    
                     if re.search(r'\d+', ''.join(prev_step)).group() == re.search(r'\d+', ''.join(step)).group(): # same integer id
                         B.loc[[step],[prev_step]] = 'i'
                     else:
                         B.loc[[step],[prev_step]] = 'd'
                 if next_step and next_step[0] in pystorms_scenario.config['states'] or next_step in pystorms_scenario.config['states']:
-                    print(re.search(r'\d+', ''.join(next_step)).group())
-                    print(re.search(r'\d+', ''.join(step)).group())
+                    
                     if re.search(r'\d+', ''.join(next_step)).group() == re.search(r'\d+', ''.join(step)).group(): 
                         A.loc[[step],[next_step]] = 'i'
                     else:
                         A.loc[[step],[next_step]] = 'd'
                 elif next_step and next_step[0] in pystorms_scenario.config['action_space'] or next_step in pystorms_scenario.config['action_space']:
-                    print(re.search(r'\d+', ''.join(next_step)).group())
-                    print(re.search(r'\d+', ''.join(step)).group())
+                    
                     if re.search(r'\d+', ''.join(next_step)).group() == re.search(r'\d+', ''.join(step)).group():
                         B.loc[[step],[next_step]] = 'i'
                     else:
@@ -2096,7 +2092,7 @@ def topo_from_pystorms(pystorms_scenario):
     # concatenate the A and B matrices column-wise and return that result
     causative_topology = pd.concat([A,B],axis=1)
 
-    print(causative_topology)
+    #print(causative_topology)
 
     return causative_topology
 
