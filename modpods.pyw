@@ -1030,14 +1030,15 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                     feature_names = feature_names
                     ) 
             if system_data.loc[:,immediate_forcing].empty: # the subsystem is autonomous
-                instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values)
+                instant_fit = model.fit(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1))
                 instant_fit.print(precision=3)
-                print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = system_data.index.values))
+                print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1)))
                 print(instant_fit.coefficients())
             else: # there is some forcing
-                instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing])
+                #instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing]) # sindy can't take datetime indices
+                instant_fit = model.fit(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1) , u = system_data.loc[:,immediate_forcing])
                 instant_fit.print(precision=3)
-                print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing]))
+                print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1), u = system_data.loc[:,immediate_forcing]))
                 print(instant_fit.coefficients())
             for idx in range(len(feature_names)):
                 if feature_names[idx] in A.columns:
@@ -1295,8 +1296,13 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         one_quarter_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
         min_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
         max_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
-        
-        
+        max_p_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
+        min_p_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
+        median_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
+        three_quarters_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
+        one_quarter_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
+
+
         # first column in df is the output (granger caused by other)
         # second column is the proposed forcer
         for dep_col in dependent_columns: # for each column which is out
@@ -1312,31 +1318,44 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     continue
                 # iterate through the dictionary and compute the maximum and minimum p values for the F test
                 p_values = []
+                f_values = []
                 for key in gc_res.keys():
                     f_test_p_value = gc_res[key][0]['ssr_ftest'][1]
                     p_values.append(f_test_p_value)
+                    f_values.append(gc_res[key][0]['ssr_ftest'][0])
                     if f_test_p_value > max_p.loc[dep_col,other_col]:
                         max_p.loc[dep_col,other_col] = f_test_p_value
+                        max_p_f.loc[dep_col,other_col] = gc_res[key][0]['ssr_ftest'][0]
                         max_p_lag.loc[dep_col,other_col] = key
                         
                     if f_test_p_value < min_p.loc[dep_col,other_col]:
                         min_p.loc[dep_col,other_col] = f_test_p_value
+                        min_p_f.loc[dep_col,other_col] = gc_res[key][0]['ssr_ftest'][0]
                         min_p_lag.loc[dep_col,other_col] = key
                 
                 median_p.loc[dep_col,other_col] = np.median(p_values)
+                median_f.loc[dep_col,other_col] = np.median(f_values)
                 three_quarters_p.loc[dep_col,other_col] = np.quantile(p_values,0.75)
+                three_quarters_f.loc[dep_col,other_col] = np.quantile(f_values,0.75)
                 one_quarter_p.loc[dep_col,other_col] = np.quantile(p_values,0.25)
+                one_quarter_f.loc[dep_col,other_col] = np.quantile(f_values,0.25)
         
         print("max p values")  
         print(max_p)
+        print("f values corresponding to max p")
+        print(max_p_f)
         print("max p lag")
         print(max_p_lag)
         print("min p values")
         print(min_p)
+        print("f values corresponding to min p")
+        print(min_p_f)
         print("min p lag")
         print(min_p_lag)
         print("median p values")
         print(median_p)
+        print("median f values")
+        print(median_f)
         
         print("now determine causative topology based on connectivity constraint")
         # start with the maximum p values, taking the significant links, then move down through the quantiles
@@ -1345,6 +1364,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         if graph_type == 'Weak-Conn':
             # locate the smallest value of p in max_p which corresponds to an "n" in causative topo
             # this will be the first link we add
+            '''
             i = 0
             while(i < 10e3):
                 i += 1
@@ -1359,6 +1379,16 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                             min_p_value = max_p.loc[row,col]
                             min_p_row = row
                             min_p_col = col
+                            # if equal
+                        elif max_p.loc[row,col] == min_p_value and causative_topo.loc[row,col] == 'n':
+                            if min_p_value < 0.05:
+                                print("tie in significant p")
+                                # take the one with the higher f value
+                                if max_p_f.loc[row,col] > max_p_f.loc[min_p_row,min_p_col]:
+                                    min_p_value = max_p.loc[row,col]
+                                    min_p_row = row
+                                    min_p_col = col
+    
                 if min_p_value < 0.05:
                     causative_topo.loc[min_p_row,min_p_col] = 'd'
                     total_graph.loc[min_p_row,min_p_col] = min_p_value
@@ -1388,6 +1418,15 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                             min_p_value = three_quarters_p.loc[row,col]
                             min_p_row = row
                             min_p_col = col
+                        elif three_quarters_p.loc[row,col] == min_p_value and causative_topo.loc[row,col] == 'n':
+                            if min_p_value < 0.05:
+                                print("tie in significant p")
+                                # take the one with the higher f value
+                                if three_quarters_f.loc[row,col] > three_quarters_f.loc[min_p_row,min_p_col]:
+                                    min_p_value = three_quarters_p.loc[row,col]
+                                    min_p_row = row
+                                    min_p_col = col
+
                 if min_p_value < 0.05:
                     causative_topo.loc[min_p_row,min_p_col] = 'd'
                     total_graph.loc[min_p_row,min_p_col] = min_p_value
@@ -1418,6 +1457,15 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                             min_p_value = median_p.loc[row,col]
                             min_p_row = row
                             min_p_col = col
+                        elif median_p.loc[row,col] == min_p_value and causative_topo.loc[row,col] == 'n':
+                            if min_p_value < 0.05:
+                                print("tie in significant p")
+                                # take the one with the higher f value
+                                if median_f.loc[row,col] > median_f.loc[min_p_row,min_p_col]:
+                                    min_p_value = median_p.loc[row,col]
+                                    min_p_row = row
+                                    min_p_col = col
+    
                 if min_p_value < 0.05:
                     causative_topo.loc[min_p_row,min_p_col] = 'd'
                     total_graph.loc[min_p_row,min_p_col] = min_p_value
@@ -1447,6 +1495,15 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                             min_p_value = one_quarter_p.loc[row,col]
                             min_p_row = row
                             min_p_col = col
+                        elif one_quarter_p.loc[row,col] == min_p_value and causative_topo.loc[row,col] == 'n':
+                            if min_p_value < 0.05:
+                                print("tie in significant p")
+                                # take the one with the higher f value
+                                if one_quarter_f.loc[row,col] > one_quarter_f.loc[min_p_row,min_p_col]:
+                                    min_p_value = one_quarter_p.loc[row,col]
+                                    min_p_row = row
+                                    min_p_col = col
+    
                 if min_p_value < 0.05:
                     causative_topo.loc[min_p_row,min_p_col] = 'd'
                     total_graph.loc[min_p_row,min_p_col] = min_p_value
@@ -1462,6 +1519,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     print("no significant links found")
                     break
             print("done adding from median p, now adding from min p")
+            '''
             # move to the min
             i = 0
             while(i < 10e3):
@@ -1477,7 +1535,16 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                             min_p_value = min_p.loc[row,col]
                             min_p_row = row
                             min_p_col = col
-                if min_p_value < 0.05:
+                        elif min_p.loc[row,col] == min_p_value and causative_topo.loc[row,col] == 'n':
+                            if min_p_value < 0.05:
+                                print("tie in significant p")
+                                # take the one with the higher f value
+                                if min_p_f.loc[row,col] > min_p_f.loc[min_p_row,min_p_col]:
+                                    min_p_value = min_p.loc[row,col]
+                                    min_p_row = row
+                                    min_p_col = col
+                                            
+                if min_p_value < 0.05 or True:
                     causative_topo.loc[min_p_row,min_p_col] = 'd'
                     total_graph.loc[min_p_row,min_p_col] = min_p_value
                     print("added link from ", min_p_col, " to ", min_p_row, " with p = ", min_p_value)
@@ -1586,6 +1653,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         while(i < 10e3):
             i += 1
             min_p_value = 2.0
+            min_p_corr = 0.0
             min_p_row = None
             min_p_col = None
             for row in causative_topo.index:
@@ -1594,6 +1662,13 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                         continue
                     if p_values.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
                         min_p_value = p_values.loc[row,col]
+                        min_p_corr = correlations.loc[row,col]
+                        min_p_row = row
+                        min_p_col = col
+                    # if two p values are tied, pick the one with the higher correlation
+                    elif p_values.loc[row,col] == min_p_value and causative_topo.loc[row,col] == 'n' and correlations.loc[row,col] > min_p_corr:
+                        min_p_value = p_values.loc[row,col]
+                        min_p_corr = correlations.loc[row,col]
                         min_p_row = row
                         min_p_col = col
             if min_p_value < 0.05:

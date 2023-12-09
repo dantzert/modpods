@@ -9,6 +9,9 @@ import control as ct
 cartoon=False
 plot = True
 
+# set the random seed
+np.random.seed(0)
+
 # define an LTI matrix where I know what the causative topology (connections) should look like
 # this is an easy test case. one input affects two states, which then affect the output. so only four connections total
 A = np.diag(-1*np.ones(10))
@@ -99,7 +102,7 @@ blind = True
 if blind:
     # define the causative topology from the response data
     causative_topology, total_graph = modpods.infer_causative_topology(system_data,dependent_columns=['x2','x8','x9'], 
-        independent_columns=['u1','u2'], verbose=True, max_iter=0, method='ccm')
+        independent_columns=['u1','u2'], verbose=True, max_iter=0, method='granger')
 else: # assume we know the topology
     # define the causative topology
     # if this wasn't known a priori, we could use the modpods.infer_causative_topology function to find it
