@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import control as control
 import networkx as nx
 import sys
+import pyswmm # not a requirement for any other function
+import re
 
 # delay model builds differential equations relating the dependent variables to transformations of all the variables
 # if there are no independent variables, then dependent_columns should be a list of all the columns in the dataframe
@@ -1937,8 +1939,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
 # and the values are lists of the observable quantities at that object
 # each argument can also accept "ALL" as an argument, which will include all objects of that type. the observable quantities must still be specified
 def topo_from_pystorms(pystorms_scenario):
-    import pyswmm # not a requirement for any other function
-
+    
     A = pd.DataFrame(index = pystorms_scenario.config['states'],
                      columns = pystorms_scenario.config['states'])
     B = pd.DataFrame(index = pystorms_scenario.config['states'],
@@ -2040,7 +2041,7 @@ def topo_from_pystorms(pystorms_scenario):
 
             # now, use this path of travel to update the A and B matrices
             #print("updating A and B matrices")
-            import re
+            
             # only use "i" if the entries have the same id. otherwise characterize everything as delayed, "d"
             # because our path of travel only includes the observable states and the action space, we just need to look immediately up and downstream
             # only looking upstream would simplify things and be sufficient for many scenarios, but it would miss backwater effects
@@ -2172,4 +2173,189 @@ def topo_from_pystorms(pystorms_scenario):
     return causative_topology
 
 
+# this is for visuzliation, not building models.
+# to build models, use the function above
+def subway_map_from_pystorms(pystorms_scenario):
+    # remove any duplicates in the state or action space of the config
+    # this is an error within pystorms
+    pystorms_scenario.config['states'] = list(dict.fromkeys(pystorms_scenario.config['states']))
+    pystorms_scenario.config['action_space'] = list(dict.fromkeys(pystorms_scenario.config['action_space']))
 
+    # make the index the concatentation of the states and action space
+    index = list(list(pystorms_scenario.config['states']) + list(pystorms_scenario.config['action_space']))
+   
+
+
+    adjacency = pd.DataFrame(index = index , columns = index ).fillna(0)
+    
+    
+    # use pyswmm to iterate through the network
+    with pyswmm.Simulation(pystorms_scenario.config['swmm_input']) as sim:
+        # start at each subcatchment and iterate down to the outfall
+        # this should work even in the case of multiple outfalls
+        # this should capture all the causation, because ultimately everything is precip driven
+        
+        # so i can view these while debugging
+        Subcatchments = pyswmm.Subcatchments(sim)
+        Nodes = pyswmm.Nodes(sim)
+        Links = pyswmm.Links(sim)
+
+        for subcatch in pyswmm.Subcatchments(sim):
+            #print(adjacency)
+            #print(subcatch.subcatchmentid)
+            # create a string that records the path we travel to get to the outfall
+            path_of_travel = list()
+            # can i grab the rain gage id?
+            path_of_travel.append((subcatch.subcatchmentid,"Subcatchment"))
+            current_id = subcatch.connection # grab the id of the next object downstream
+            
+            
+            try: # if the downstream connection is a subcatchment
+                current = Subcatchments[current_id]
+                current_id = current.subcatchmentid
+                subcatch = Subcatchments[current_id]
+                current_id = subcatch.connection # grab the id of the next object downstream
+                path_of_travel.append((current_id,'Subcatchment'))
+            except Exception as e:
+                #print("downstream connection was not another subcatchment")
+                #print(e)
+                pass
+            
+            # other option is that downstream connection is a node
+            # in which case we'll start iterating down through nodes and links to the outfall
+            current = Nodes[current_id]
+            path_of_travel.append((current_id,'Node'))
+            while not current.is_outfall():
+                #print(path_of_travel)
+                # if the current object is a node, iterate through the links to find the downstream object
+                if current_id in pyswmm.Nodes(sim):
+                    for link in pyswmm.Links(sim):
+                        #print(link.linkid)
+                        if link.inlet_node == current_id:
+                            path_of_travel.append((link.linkid,"Link"))
+                            current_id = link.outlet_node
+                            path_of_travel.append((current_id,"Node"))
+                            break
+                # if the current object is a link, grab the downstream node
+                elif current_id in pyswmm.Links(sim):
+                    path_of_travel.append((link.linkid,"Link"))
+                    current_id = current.outlet_node
+                    path_of_travel.append((current_id,"Node"))
+
+                current = Nodes[current_id]
+
+            #print("path of travel")
+            #print(path_of_travel)
+            # cut all the entries in path_of_travel that are not observable states or actions
+            original_path_of_travel = path_of_travel.copy()
+            
+            for step in original_path_of_travel:
+                step_is_state = False
+                step_is_control_input = False
+                for state in pystorms_scenario.config['states']:
+                    if step[0] == state[0]: # same id
+                        if ((step[1] == "Node" and "N" in state[1]) 
+                        or (step[1] == "Node" and 'flooding' in state[1]) 
+                        or (step[1] == "Node" and 'inflow' in state[1])
+                        or (step[1] == "Link" and "L" in state[1]) 
+                        or (step[1] == "Link" and 'flow' in state[1])): # types match
+                            step_is_state = True
+                for control_input in pystorms_scenario.config['action_space']:
+                    if step[0] == control_input:
+                        step_is_control_input = True
+                if not step_is_state and not step_is_control_input:
+                    path_of_travel.remove(step) # this will change the index, hence the "while"
+                   
+            print("full path of travel")
+            print(original_path_of_travel)
+            print("observable path of travel")
+            print(path_of_travel)
+           
+            
+            # iterate through the path of travel and rename the steps to align with the columns of the adjacency
+            for step in path_of_travel:
+                for state in pystorms_scenario.config['states']:
+                    if step[0] == state[0]: # same id
+                        if ((step[1] == "Node" and "N" in state[1]) 
+                        or (step[1] == "Node" and 'flooding' in state[1]) 
+                        or (step[1] == "Node" and 'inflow' in state[1])
+                        or (step[1] == "Link" and "L" in state[1]) 
+                        or (step[1] == "Link" and 'flow' in state[1])): # types match    
+                            path_of_travel[path_of_travel.index(step)] = state
+
+                for control_input in pystorms_scenario.config['action_space']:
+                    if step[0] == control_input:
+                        path_of_travel[path_of_travel.index(step)] = control_input
+
+                       
+            #print("observable path of travel")
+            #print(path_of_travel)
+
+            # now, use this path of travel to update the adjacency
+            
+            # only use "i" if the entries have the same id. otherwise characterize everything as delayed, "d"
+            # because our path of travel only includes the observable states and the action space, we just need to look immediately up and downstream
+            # only looking upstream would simplify things and be sufficient for many scenarios, but it would miss backwater effects
+            for step in path_of_travel: # all of these are either observable states or actions
+                if path_of_travel.index(step) == 0: # first entry, previous step not meaningful
+                    prev_step = False
+                else:    
+                    prev_step = path_of_travel[path_of_travel.index(step)-1]
+                if path_of_travel.index(step) == len(path_of_travel)-1: # last entry, next step not meaningful
+                    next_step = False
+                else:
+                    next_step = path_of_travel[path_of_travel.index(step)+1]
+
+                # formatted as from row to column
+                if prev_step:
+                    adjacency.loc[[prev_step],[step]] = 1
+                if next_step:
+                    adjacency.loc[[step],[next_step]] = 1
+            
+    # some of the networks aren't completely dendritic and so require some manual connections to be added
+    if pystorms_scenario.config['name'] == 'alpha':
+        adjacency.iloc[7,26] = 1 # R1 to Or1
+        adjacency.iloc[26,25] = 1 # Or1 to I5
+        adjacency.iloc[9,14] = 1 # R3 to JC3a
+        adjacency.iloc[14,19] = 1 # JC3a to C3b
+        adjacency.iloc[19,20] = 1 # C3b to C4a
+        adjacency.iloc[12,7] = 1 # JC1b to R1
+
+    graph = nx.from_pandas_adjacency(adjacency,create_using=nx.DiGraph)
+    if not nx.is_directed_acyclic_graph(graph):
+        print("graph is not a DAG")
+        plt.figure(figsize=(20,10))
+        pos = nx.planar_layout(graph)
+        nx.draw_networkx_nodes(graph, pos, node_size=500)
+        nx.draw_networkx_labels(graph, pos, font_size=12)
+        nx.draw_networkx_edges(graph, pos, arrows=True,arrowsize=30,style='solid',alpha=1.0)
+        plt.show()
+        
+    # we're gauranteed to have a directed acycilce graph, so get the topological generations and use that as the subset key
+    gens = nx.topological_generations(graph)
+    gen_idx = 1
+    for generation in gens:
+        #print(generation)
+        for node in graph.nodes:
+            if node in generation:
+                graph.nodes[node]['generation'] = gen_idx
+        gen_idx += 1
+    
+    # but to draw without overlaps, we need to partition by the root node, not the generation
+    # give each node a key corresponding to its most distant ancestor
+    # then, we can use that key to partition the nodes and draw them in separate columns
+    for node in graph.nodes:
+        #print(node)
+        #print(nx.ancestors(graph,node))
+        ancestors = nx.ancestors(graph,node)
+        most_distant_ancestor = node
+        for ancestor in ancestors:
+            distance = nx.shortest_path_length(graph,ancestor,node)
+            if distance > nx.shortest_path_length(graph,most_distant_ancestor,node):
+                most_distant_ancestor = ancestor
+        graph.nodes[node]['root'] = most_distant_ancestor
+        #print(most_distant_ancestor)
+        
+            
+    return {'adjacency':adjacency,'index':index,'graph':graph}
+                     
