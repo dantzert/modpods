@@ -1997,11 +1997,16 @@ def topo_from_pystorms(pystorms_scenario):
                             current_id = link.outlet_node
                             path_of_travel.append((current_id,"Node"))
                             break
+                    else:
+                        print("current element is a sink (no link draining). verify this is correct")
+                        print(current_id)
+                        break
                 # if the current object is a link, grab the downstream node
                 elif current_id in pyswmm.Links(sim):
                     path_of_travel.append((link.linkid,"Link"))
                     current_id = current.outlet_node
                     path_of_travel.append((current_id,"Node"))
+                
 
                 current = Nodes[current_id]
 
@@ -2014,8 +2019,13 @@ def topo_from_pystorms(pystorms_scenario):
                 step_is_state = False
                 step_is_control_input = False
                 for state in pystorms_scenario.config['states']:
-                    if step[0] == state[0]:
-                        step_is_state = True
+                    if step[0] == state[0]: # same id
+                        if ((step[1] == "Node" and "N" in state[1]) 
+                        or (step[1] == "Node" and 'flooding' in state[1]) 
+                        or (step[1] == "Node" and 'inflow' in state[1])
+                        or (step[1] == "Link" and "L" in state[1]) 
+                        or (step[1] == "Link" and 'flow' in state[1])): # types match
+                            step_is_state = True
                 for control_input in pystorms_scenario.config['action_space']:
                     if step[0] == control_input:
                         step_is_control_input = True
@@ -2030,11 +2040,17 @@ def topo_from_pystorms(pystorms_scenario):
             # iterate through the path of travel and rename the steps to align with the columns and indices of A and B
             for step in path_of_travel:
                 for state in pystorms_scenario.config['states']:
-                    if step[0] == state[0]:
-                        path_of_travel[path_of_travel.index(step)] = state
+                    if step[0] == state[0]: # same id
+                        if ((step[1] == "Node" and "N" in state[1]) 
+                        or (step[1] == "Node" and 'flooding' in state[1]) 
+                        or (step[1] == "Node" and 'inflow' in state[1])
+                        or (step[1] == "Link" and "L" in state[1]) 
+                        or (step[1] == "Link" and 'flow' in state[1])): # types match    
+                            path_of_travel[path_of_travel.index(step)] = state
+
                 for control_input in pystorms_scenario.config['action_space']:
                     if step[0] == control_input:
-                        path_of_travel[path_of_travel.index(step)] =control_input
+                        path_of_travel[path_of_travel.index(step)] = control_input
                         
             #print("observable path of travel")
             #print(path_of_travel)
@@ -2071,7 +2087,7 @@ def topo_from_pystorms(pystorms_scenario):
                     else:
                         B.loc[[step],[prev_step]] = 'd'
                 if next_step and next_step[0] in pystorms_scenario.config['states'] or next_step in pystorms_scenario.config['states']:
-                    
+                    # this only handles integer ids, but some models have letter ids or alphanumeric ids (pystorms scenario delta)
                     if re.search(r'\d+', ''.join(next_step)).group() == re.search(r'\d+', ''.join(step)).group(): 
                         A.loc[[step],[next_step]] = 'i'
                     else:
@@ -2236,11 +2252,16 @@ def subway_map_from_pystorms(pystorms_scenario):
                             current_id = link.outlet_node
                             path_of_travel.append((current_id,"Node"))
                             break
+                    else:
+                        print("current element is a sink (no link draining). verify this is correct")
+                        print(current_id)
+                        break
                 # if the current object is a link, grab the downstream node
                 elif current_id in pyswmm.Links(sim):
                     path_of_travel.append((link.linkid,"Link"))
                     current_id = current.outlet_node
                     path_of_travel.append((current_id,"Node"))
+                
 
                 current = Nodes[current_id]
 
