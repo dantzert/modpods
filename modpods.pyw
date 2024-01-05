@@ -1049,10 +1049,10 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                     B.loc[row,feature_names[idx]] = instant_fit.coefficients()[0][idx]
                 else:
                     print("couldn't find a column for ", feature_names[idx])
-            print("updated A")
-            print(A)
-            print("updated B")
-            print(B)
+            #print("updated A")
+            #print(A)
+            #print("updated B")
+            #print(B)
 
     original_A = A.copy(deep=True)
     # now, parse the delay models into the A, B, and C matrices
@@ -2287,10 +2287,10 @@ def subway_map_from_pystorms(pystorms_scenario):
                 if not step_is_state and not step_is_control_input:
                     path_of_travel.remove(step) # this will change the index, hence the "while"
                    
-            print("full path of travel")
-            print(original_path_of_travel)
-            print("observable path of travel")
-            print(path_of_travel)
+            #print("full path of travel")
+            #print(original_path_of_travel)
+            #print("observable path of travel")
+            #print(path_of_travel)
            
             
             # iterate through the path of travel and rename the steps to align with the columns of the adjacency
