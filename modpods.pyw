@@ -1934,12 +1934,11 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
 
     
 
-# this function takes a swmm input file and returns a dataframe of the topography
-# arguments are included that take dictionaries where the keys are the names of the object 
-# and the values are lists of the observable quantities at that object
-# each argument can also accept "ALL" as an argument, which will include all objects of that type. the observable quantities must still be specified
 def topo_from_pystorms(pystorms_scenario):
-    
+
+    # if any are 3-tuples, chop them down to 2-tuples
+    pystorms_scenario.config['states'] = [t[:-1] if len(t) == 3 else t for t in pystorms_scenario.config['states']]
+
     A = pd.DataFrame(index = pystorms_scenario.config['states'],
                      columns = pystorms_scenario.config['states'])
     B = pd.DataFrame(index = pystorms_scenario.config['states'],
