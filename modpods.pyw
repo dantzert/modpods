@@ -2331,15 +2331,6 @@ def subway_map_from_pystorms(pystorms_scenario):
                     adjacency.loc[[prev_step],[step]] = 1
                 if next_step:
                     adjacency.loc[[step],[next_step]] = 1
-            
-    # some of the networks aren't completely dendritic and so require some manual connections to be added
-    if pystorms_scenario.config['name'] == 'alpha':
-        adjacency.iloc[7,26] = 1 # R1 to Or1
-        adjacency.iloc[26,25] = 1 # Or1 to I5
-        adjacency.iloc[9,14] = 1 # R3 to JC3a
-        adjacency.iloc[14,19] = 1 # JC3a to C3b
-        adjacency.iloc[19,20] = 1 # C3b to C4a
-        adjacency.iloc[12,7] = 1 # JC1b to R1
 
     graph = nx.from_pandas_adjacency(adjacency,create_using=nx.DiGraph)
     if not nx.is_directed_acyclic_graph(graph):
@@ -2351,7 +2342,7 @@ def subway_map_from_pystorms(pystorms_scenario):
         nx.draw_networkx_edges(graph, pos, arrows=True,arrowsize=30,style='solid',alpha=1.0)
         plt.show()
         
-    # we're gauranteed to have a directed acycilce graph, so get the topological generations and use that as the subset key
+    # we're now gauranteed to have a directed acycilce graph, so get the topological generations and use that as the subset key
     gens = nx.topological_generations(graph)
     gen_idx = 1
     for generation in gens:
