@@ -348,7 +348,8 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         total_train = pd.concat((response,forcing), axis='columns')
         library.fit([ps.AxesArray(total_train,{"ax_sample":0,"ax_coord":1})])
         n_features = library.n_output_features_
-        #print(f"Features ({n_features}):", library.get_feature_names())
+        #print(f"Features ({n_features}):", library.get_feature_names(input_features=total_train.columns))
+        feature_names = library.get_feature_names(input_features=total_train.columns)
         # Set constraints
         n_targets = total_train.shape[1] # not sure what targets means after reading through the pysindy docs
         #print("n_targets")
@@ -367,15 +368,27 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         #print("constraint lhs")
         #print(constraint_lhs)
 
-        # forcing_coef_constraints not actually implemented yet
-        #if forcing_coef_constraints is not None:
-        if False:
+        # forcing_coef_constraints only implemented for MISO models right now
+        if forcing_coef_constraints is not None:
+            n_targets = len(response.columns)
             constraint_rhs = np.zeros((n_features,)) # every feature is constrained
             # one row per constraint, one column per coefficient
             constraint_lhs = np.zeros((n_features , n_targets*n_features ) )
-            # bibo stability, set the highest order output autocorrelation to be negative
-            constraint_lhs[:n_targets,-len(forcing.columns)-len(response.columns):-len(forcing.columns)] = 1
+            # bibo stability, set the highest order output autocorrelation to be negative for each response variable
+            # the index corresponds to the last entry in "feature_names" which includes the name of the response column
+            highest_power_col_idx = 0
+            for i, col in enumerate(feature_names):
+                if response.columns[0] in col:
+                    highest_power_col_idx = i
+            constraint_lhs[0, highest_power_col_idx] = 1 # first row, highest power of the response variable
 
+            # now implement the forcing coefficient constraints
+            for i, col in enumerate(feature_names):
+                for key in forcing_coef_constraints.keys():
+                    if key in col:
+                        constraint_lhs[i, i] = -forcing_coef_constraints[key]
+                        # invert the sign because the eqn is written as "leq 0"
+            ''''
             print(forcing.columns)
             forcing_constraints_array = np.ndarray(shape=(1,len(forcing.columns)))
             for i, col in enumerate(forcing.columns):
@@ -389,22 +402,22 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
                     forcing_constraints_array[0,i] = -forcing_coef_constraints[str(col).replace('_tr_3','')]
                 else:
                     forcing_constraints_array[0,i] = 0
-
+                    
             for row in range(n_targets, n_features):
-                constraint_lhs[row, row*n_features] = forcing_constraints_array[0,row - n_targets]
-
+                constraint_lhs[row, row] = forcing_constraints_array[0,row - n_targets]
+            '''
 
             # constrain the highest order output autocorrelation to be negative
             # this indexing is only right for include_interaction=False, include_bias=False, and pure polynomial library
             # for more complex libraries, some conditional logic will be needed to grab the right column
-            constraint_lhs[:n_targets,-len(forcing.columns)-len(response.columns):-len(forcing.columns)] = 1
+            #constraint_lhs[:n_targets,-len(forcing.columns)-len(response.columns):-len(forcing.columns)] = 1
 
-            print(forcing_constraints_array)
+            #print(forcing_constraints_array)
 
-            print('constraint lhs')
-            print(constraint_lhs)
-            print('constraint rhs')
-            print(constraint_rhs)
+            #print('constraint lhs')
+            #print(constraint_lhs)
+            #print('constraint rhs')
+            #print(constraint_rhs)
 
 
         model = ps.SINDy(
