@@ -144,7 +144,8 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
 
 
             sooner_locs = loc_factors.copy(deep=True)
-            sooner_locs[tuning_input][tuning_line] = float(loc_factors[tuning_input][tuning_line] - speed/10  )
+            #sooner_locs[tuning_input][tuning_line] = float(loc_factors[tuning_input][tuning_line] - speed/10  )
+            sooner_locs.loc[tuning_line,tuning_input] = float(loc_factors.loc[tuning_line,tuning_input] - speed/10)
             if ( sooner_locs[tuning_input][tuning_line] < 0):
                 sooner = {'error_metrics':{'r2':-1}}
             else:
@@ -155,7 +156,8 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
       
       
             later_locs = loc_factors.copy(deep=True)
-            later_locs[tuning_input][tuning_line] = float ( loc_factors[tuning_input][tuning_line]  +   1.01*speed/10 )
+            #later_locs[tuning_input][tuning_line] = float ( loc_factors[tuning_input][tuning_line]  +   1.01*speed/10 )
+            later_locs.loc[tuning_line,tuning_input] = float(loc_factors.loc[tuning_line,tuning_input] + 1.01*speed/10)
             later = SINDY_delays_MI(shape_factors , scale_factors,later_locs, 
                 system_data.index, forcing, response, extra_verbose, poly_order , 
                 include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
@@ -163,14 +165,16 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
       
 
             shape_up = shape_factors.copy(deep=True)
-            shape_up[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]*speed*1.01 )
+            #shape_up[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]*speed*1.01 )
+            shape_up.loc[tuning_line,tuning_input] = float(shape_factors.loc[tuning_line,tuning_input]*speed*1.01)
             shape_upped = SINDY_delays_MI(shape_up , scale_factors, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
                                      transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
       
             shape_down = shape_factors.copy(deep=True)
-            shape_down[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]/speed )
+            #shape_down[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]/speed )
+            shape_down.loc[tuning_line,tuning_input] = float(shape_factors.loc[tuning_line,tuning_input]/speed)
             if (shape_down[tuning_input][tuning_line] < 1):
                 shape_downed = {'error_metrics':{'r2':-1}} # return a score of negative one as this is illegal
             else:
@@ -180,7 +184,8 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                                      transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
 
             scale_up = scale_factors.copy(deep=True)
-            scale_up[tuning_input][tuning_line] = float(  scale_factors[tuning_input][tuning_line]*speed*1.01 )
+            #scale_up[tuning_input][tuning_line] = float(  scale_factors[tuning_input][tuning_line]*speed*1.01 )
+            scale_up.loc[tuning_line,tuning_input] = float(scale_factors.loc[tuning_line,tuning_input]*speed*1.01)
             scaled_up = SINDY_delays_MI(shape_factors , scale_up, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
@@ -188,7 +193,8 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
 
 
             scale_down = scale_factors.copy(deep=True)
-            scale_down[tuning_input][tuning_line] = float ( scale_factors[tuning_input][tuning_line]/speed )
+            #scale_down[tuning_input][tuning_line] = float ( scale_factors[tuning_input][tuning_line]/speed )
+            scale_down.loc[tuning_line,tuning_input] = float(scale_factors.loc[tuning_line,tuning_input]/speed)
             scaled_down = SINDY_delays_MI(shape_factors , scale_down, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
@@ -196,9 +202,11 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
       
             # rounder
             rounder_shape = shape_factors.copy(deep=True)
-            rounder_shape[tuning_input][tuning_line] = shape_factors[tuning_input][tuning_line]*(speed*1.01)
+            #rounder_shape[tuning_input][tuning_line] = shape_factors[tuning_input][tuning_line]*(speed*1.01)
+            rounder_shape.loc[tuning_line,tuning_input] = shape_factors.loc[tuning_line,tuning_input]*(speed*1.01)
             rounder_scale = scale_factors.copy(deep=True)
-            rounder_scale[tuning_input][tuning_line] = scale_factors[tuning_input][tuning_line]/(speed*1.01)
+            #rounder_scale[tuning_input][tuning_line] = scale_factors[tuning_input][tuning_line]/(speed*1.01)
+            rounder_scale.loc[tuning_line,tuning_input] = scale_factors.loc[tuning_line,tuning_input]/(speed*1.01)
             rounder = SINDY_delays_MI(rounder_shape , rounder_scale, loc_factors, 
                                     system_data.index, forcing, response, extra_verbose, poly_order , 
                                     include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
@@ -206,12 +214,14 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
 
             # sharper
             sharper_shape = shape_factors.copy(deep=True)
-            sharper_shape[tuning_input][tuning_line] = shape_factors[tuning_input][tuning_line]/speed
+            #sharper_shape[tuning_input][tuning_line] = shape_factors[tuning_input][tuning_line]/speed
+            sharper_shape.loc[tuning_line,tuning_input] = shape_factors.loc[tuning_line,tuning_input]/speed
             if (sharper_shape[tuning_input][tuning_line] < 1):
                 sharper = {'error_metrics':{'r2':-1}} # lower bound on shape to avoid inf
             else:
                 sharper_scale = scale_factors.copy(deep=True)
-                sharper_scale[tuning_input][tuning_line] = scale_factors[tuning_input][tuning_line]*speed
+                #sharper_scale[tuning_input][tuning_line] = scale_factors[tuning_input][tuning_line]*speed
+                sharper_scale.loc[tuning_line,tuning_input] = scale_factors.loc[tuning_line,tuning_input]*speed
                 sharper = SINDY_delays_MI(sharper_shape ,sharper_scale,loc_factors, 
                                             system_data.index, forcing, response, extra_verbose, poly_order , 
                                             include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,

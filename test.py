@@ -9,7 +9,8 @@ import modpods
 
 # some data from the CAMELS dataset
 # change the filepath to wherever you have modpods at
-filepath = "G:/My Drive/modpods/03439000_05_model_output.txt"
+# "C:\modpods\03439000_05_model_output.txt"
+filepath = "C:/modpods/03439000_05_model_output.txt"
 
 
 df = pd.read_csv(filepath, sep='\s+')
@@ -51,7 +52,7 @@ forcing_coef_constraints = {'RAIM':1, 'PET':-1,'PRCP':1}
 df_train = df_train[['OBS_RUN','RAIM','PET','PRCP']]
 rainfall_runoff_model = modpods.delay_io_train(df_train, ['OBS_RUN'],['RAIM','PET','PRCP'],windup_timesteps=windup_timesteps,
                        init_transforms=1, max_transforms=1,max_iter=10, verbose=True,
-                       poly_order=1, bibo_stable=True)
+                       poly_order=1, bibo_stable=False)
 
 
 print(rainfall_runoff_model)
