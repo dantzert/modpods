@@ -343,14 +343,37 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
     feature_names =  response.columns.tolist() +  forcing.columns.tolist()
 
     # SINDy
-    if (not bibo_stable): # no constraints, normal mode
+    if (not bibo_stable and forcing_coef_constraints is None): # no constraints, normal mode
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction), 
             optimizer = ps.STLSQ(threshold=0), 
             feature_names = feature_names
         )
-    if (bibo_stable): # highest order output autocorrelation is constrained to be negative
+    elif (forcing_coef_constraints is not None and not bibo_stable):
+        library = ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction)
+        total_train = pd.concat((response,forcing), axis='columns')
+        library.fit([ps.AxesArray(total_train,{"ax_sample":0,"ax_coord":1})])
+        n_features = library.n_output_features_
+        n_targets = len(response.columns)
+        constraint_rhs = np.zeros((n_features,)) # every feature is constrained
+        # one row per constraint, one column per coefficient
+        constraint_lhs = np.zeros((n_features , n_targets*n_features ) )
+
+        # now implement the forcing coefficient constraints
+        for i, col in enumerate(feature_names):
+            for key in forcing_coef_constraints.keys():
+                if key in col:
+                    constraint_lhs[i, i] = -forcing_coef_constraints[key]
+                    # invert the sign because the eqn is written as "leq 0"
+
+        model = ps.SINDy(
+                    differentiation_method= ps.FiniteDifference(),
+                    feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
+                    optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
+                    feature_names = feature_names
+                )
+    elif (bibo_stable): # highest order output autocorrelation is constrained to be negative
         #import cvxpy
         #run_cvxpy= True
         # Figure out how many library features there will be
@@ -378,7 +401,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         #print("constraint lhs")
         #print(constraint_lhs)
 
-        # forcing_coef_constraints only implemented for MISO models right now
+        # forcing_coef_constraints only implemented for bibo stable MISO models right now
         if forcing_coef_constraints is not None:
             n_targets = len(response.columns)
             constraint_rhs = np.zeros((n_features,)) # every feature is constrained

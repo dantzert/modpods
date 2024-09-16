@@ -48,10 +48,10 @@ df_eval = df.iloc[-(365*years + windup_timesteps):,:] # data for evaluation, not
 
 #df['ones'] = np.ones(len(df.OBS_RUN)) # to make sure MIMO error metrics are working correctly
 print(df_train)
-forcing_coef_constraints = {'RAIM':1, 'PET':-1,'PRCP':1}
+forcing_coef_constraints = {'RAIM':-1, 'PET':1,'PRCP':-1}
 df_train = df_train[['OBS_RUN','RAIM','PET','PRCP']]
 rainfall_runoff_model = modpods.delay_io_train(df_train, ['OBS_RUN'],['RAIM','PET','PRCP'],windup_timesteps=windup_timesteps,
-                       init_transforms=1, max_transforms=1,max_iter=10, verbose=True,
+                       init_transforms=1, max_transforms=1,max_iter=10, verbose=True, forcing_coef_constraints= forcing_coef_constraints,
                        poly_order=1, bibo_stable=False)
 
 
