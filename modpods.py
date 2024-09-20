@@ -38,7 +38,8 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                    max_iter=250, poly_order=3, transform_dependent=False, 
                    verbose=False, extra_verbose=False, include_bias=False, 
                    include_interaction=False, bibo_stable = False,
-                   transform_only = None, forcing_coef_constraints=None):
+                   transform_only = None, forcing_coef_constraints=None,
+                   early_stopping_threshold = 0.005):
     forcing = system_data[independent_columns].copy(deep=True)
 
     orig_forcing_columns = forcing.columns
@@ -326,6 +327,12 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                                    'windup_timesteps':windup_timesteps,
                                    'dependent_columns':dependent_columns,
                                    'independent_columns':independent_columns}
+
+        # check if the benefit from adding the last transformation is less than the early stopping threshold
+        if num_transforms > init_transforms and results[num_transforms]['final_model']['error_metrics']['r2'] - results[num_transforms-1]['final_model']['error_metrics']['r2'] < early_stopping_threshold:
+            print("Last transformation added less than ", early_stopping_threshold*100," % to R2 score. Terminating early.")
+            break
+
     return results
 
 
@@ -962,7 +969,7 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
 # this function takes the system data and the causative topology and returns an LTI system
 # if the causative topology isn't already defined, it needs to be created using infer_causative_topology
 def lti_system_gen(causative_topology, system_data,independent_columns,dependent_columns,max_iter=250,
-                   swmm=False,bibo_stable = False,max_transition_state_dim=50, max_transforms = 1):
+                   swmm=False,bibo_stable = False,max_transition_state_dim=50, max_transforms = 1, early_stopping_threshold = 0.005):
 
     # cast the columns and indices of causative_topology to strings so sindy can run properly
     # We need the tuples to link the columns in system_data to the object names in the swmm model  
@@ -1114,7 +1121,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
             for num_transforms in range(1,max_transforms+1):
                 if num_transforms == 1:
                     pass
-                elif delay_models[row][num_transforms]['final_model']['error_metrics']['r2'] - delay_models[row][num_transforms-1]['final_model']['error_metrics']['r2'] < 0.005:
+                elif delay_models[row][num_transforms]['final_model']['error_metrics']['r2'] - delay_models[row][num_transforms-1]['final_model']['error_metrics']['r2'] < early_stopping_threshold:
                     optimal_number_transforms = num_transforms - 1
                     break # improvement is too small to justify additional complexity
                 else:
