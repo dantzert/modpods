@@ -1120,7 +1120,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         else: # we want the model with the most transformations where the last trnasformation added at least 0.5% to the R2 score
             for num_transforms in range(1,max_transforms+1):
                 if num_transforms == 1:
-                    pass
+                    optimal_number_transforms = num_transforms
                 elif delay_models[row][num_transforms]['final_model']['error_metrics']['r2'] - delay_models[row][num_transforms-1]['final_model']['error_metrics']['r2'] < early_stopping_threshold:
                     optimal_number_transforms = num_transforms - 1
                     break # improvement is too small to justify additional complexity
