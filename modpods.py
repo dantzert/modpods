@@ -734,7 +734,7 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
 
 
 
-### the functions below are for generating LTI systems directly from data
+### the functions below are for generating LTI systems directly from data (aka system identification)
 
 
 # the function below returns an LTI system (in the matrices A, B, and C) that mimic the shape of a given gamma distribution
@@ -962,7 +962,7 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
 # this function takes the system data and the causative topology and returns an LTI system
 # if the causative topology isn't already defined, it needs to be created using infer_causative_topology
 def lti_system_gen(causative_topology, system_data,independent_columns,dependent_columns,max_iter=250,
-                   swmm=False,bibo_stable = False,max_transition_state_dim=50):
+                   swmm=False,bibo_stable = False,max_transition_state_dim=50, max_transforms = 1):
 
     # cast the columns and indices of causative_topology to strings so sindy can run properly
     # We need the tuples to link the columns in system_data to the object names in the swmm model  
@@ -995,11 +995,11 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
     # copy the corresponding entries from the causative topology into B
     for row in B.index:
         for col in B.columns:
-            B[col][row] = causative_topology[col][row]
+            B.loc[row,col] = causative_topology.loc[row,col]
     # and into A
     for row in A.index:
         for col in A.columns:
-            A[col][row] = causative_topology[col][row]
+            A.loc[row,col] = causative_topology.loc[row,col]
 
     print("A")
     print(A)
@@ -1032,7 +1032,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         if (delayed_forcing):
             print("training delayed model for ", row, " with forcing ", total_forcing, "\n")
             delay_models[row] = delay_io_train(system_data,[row],total_forcing,
-                                     transform_only=delayed_forcing,max_transforms=1,
+                                     transform_only=delayed_forcing, max_transforms=max_transforms,
                                      poly_order=1, max_iter=max_iter,verbose=False,bibo_stable=bibo_stable)
             # we'll parse this delayed causation into the matrices A, B, and C later
         else:
@@ -1110,139 +1110,164 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
     for row in original_A.index:
         if delay_models[row] is None:
             pass
-        else:
-            transformation_approximations = {transform_key: None for transform_key in delay_models[row][1]['shape_factors'].columns}
-            for transform_key in transformation_approximations.keys():
-                delay_models[row][1]['final_model']['model'].print(precision=5)
-                shape = delay_models[row][1]['shape_factors'].loc[1,transform_key]
-                scale = delay_models[row][1]['scale_factors'].loc[1,transform_key]
-                loc = delay_models[row][1]['loc_factors'].loc[1,transform_key]
-                '''
-                # infer the timestep of system_data from the index
-                timestep = system_data.index[1] - system_data.index[0]
-                try: # if the timestep is numeric
-                    pd.to_numeric(timestep)
-                    transformation_approximations[transform_key] = lti_from_gamma(shape,scale,loc,dt=timestep)
-                    
-                    Agam = transformation_approximations[transform_key]['lti_approx'].A / timestep
-                    Bgam = transformation_approximations[transform_key]['lti_approx'].B / timestep 
-                    Cgam = transformation_approximations[transform_key]['lti_approx'].C / timestep
-                except Exception as e: # if the timestep is something like a datetime
-                    print(e)'''
-                transformation_approximations[transform_key] = lti_from_gamma(shape,scale,loc,max_state_dim = max_transition_state_dim)
-                    
-                Agam = transformation_approximations[transform_key]['lti_approx'].A 
-                Bgam = transformation_approximations[transform_key]['lti_approx'].B # only entry is unit impulse at top state
-                Cgam = transformation_approximations[transform_key]['lti_approx'].C 
-
-                # Cgam needs to be scaled by the coefficient the forcing term had in the delay model
-                coefficients = {coef_key: None for coef_key in delay_models[row][1]['final_model']['model'].feature_names}
-                for coef_key in coefficients.keys():
-                    coef_index = delay_models[row][1]['final_model']['model'].feature_names.index(coef_key)
-                    coefficients[coef_key] = delay_models[row][1]['final_model']['model'].coefficients()[0][coef_index]
-                    if "_tr_1" in coef_key and coef_key.replace("_tr_1","") == transform_key.replace("_tr_1",""):
-                        '''
-                        try: 
-                            pd.to_numeric(timestep,errors='raise')
-                            Cgam = Cgam * coefficients[coef_key] / timestep
-                        except Exception as e:
-                            print(e)
-                            Cgam = Cgam * coefficients[coef_key]
-                        '''
-                        
-                        Cgam = Cgam * coefficients[coef_key] # scaling
-                    else: # these are the immediate effects, insert them now
-                        if coef_key in A.columns:
-                            A.loc[row,coef_key] = coefficients[coef_key]
-                        elif coef_key in B.columns:
-                            B.loc[row,coef_key] = coefficients[coef_key]
-
-                
-                Agam_index = []
-                for idx in range(Agam.shape[0]):
-                    Agam_index.append(transform_key.replace("_tr_1","") + "->" + row + "_" + str(idx))
-                Agam = pd.DataFrame(Agam, index = Agam_index, columns = Agam_index)
-                Bgam = pd.DataFrame(Bgam, index = Agam_index, columns = [transform_key.replace("_tr_1","")])
-                Cgam = pd.DataFrame(Cgam, index = [row], columns = Agam_index)
-                #print("Agam")
-                #print(Agam)
-                #print("Bgam")
-                #print(Bgam)
-                #print("Cgam")
-                #print(Cgam)
-                # insert these into the A, B, and C matrices
-                # for Agam, the insertion row is immediately after the source (key)
-                # the insertion column is also immediately after the source (key)
-                
-                ### everything below this point is garbage. not performing at all as desired at the moment
-
-
-                # first need to create space for the new rows and columns
-                # create before_index and after_index variables, which record the parts of the index of A that occur before and after row
-                before_index = []
-                #after_index = []
-                if transform_key.replace("_tr_1","") not in A.index: # it's one of the forcing terms. put it in at the beginning
-                    after_index = list(A.index) # it's a forcing variable, so we don't want it in the newA index
-                else: # it is a state variable
-                    before_index = list(A.index[:A.index.get_loc(transform_key.replace("_tr_1",""))])
-                    after_index = list(A.index[A.index.get_loc(transform_key.replace("_tr_1",""))+1:])
+        else: # we want the model with the most transformations where the last trnasformation added at least 0.5% to the R2 score
+            for num_transforms in range(1,max_transforms+1):
+                if num_transforms == 1:
+                    pass
+                elif delay_models[row][num_transforms]['final_model']['error_metrics']['r2'] - delay_models[row][num_transforms-1]['final_model']['error_metrics']['r2'] < 0.005:
+                    optimal_number_transforms = num_transforms - 1
+                    break # improvement is too small to justify additional complexity
+                else:
+                    optimal_number_transforms = num_transforms # the most recent one was worth it
+            
+            transformation_approximations = {transform_key: None for transform_key in delay_models[row][optimal_number_transforms]['shape_factors'].columns}
+            for transform_key in transformation_approximations.keys(): # which input
+                for idx in range(1,optimal_number_transforms+1): # which transformation
+                    print("variable = ", transform_key, ", transformation = ", idx)
+                    delay_models[row][optimal_number_transforms]['final_model']['model'].print(precision=5)
+                    shape = delay_models[row][optimal_number_transforms]['shape_factors'].loc[idx,transform_key]
+                    scale = delay_models[row][optimal_number_transforms]['scale_factors'].loc[idx,transform_key]
+                    loc = delay_models[row][optimal_number_transforms]['loc_factors'].loc[idx,transform_key]
                     '''
-                    for idx in A.index:
-                        if idx == key.replace("_tr_1",""):
-                            before_index.append(idx) # if it's a state variable, we want it in the newA index
-                            break
-                        else:
-                            before_index.append(idx)
-                    for idx in range(A.index.get_loc(key.replace("_tr_1",""))+1,len(A.index)):
-                        after_index.append(A.index[idx])
-                        '''
-                if transform_key.replace("_tr_1","") in A.index: # the transform key refers to a state (x)
-                    states = before_index + [transform_key.replace("_tr_1","")] + Agam_index + after_index # state dim expands by the number of rows in Agam
-                    # include the current transform key in A because it's a state variable
-                elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
-                    states = before_index + Agam_index + after_index # state dim expands by the number of rows in Agam    
-                    # don't include the current transform key in A because it's a control input, not a state variable
+                    # infer the timestep of system_data from the index
+                    timestep = system_data.index[1] - system_data.index[0]
+                    try: # if the timestep is numeric
+                        pd.to_numeric(timestep)
+                        transformation_approximations[transform_key] = lti_from_gamma(shape,scale,loc,dt=timestep)
                     
-                newA = pd.DataFrame(index=states, columns = states) 
-                newB = pd.DataFrame(index = states, columns = B.columns) # input dim remains consistent (columns of B)
-                newC = pd.DataFrame(index = C.index, columns = states) # output dim remains consistent (rows of C)
+                        Agam = transformation_approximations[transform_key]['lti_approx'].A / timestep
+                        Bgam = transformation_approximations[transform_key]['lti_approx'].B / timestep 
+                        Cgam = transformation_approximations[transform_key]['lti_approx'].C / timestep
+                    except Exception as e: # if the timestep is something like a datetime
+                        print(e)'''
+                    # this will get overwritten if we use more than one transformation per input. i think that's okay.
+                    transformation_approximations[transform_key] = lti_from_gamma(shape,scale,loc,max_state_dim = max_transition_state_dim)
+                    
+                    Agam = transformation_approximations[transform_key]['lti_approx'].A 
+                    Bgam = transformation_approximations[transform_key]['lti_approx'].B # only entry is unit impulse at top state
+                    Cgam = transformation_approximations[transform_key]['lti_approx'].C 
 
-                # fill in newA with the corresponding entries from A
-                for idx in newA.index:
-                    for col in newA.columns:
-                        if idx in A.index and col in A.columns: # if it's in the original A matrix, copy it over
-                            newA.loc[idx,col] = A.loc[idx,col]
-                        if idx in Agam.index and col in Agam.columns: # if it's in Agam, copy it over
-                            newA.loc[idx,col] = Agam.loc[idx,col]
-                        if idx in Bgam.index and col in Bgam.columns: # the input to the cascade is a state
-                            newA.loc[idx,col] = Bgam.loc[idx,col]
+                    tr_string = str("_tr_" + str(idx))
+
+                    # Cgam needs to be scaled by the coefficient the forcing term had in the delay model
+                    #coefficients = {coef_key: None for coef_key in delay_models[row][1]['final_model']['model'].feature_names}
+                    coefficients = {coef_key: None for coef_key in delay_models[row][optimal_number_transforms]['final_model']['model'].feature_names}
+                    for coef_key in coefficients.keys():
+                        coef_index = delay_models[row][optimal_number_transforms]['final_model']['model'].feature_names.index(coef_key)
+                        coefficients[coef_key] = delay_models[row][optimal_number_transforms]['final_model']['model'].coefficients()[0][coef_index]
+                        #if "_tr_1" in coef_key and coef_key.replace("_tr_1","") == transform_key.replace("_tr_1",""):
+                        if tr_string in coef_key and coef_key.replace(tr_string,"") == transform_key.replace(tr_string,""):
+                            '''
+                            try: 
+                                pd.to_numeric(timestep,errors='raise')
+                                Cgam = Cgam * coefficients[coef_key] / timestep
+                            except Exception as e:
+                                print(e)
+                                Cgam = Cgam * coefficients[coef_key]
+                            '''
+                        
+                            Cgam = Cgam * coefficients[coef_key] # scaling
+                        else: # these are the immediate effects, insert them now
+                            if coef_key in A.columns:
+                                A.loc[row,coef_key] = coefficients[coef_key]
+                            elif coef_key in B.columns:
+                                B.loc[row,coef_key] = coefficients[coef_key]
+
+                
+                    Agam_index = []
+                    for agam_idx in range(Agam.shape[0]):
+                        #Agam_index.append(transform_key.replace("_tr_1","") + "->" + row + "_" + str(idx))
+                        Agam_index.append(transform_key.replace(tr_string,"") + "->" + row + tr_string + "_" + str(agam_idx))
+                    Agam = pd.DataFrame(Agam, index = Agam_index, columns = Agam_index)
+                    Bgam = pd.DataFrame(Bgam, index = Agam_index, columns = [transform_key.replace(tr_string,"")])
+                    Cgam = pd.DataFrame(Cgam, index = [row], columns = Agam_index)
+                    #print("Agam")
+                    #print(Agam)
+                    #print("Bgam")
+                    #print(Bgam)
+                    #print("Cgam")
+                    #print(Cgam)
+                    # insert these into the A, B, and C matrices
+                    # for Agam, the insertion row is immediately after the source (key)
+                    # the insertion column is also immediately after the source (key)
+                
+                    ### everything below this point is garbage. not performing at all as desired at the moment
 
 
-                for idx in newB.index:
-                    for col in newB.columns:
-                        if idx in B.index and col in B.columns: # if it's in the original B matrix, copy it over
-                            newB.loc[idx,col] = B.loc[idx,col]
-                        if idx in Bgam.index and col in Bgam.columns: # the input to the cascade is a forcing term
-                            newB.loc[idx,col] = Bgam.loc[idx,col]
+                    # first need to create space for the new rows and columns
+                    # create before_index and after_index variables, which record the parts of the index of A that occur before and after row
+                    before_index = []
+                    #after_index = []
+                    #if transform_key.replace("_tr_1","") not in A.index: # it's one of the forcing terms. put it in at the beginning
+                    if transform_key.replace(tr_string,"") not in A.index: # it's one of the forcing terms. put it in at the beginning
+                        after_index = list(A.index) # it's a forcing variable, so we don't want it in the newA index
+                    else: # it is a state variable
+                        #before_index = list(A.index[:A.index.get_loc(transform_key.replace("_tr_1",""))])
+                        before_index = list(A.index[:A.index.get_loc(transform_key.replace(tr_string,""))])
 
-                for idx in newC.index:
-                    for col in newC.columns:
-                        if idx in C.index and col in C.columns: # if it's in the original C matrix, copy it over
-                            newC.loc[idx,col] = C.loc[idx,col]
-                        if idx in Cgam.index and col in Cgam.columns: # outputs from the cascades
-                            newA.loc[idx,col] = Cgam.loc[idx,col]
+                        #after_index = list(A.index[A.index.get_loc(transform_key.replace("_tr_1",""))+1:])
+                        after_index = list(A.index[A.index.get_loc(transform_key.replace(tr_string,""))+1:])
 
-                #print("newA")
-                #print(newA.to_string())
-                #print("newB")
-                #print(newB.to_string())
-                #print("newC")
-                #print(newC.to_string())
+                        '''
+                        for idx in A.index:
+                            if idx == key.replace("_tr_1",""):
+                                before_index.append(idx) # if it's a state variable, we want it in the newA index
+                                break
+                            else:
+                                before_index.append(idx)
+                        for idx in range(A.index.get_loc(key.replace("_tr_1",""))+1,len(A.index)):
+                            after_index.append(A.index[idx])
+                            '''
+                    #if transform_key.replace("_tr_1","") in A.index: # the transform key refers to a state (x)
+                    if transform_key.replace(tr_string,"") in A.index:
+                        #states = before_index + [transform_key.replace("_tr_1","")] + Agam_index + after_index # state dim expands by the number of rows in Agam
+                        states = before_index + [transform_key.replace(tr_string,"")] + Agam_index + after_index # state dim expands by the number of rows in Agam
+                        # include the current transform key in A because it's a state variable
+                    #elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
+                    elif transform_key.replace(tr_string,"") in B.columns: # the transform key refers to a control input (u)
+                        states = before_index + Agam_index + after_index # state dim expands by the number of rows in Agam    
+                        # don't include the current transform key in A because it's a control input, not a state variable
+                    
+                    newA = pd.DataFrame(index=states, columns = states) 
+                    newB = pd.DataFrame(index = states, columns = B.columns) # input dim remains consistent (columns of B)
+                    newC = pd.DataFrame(index = C.index, columns = states) # output dim remains consistent (rows of C)
 
-                # copy over
-                A = newA.copy(deep=True)
-                B = newB.copy(deep=True)
-                C = newC.copy(deep=True)
+                    # fill in newA with the corresponding entries from A
+                    for idx in newA.index:
+                        for col in newA.columns:
+                            if idx in A.index and col in A.columns: # if it's in the original A matrix, copy it over
+                                newA.loc[idx,col] = A.loc[idx,col]
+                            if idx in Agam.index and col in Agam.columns: # if it's in Agam, copy it over
+                                newA.loc[idx,col] = Agam.loc[idx,col]
+                            if idx in Bgam.index and col in Bgam.columns: # the input to the cascade is a state
+                                newA.loc[idx,col] = Bgam.loc[idx,col]
+
+
+                    for idx in newB.index:
+                        for col in newB.columns:
+                            if idx in B.index and col in B.columns: # if it's in the original B matrix, copy it over
+                                newB.loc[idx,col] = B.loc[idx,col]
+                            if idx in Bgam.index and col in Bgam.columns: # the input to the cascade is a forcing term
+                                newB.loc[idx,col] = Bgam.loc[idx,col]
+
+                    for idx in newC.index:
+                        for col in newC.columns:
+                            if idx in C.index and col in C.columns: # if it's in the original C matrix, copy it over
+                                newC.loc[idx,col] = C.loc[idx,col]
+                            if idx in Cgam.index and col in Cgam.columns: # outputs from the cascades
+                                newA.loc[idx,col] = Cgam.loc[idx,col]
+
+                    #print("newA")
+                    #print(newA.to_string())
+                    #print("newB")
+                    #print(newB.to_string())
+                    #print("newC")
+                    #print(newC.to_string())
+
+                    # copy over
+                    A = newA.copy(deep=True)
+                    B = newB.copy(deep=True)
+                    C = newC.copy(deep=True)
 
 
     A.replace("n",0.0,inplace=True)
