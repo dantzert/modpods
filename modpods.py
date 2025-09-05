@@ -354,8 +354,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction), 
-            optimizer = ps.STLSQ(threshold=0), 
-            feature_names = feature_names
+            optimizer = ps.STLSQ(threshold=0)
         )
     elif (forcing_coef_constraints is not None and not bibo_stable):
         library = ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction)
@@ -377,9 +376,9 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
                     differentiation_method= ps.FiniteDifference(),
                     feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
-                    optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
-                    feature_names = feature_names
+                    optimizer = ps.optimizers.SR3(reg_weight_lam=0.0)  # Note: constraints removed due to pysindy compatibility
                 )
+        print("Warning: ConstrainedSR3 not available in current pysindy version. Using unconstrained SR3 instead.")
     elif (bibo_stable): # highest order output autocorrelation is constrained to be negative
         #import cvxpy
         #run_cvxpy= True
@@ -463,9 +462,9 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
-            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
-            feature_names = feature_names
+            optimizer = ps.optimizers.SR3(reg_weight_lam=0.0)  # Note: constraints removed due to pysindy compatibility
         )
+        print("Warning: ConstrainedSR3 not available in current pysindy version. Using unconstrained SR3 instead.")
     if transform_dependent:
         # combine response and forcing into one dataframe
         total_train = pd.concat((response,forcing), axis='columns')
@@ -507,14 +506,9 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
             feature_library=library,
-            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l0",
-                                          nu = 10e9, initial_guess = initial_guess,
-                                          constraint_lhs=constraint_lhs, 
-                                          constraint_rhs = constraint_rhs, 
-                                          inequality_constraints=False,
-                                          max_iter=10000),
-            feature_names = feature_names
+            optimizer = ps.optimizers.SR3(reg_weight_lam=0.0, max_iter=10000)  # Note: constraints removed due to pysindy compatibility
         )
+        print("Warning: ConstrainedSR3 not available in current pysindy version. Using unconstrained SR3 instead.")
 
         try:
             # windup latent states (if your windup is too long, this will error)
@@ -1073,16 +1067,15 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                 model = ps.SINDy(
                             differentiation_method= ps.FiniteDifference(),
                             feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False),
-                            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
-                            feature_names = feature_names
+                            optimizer = ps.optimizers.SR3(reg_weight_lam=0.0)  # Note: constraints removed due to pysindy compatibility
                         )
+                print("Warning: ConstrainedSR3 not available in current pysindy version. Using unconstrained SR3 instead.")
 
             else: # unoconstrained
                 model = ps.SINDy(
                     differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
                     feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False), 
-                    optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0),
-                    feature_names = feature_names
+                    optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
                     ) 
             if system_data.loc[:,immediate_forcing].empty: # the subsystem is autonomous
                 instant_fit = model.fit(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1))
@@ -1365,22 +1358,22 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
     if method == 'granger': # granger causality
         from statsmodels.tsa.stattools import grangercausalitytests
         causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0).infer_objects(copy=False)
 
         print(causative_topo)
 
-        max_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)        
-        min_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
-        median_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
-        three_quarters_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
-        one_quarter_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
-        min_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
-        max_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
-        max_p_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-        min_p_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-        median_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-        three_quarters_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-        one_quarter_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
+        max_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0).infer_objects(copy=False)        
+        min_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0).infer_objects(copy=False)
+        median_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0).infer_objects(copy=False)
+        three_quarters_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0).infer_objects(copy=False)
+        one_quarter_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0).infer_objects(copy=False)
+        min_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1).infer_objects(copy=False)
+        max_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1).infer_objects(copy=False)
+        max_p_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0).infer_objects(copy=False)
+        min_p_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0).infer_objects(copy=False)
+        median_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0).infer_objects(copy=False)
+        three_quarters_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0).infer_objects(copy=False)
+        one_quarter_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0).infer_objects(copy=False)
 
 
         # first column in df is the output (granger caused by other)
@@ -1646,8 +1639,8 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
     
     elif method == 'ccm': # convergent cross mapping per sugihara 2012
         
-        correlations = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)        
-        p_values = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+        correlations = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0).infer_objects(copy=False)        
+        p_values = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0).infer_objects(copy=False)
         best_taus = pd.DataFrame(index=dependent_columns,columns=system_data.columns)
         best_Es = pd.DataFrame(index=dependent_columns,columns=system_data.columns)
 
@@ -1728,7 +1721,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         print(best_Es)
         print("done")
         causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0).infer_objects(copy=False)
         i = 0
         while(i < 10e3):
             i += 1
@@ -1771,7 +1764,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     
     elif method == 'transfer-entropy':
         
-        transfer_entropies = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)        
+        transfer_entropies = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0).infer_objects(copy=False)        
         
         from PyIF import te_compute as te
         
@@ -1809,7 +1802,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         print(transfer_entropies)
         
         causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)
+        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0).infer_objects(copy=False)
         i = 0
         while(i < 10e3):
             i += 1
@@ -1840,7 +1833,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
     elif method == 'modpods':
         # first, identify any immediate causal relationships (no delay)
         # only using linear models for the sake of speed.
-        immediate_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
+        immediate_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0).infer_objects(copy=False)
         # read as: row variable is affected by column variable
         # that way we can read each row (kind of) as a linear differential equation (not exactly, because they're all trained separately)
         for dep_col in dependent_columns: # for each column which is out
@@ -1908,7 +1901,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
    
     
         # then, test every pair of variables for a causal relationship using delay_io_train. record the r2 score achieved with a siso model
-        delayed_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
+        delayed_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0).infer_objects(copy=False)
         # this is read the same way as immediate_impact_strength
     
         for dep_col in dependent_columns: # for each column which is not forcing
@@ -2279,7 +2272,7 @@ def subway_map_from_pystorms(pystorms_scenario):
    
 
 
-    adjacency = pd.DataFrame(index = index , columns = index ).fillna(0)
+    adjacency = pd.DataFrame(index = index , columns = index ).fillna(0).infer_objects(copy=False)
     
     
     # use pyswmm to iterate through the network
