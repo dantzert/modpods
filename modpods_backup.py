@@ -3,6 +3,7 @@ import numpy as np
 import pysindy as ps
 import scipy.stats as stats
 from scipy import signal
+from scipy.optimize import minimize
 import matplotlib.pyplot as plt
 import control as control
 import networkx as nx
@@ -12,6 +13,218 @@ try:
 except ImportError:
     pyswmm = None
 import re
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import Matern
+import warnings
+
+# Bayesian optimization helper functions
+def expected_improvement(X, X_sample, Y_sample, gpr, xi=0.01):
+    """
+    Computes the Expected Improvement at points X based on existing samples X_sample
+    and Y_sample using a Gaussian process surrogate model.
+    
+    Args:
+        X: Points at which EI shall be computed (m x d).
+        X_sample: Sample locations (n x d).
+        Y_sample: Sample values (n x 1).
+        gpr: A GaussianProcessRegressor fitted to samples.
+        xi: Exploitation-exploration trade-off parameter.
+    
+    Returns:
+        Expected improvements at points X.
+    """
+    mu, sigma = gpr.predict(X, return_std=True)
+    mu = mu.reshape(-1, 1)
+    sigma = sigma.reshape(-1, 1)
+    
+    mu_sample_opt = np.max(Y_sample)
+    
+    with np.errstate(divide='warn'):
+        imp = mu - mu_sample_opt - xi
+        Z = imp / sigma
+        ei = imp * stats.norm.cdf(Z) + sigma * stats.norm.pdf(Z)
+        ei[sigma == 0.0] = 0.0
+    
+    return ei
+
+def propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=25):
+    """
+    Proposes the next sampling point by optimizing the acquisition function.
+    
+    Args:
+        acquisition: Acquisition function.
+        X_sample: Sample locations (n x d).
+        Y_sample: Sample values (n x 1).
+        gpr: A GaussianProcessRegressor fitted to samples.
+        bounds: Bounds for variables [(low, high), ...].
+        n_restarts: Number of restarts for the acquisition function optimization.
+    
+    Returns:
+        Location of the next point to sample.
+    """
+    dim = X_sample.shape[1]
+    min_val = 1
+    min_x = None
+    
+    def min_obj(X):
+        # Minimize negative acquisition function 
+        return -acquisition(X.reshape(-1, dim), X_sample, Y_sample, gpr).flatten()
+    
+    # Try n_restarts random starts
+    for x0 in np.random.uniform(bounds[:, 0], bounds[:, 1], size=(n_restarts, dim)):
+        res = minimize(min_obj, x0=x0, bounds=bounds, method='L-BFGS-B')
+        if res.fun < min_val:
+            min_val = res.fun[0]
+            min_x = res.x
+            
+    return min_x.reshape(-1, 1)
+
+def parameters_to_vector(shape_factors, scale_factors, loc_factors, transform_columns, num_transforms):
+    """Convert parameter DataFrames to a single vector for optimization."""
+    params = []
+    for transform in range(1, num_transforms + 1):
+        for col in transform_columns:
+            params.append(shape_factors.loc[transform, col])
+            params.append(scale_factors.loc[transform, col])
+            params.append(loc_factors.loc[transform, col])
+    return np.array(params)
+
+def vector_to_parameters(params_vector, transform_columns, num_transforms):
+    """Convert parameter vector back to DataFrames."""
+    shape_factors = pd.DataFrame(columns=transform_columns, index=range(1, num_transforms + 1))
+    scale_factors = pd.DataFrame(columns=transform_columns, index=range(1, num_transforms + 1))
+    loc_factors = pd.DataFrame(columns=transform_columns, index=range(1, num_transforms + 1))
+    
+    idx = 0
+    for transform in range(1, num_transforms + 1):
+        for col in transform_columns:
+            shape_factors.loc[transform, col] = params_vector[idx]
+            scale_factors.loc[transform, col] = params_vector[idx + 1]
+            loc_factors.loc[transform, col] = params_vector[idx + 2]
+            idx += 3
+            
+    return shape_factors, scale_factors, loc_factors
+
+def bayesian_optimization_delay_io(system_data, dependent_columns, independent_columns,
+                                 windup_timesteps, poly_order, include_bias, include_interaction,
+                                 bibo_stable, transform_dependent, transform_only, 
+                                 forcing_coef_constraints, num_transforms, max_iter, verbose):
+    """
+    Bayesian optimization implementation for delay_io_train.
+    """
+    # Determine which columns to transform
+    if transform_dependent:
+        transform_columns = system_data.columns.tolist()
+    elif transform_only is not None:
+        transform_columns = transform_only
+    else:
+        transform_columns = independent_columns
+    
+    # Define parameter bounds
+    # shape_factors: [1, 100], scale_factors: [0.1, 10], loc_factors: [0, 50]
+    n_params = len(transform_columns) * num_transforms * 3  # 3 params per (transform, column) pair
+    bounds = []
+    for transform in range(1, num_transforms + 1):
+        for col in transform_columns:
+            bounds.append([1.0, 100.0])    # shape_factors bounds
+            bounds.append([0.1, 10.0])     # scale_factors bounds  
+            bounds.append([0.0, 50.0])     # loc_factors bounds
+    bounds = np.array(bounds)
+    
+    # Define objective function
+    def objective_function(params_vector):
+        try:
+            shape_factors, scale_factors, loc_factors = vector_to_parameters(
+                params_vector, transform_columns, num_transforms)
+            
+            result = SINDY_delays_MI(shape_factors, scale_factors, loc_factors,
+                                   system_data.index, 
+                                   system_data[independent_columns].copy(deep=True),
+                                   system_data[dependent_columns].copy(deep=True),
+                                   False, poly_order, include_bias, include_interaction,
+                                   windup_timesteps, bibo_stable, transform_dependent,
+                                   transform_only, forcing_coef_constraints)
+            
+            r2 = result['error_metrics']['r2']
+            if verbose:
+                print(f"R² = {r2:.6f}")
+            return r2
+        except Exception as e:
+            if verbose:
+                print(f"Evaluation failed: {e}")
+            return -1.0  # Return poor score for failed evaluations
+    
+    # Initialize with random samples
+    n_initial = min(10, max(5, max_iter // 5))  # 5-10 initial samples
+    X_sample = []
+    Y_sample = []
+    
+    if verbose:
+        print(f"Starting Bayesian optimization with {n_initial} initial samples...")
+    
+    # Generate initial random samples
+    for i in range(n_initial):
+        x = np.random.uniform(bounds[:, 0], bounds[:, 1])
+        y = objective_function(x)
+        X_sample.append(x)
+        Y_sample.append(y)
+        if verbose:
+            print(f"Initial sample {i+1}/{n_initial}: R² = {y:.6f}")
+    
+    X_sample = np.array(X_sample)
+    Y_sample = np.array(Y_sample).reshape(-1, 1)
+    
+    # Bayesian optimization loop
+    best_r2 = np.max(Y_sample)
+    best_params = X_sample[np.argmax(Y_sample)]
+    
+    if verbose:
+        print(f"Initial best R² = {best_r2:.6f}")
+    
+    # Set up Gaussian Process
+    kernel = Matern(length_scale=1.0, nu=2.5)
+    gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-6, normalize_y=True, 
+                                 n_restarts_optimizer=5, random_state=42)
+    
+    for iteration in range(max_iter - n_initial):
+        # Fit Gaussian Process
+        gpr.fit(X_sample, Y_sample.ravel())
+        
+        # Find next point to evaluate
+        next_x = propose_location(expected_improvement, X_sample, Y_sample, gpr, bounds)
+        next_x = next_x.flatten()
+        
+        # Evaluate objective function
+        next_y = objective_function(next_x)
+        
+        if verbose:
+            print(f"BO iteration {iteration+1}/{max_iter-n_initial}: R² = {next_y:.6f}")
+        
+        # Add to samples
+        X_sample = np.append(X_sample, [next_x], axis=0)
+        Y_sample = np.append(Y_sample, next_y)
+        
+        # Update best
+        if next_y > best_r2:
+            best_r2 = next_y
+            best_params = next_x
+            if verbose:
+                print(f"New best R² = {best_r2:.6f}")
+    
+    # Convert best parameters back to DataFrames
+    best_shape, best_scale, best_loc = vector_to_parameters(
+        best_params, transform_columns, num_transforms)
+    
+    # Run final evaluation
+    final_result = SINDY_delays_MI(best_shape, best_scale, best_loc,
+                                 system_data.index,
+                                 system_data[independent_columns].copy(deep=True),
+                                 system_data[dependent_columns].copy(deep=True),
+                                 True, poly_order, include_bias, include_interaction,
+                                 windup_timesteps, bibo_stable, transform_dependent,
+                                 transform_only, forcing_coef_constraints)
+    
+    return final_result, best_shape, best_scale, best_loc
 
 # delay model builds differential equations relating the dependent variables to transformations of all the variables
 # if there are no independent variables, then dependent_columns should be a list of all the columns in the dataframe
@@ -42,7 +255,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                    verbose=False, extra_verbose=False, include_bias=False, 
                    include_interaction=False, bibo_stable = False,
                    transform_only = None, forcing_coef_constraints=None,
-                   early_stopping_threshold = 0.005):
+                   early_stopping_threshold = 0.005, optimization_method="compass_search"):
     forcing = system_data[independent_columns].copy(deep=True)
 
     orig_forcing_columns = forcing.columns
@@ -91,9 +304,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
     for num_transforms in range(init_transforms,max_transforms + 1):
         print("num_transforms")
         print(num_transforms)
-        speed_idx = 0
-        speed = speeds[speed_idx]
-
+        
         if (not num_transforms == init_transforms):  # if we're not starting right now
             # start dull
             shape_factors.iloc[num_transforms-1,:] = 10*(num_transforms-1) # start with a broad peak centered at ten timesteps
@@ -105,42 +316,63 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                 print(scale_factors)
                 print(loc_factors)
 
+        # Choose optimization method
+        if optimization_method == "bayesian":
+            if verbose:
+                print(f"Using Bayesian optimization for {num_transforms} transforms...")
+            
+            final_model, shape_factors_opt, scale_factors_opt, loc_factors_opt = bayesian_optimization_delay_io(
+                system_data, dependent_columns, independent_columns,
+                windup_timesteps, poly_order, include_bias, include_interaction,
+                bibo_stable, transform_dependent, transform_only, 
+                forcing_coef_constraints, num_transforms, max_iter, verbose)
+            
+            # Update the factors with optimized values
+            shape_factors.iloc[:num_transforms,:] = shape_factors_opt.iloc[:num_transforms,:]
+            scale_factors.iloc[:num_transforms,:] = scale_factors_opt.iloc[:num_transforms,:]
+            loc_factors.iloc[:num_transforms,:] = loc_factors_opt.iloc[:num_transforms,:]
+            
+        else:  # Default compass search optimization
+            if verbose:
+                print(f"Using compass search optimization for {num_transforms} transforms...")
+            
+            speed_idx = 0
+            speed = speeds[speed_idx]
 
+            prev_model = SINDY_delays_MI(shape_factors, scale_factors, loc_factors, system_data.index, 
+                                         forcing, response,extra_verbose, poly_order , include_bias, 
+                                         include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
+                                         transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
 
-        prev_model = SINDY_delays_MI(shape_factors, scale_factors, loc_factors, system_data.index, 
-                                     forcing, response,extra_verbose, poly_order , include_bias, 
-                                     include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
+            print("\nInitial model:\n")
+            try:
+                print(prev_model['model'].print(precision=5))
+                print("R^2")
+                print(prev_model['error_metrics']['r2'])
+            except Exception as e: # and print the exception:
+                print(e)
+                pass
+            print("shape factors")
+            print(shape_factors)
+            print("scale factors")
+            print(scale_factors)
+            print("location factors")
+            print(loc_factors)
+            print("\n")
 
-        print("\nInitial model:\n")
-        try:
-            print(prev_model['model'].print(precision=5))
-            print("R^2")
-            print(prev_model['error_metrics']['r2'])
-        except Exception as e: # and print the exception:
-            print(e)
-            pass
-        print("shape factors")
-        print(shape_factors)
-        print("scale factors")
-        print(scale_factors)
-        print("location factors")
-        print(loc_factors)
-        print("\n")
+            if not verbose:
+                print("training ", end='')
 
-        if not verbose:
-            print("training ", end='')
+            #no_improvement_last_time = False
+            for iterations in range(0,max_iter ):
+                if not verbose and iterations % 5 == 0:
+                    print(str(iterations)+".", end='')
 
-        #no_improvement_last_time = False
-        for iterations in range(0,max_iter ):
-            if not verbose and iterations % 5 == 0:
-                print(str(iterations)+".", end='')
-
-            if transform_dependent:
-                tuning_input = system_data.columns[(iterations // num_transforms) %  len(system_data.columns)] # row =  iter // width % height]
-            elif transform_only is not None:
-                tuning_input = transform_only[(iterations // num_transforms) %  len(transform_only)]
-            else:
+                if transform_dependent:
+                    tuning_input = system_data.columns[(iterations // num_transforms) %  len(system_data.columns)] # row =  iter // width % height]
+                elif transform_only is not None:
+                    tuning_input = transform_only[(iterations // num_transforms) %  len(transform_only)]
+                else:
                 tuning_input = orig_forcing_columns[(iterations // num_transforms) %  len(orig_forcing_columns)] # row =  iter // width % height
             tuning_line = iterations % num_transforms + 1 # col =  % width (plus one because there's no zeroth transformation)
             if verbose:
@@ -358,7 +590,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
             differentiation_method= ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction), 
             optimizer = ps.STLSQ(threshold=0), 
-            
+            feature_names = feature_names
         )
     elif (forcing_coef_constraints is not None and not bibo_stable):
         library = ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction)
@@ -381,7 +613,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
                     differentiation_method= ps.FiniteDifference(),
                     feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
                     optimizer = ps.STLSQ(threshold=0),
-                    
+                    feature_names = feature_names
                 )
     elif (bibo_stable): # highest order output autocorrelation is constrained to be negative
         #import cvxpy
@@ -467,7 +699,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
             differentiation_method= ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
             optimizer = ps.STLSQ(threshold=0),
-            
+            feature_names = feature_names
         )
     if transform_dependent:
         # combine response and forcing into one dataframe
@@ -516,7 +748,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
                                           constraint_rhs = constraint_rhs, 
                                           inequality_constraints=False,
                                           max_iter=10000),
-            
+            feature_names = feature_names
         )
 
         try:
@@ -1077,7 +1309,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                             differentiation_method= ps.FiniteDifference(),
                             feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False),
                             optimizer = ps.STLSQ(threshold=0),
-                            
+                            feature_names = feature_names
                         )
 
             else: # unoconstrained
@@ -1085,7 +1317,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                     differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
                     feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False), 
                     optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0),
-                    
+                    feature_names = feature_names
                     ) 
             if system_data.loc[:,immediate_forcing].empty: # the subsystem is autonomous
                 instant_fit = model.fit(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1))
