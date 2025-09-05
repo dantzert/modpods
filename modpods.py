@@ -7,7 +7,10 @@ import matplotlib.pyplot as plt
 import control as control
 import networkx as nx
 import sys
-import pyswmm # not a requirement for any other function
+try:
+    import pyswmm # not a requirement for any other function
+except ImportError:
+    pyswmm = None
 import re
 
 # delay model builds differential equations relating the dependent variables to transformations of all the variables
@@ -377,7 +380,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
                     differentiation_method= ps.FiniteDifference(),
                     feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
-                    optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
+                    optimizer = ps.STLSQ(threshold=0),
                     feature_names = feature_names
                 )
     elif (bibo_stable): # highest order output autocorrelation is constrained to be negative
@@ -463,7 +466,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
-            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
+            optimizer = ps.STLSQ(threshold=0),
             feature_names = feature_names
         )
     if transform_dependent:
@@ -507,7 +510,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
             feature_library=library,
-            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l0",
+            optimizer = ps.SR3(threshold=0, thresholder = "l0",
                                           nu = 10e9, initial_guess = initial_guess,
                                           constraint_lhs=constraint_lhs, 
                                           constraint_rhs = constraint_rhs, 
@@ -1073,7 +1076,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                 model = ps.SINDy(
                             differentiation_method= ps.FiniteDifference(),
                             feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False),
-                            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
+                            optimizer = ps.STLSQ(threshold=0),
                             feature_names = feature_names
                         )
 
