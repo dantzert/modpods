@@ -1,5 +1,6 @@
 import re
 import warnings
+from typing import Any
 
 import control
 import matplotlib.pyplot as plt
@@ -1407,7 +1408,7 @@ def delay_io_predict(
                 "HFV10": [np.nan],
                 "LFV": [np.nan],
                 "FDC": [np.nan],
-                "diverged": True,
+                "diverged": [True],
             }
 
             return {"prediction": prediction, "error_metrics": error_metrics}
@@ -1759,7 +1760,7 @@ def lti_system_gen(
     print(C)
     # use transform_only when calling delay_io_train to only train transfomrations for connections marked "d"
     # train a MISO model for each output
-    delay_models = {key: None for key in dependent_columns}
+    delay_models: dict[Any, Any] = {key: None for key in dependent_columns}
 
     for row in A.index:
         immediate_forcing = []
@@ -1934,7 +1935,7 @@ def lti_system_gen(
                         num_transforms  # the most recent one was worth it
                     )
 
-            transformation_approximations = {
+            transformation_approximations: dict[Any, Any] = {
                 transform_key: None
                 for transform_key in delay_models[row][optimal_number_transforms][
                     "shape_factors"
@@ -3064,8 +3065,6 @@ def infer_causative_topology(
                 one_quarter_f.loc[dep_col, other_col] = np.quantile(f_values, 0.25)
                 # generate a timeseries plot of dep_col with other_col
                 if verbose and "tr" not in other_col:
-                    import matplotlib.pyplot as plt
-
                     plt.figure(figsize=(10, 6))
                     plt.plot(system_data.index, system_data[dep_col], label=dep_col)
                     plt.plot(system_data.index, system_data[other_col], label=other_col)
@@ -3434,7 +3433,6 @@ def infer_causative_topology(
                                 # generate a timeseries plot of dep_col with other_col
                 # generate a timeseries plot of dep_col with other_col
                 if verbose and "tr" not in other_col and other_col in transformed_forcing.columns:
-                    import matplotlib.pyplot as plt
                     plt.figure(figsize=(10,6))
                     plt.plot(system_data.index, system_data[dep_col], label=dep_col)
                     plt.plot(system_data.index, system_data[other_col], label=other_col)
@@ -3554,8 +3552,6 @@ def infer_causative_topology(
                 transfer_entropies.loc[dep_col, other_col] = best_TE
                 # generate a timeseries plot of dep_col with other_col
                 if verbose:
-                    import matplotlib.pyplot as plt
-
                     plt.figure(figsize=(10, 6))
                     plt.plot(system_data.index, system_data[dep_col], label=dep_col)
                     plt.plot(system_data.index, system_data[other_col], label=other_col)
@@ -4046,13 +4042,13 @@ def topo_from_pystorms(pystorms_scenario):
                 if (
                     path_of_travel.index(step) == 0
                 ):  # first entry, previous step not meaningful
-                    prev_step = False
+                    prev_step = None
                 else:
                     prev_step = path_of_travel[path_of_travel.index(step) - 1]
                 if (
                     path_of_travel.index(step) == len(path_of_travel) - 1
                 ):  # last entry, next step not meaningful)
-                    next_step = False
+                    next_step = None
                 else:
                     next_step = path_of_travel[path_of_travel.index(step) + 1]
 
@@ -4338,13 +4334,13 @@ def subway_map_from_pystorms(pystorms_scenario):
                 if (
                     path_of_travel.index(step) == 0
                 ):  # first entry, previous step not meaningful
-                    prev_step = False
+                    prev_step = None
                 else:
                     prev_step = path_of_travel[path_of_travel.index(step) - 1]
                 if (
                     path_of_travel.index(step) == len(path_of_travel) - 1
                 ):  # last entry, next step not meaningful
-                    next_step = False
+                    next_step = None
                 else:
                     next_step = path_of_travel[path_of_travel.index(step) + 1]
 

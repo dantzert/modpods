@@ -11,7 +11,7 @@ Tests that load large data files or run long simulations are marked @pytest.mark
 
 import pathlib
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import control as ct
 import numpy as np
@@ -493,7 +493,7 @@ def trained_camels_model(
             bibo_stable=False,
             forcing_coef_constraints={"RAIM": -1, "PET": 1, "PRCP": -1},
         )
-    return model
+    return cast(dict[Any, Any], model)
 
 
 @pytest.mark.slow
