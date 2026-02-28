@@ -1,0 +1,18 @@
+# Core dependencies for modpods
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+matplotlib>=3.7
+control>=0.9
+pysindy>=1.7
+networkx>=3.0
+pyswmm>=1.0
+statsmodels>=0.14
+
+# Testing
+pytest>=7.0
+
+# Linting
+black>=23.0
+ruff>=0.1
+mypy>=1.0

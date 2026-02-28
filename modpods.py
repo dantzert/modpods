@@ -1960,7 +1960,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
     if method == 'granger': # granger causality
         from statsmodels.tsa.stattools import grangercausalitytests
         causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns, dtype=float).fillna(1.0)
 
         print(causative_topo)
 
