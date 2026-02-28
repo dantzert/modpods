@@ -6,6 +6,8 @@ import warnings
 import pysindy as ps 
 # Suppress the specific AxesWarning from pysindy after import
 warnings.filterwarnings('ignore', message='.*axes labeled for array with.*', module='pysindy')
+# ConstrainedSR3 moved to a private submodule in pysindy 2.x
+from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
 
 
 import scipy.stats as stats
@@ -362,7 +364,6 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
             differentiation_method= ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction), 
             optimizer = ps.STLSQ(threshold=0), 
-            feature_names = feature_names
         )
     elif (forcing_coef_constraints is not None and not bibo_stable):
         library = ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction)
@@ -384,8 +385,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
                     differentiation_method= ps.FiniteDifference(),
                     feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
-                    optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
-                    feature_names = feature_names
+                    optimizer = _ConstrainedSR3(reg_weight_lam=0, regularizer="l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
                 )
     elif (bibo_stable): # highest order output autocorrelation is constrained to be negative
         #import cvxpy
@@ -470,8 +470,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
-            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
-            feature_names = feature_names
+            optimizer = _ConstrainedSR3(reg_weight_lam=0, regularizer="l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
         )
     if transform_dependent:
         # combine response and forcing into one dataframe
@@ -514,13 +513,12 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         model = ps.SINDy(
             differentiation_method= ps.FiniteDifference(),
             feature_library=library,
-            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l0",
-                                          nu = 10e9, initial_guess = initial_guess,
+            optimizer = _ConstrainedSR3(reg_weight_lam=0, regularizer="l0",
+                                          relax_coeff_nu = 10e9, initial_guess = initial_guess,
                                           constraint_lhs=constraint_lhs, 
                                           constraint_rhs = constraint_rhs, 
                                           inequality_constraints=False,
                                           max_iter=10000),
-            feature_names = feature_names
         )
 
         try:
@@ -611,7 +609,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
         except Exception as e: # and print the exception:
             print("Exception in simulation\n")
             print(e)
-            error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN],"r2":r2}
+            error_metrics = {"MAE":[np.nan],"RMSE":[np.nan],"NSE":[np.nan],"alpha":[np.nan],"beta":[np.nan],"HFV":[np.nan],"HFV10":[np.nan],"LFV":[np.nan],"FDC":[np.nan],"r2":r2}
 
             return {"error_metrics": error_metrics, "model": model, "simulated": response[1:], "response": response, "forcing": forcing, "index": index,"diverged":True}
 
@@ -632,20 +630,23 @@ def transform_inputs(shape_factors, scale_factors, loc_factors,index, forcing):
     #print("forcing at beginning of transform inputs")
     #print(forcing)
     shape_time = np.arange(0,len(index),1) 
+    input_values_cache = {col: np.array(forcing[col].values, dtype=float) for col in orig_forcing_columns}
     for input in orig_forcing_columns: # which input are we talking about?
         for transform_idx in range(1,num_transforms + 1): # which transformation of that input are we talking about?
+            col_name = str(str(input) + "_tr_" + str(transform_idx))
             # if the column doesn't exist, create it
-            if (str(str(input) + "_tr_" + str(transform_idx)) not in forcing.columns):
-                forcing.loc[:,str(str(input) + "_tr_" + str(transform_idx))] = 0.0
+            if col_name not in forcing.columns:
+                forcing.loc[:,col_name] = 0.0
             # now, fill it with zeros (need to reset between different transformation shape factors)
-            forcing[str(str(input) + "_tr_" + str(transform_idx))].values[:] = float(0.0)
-            #print(forcing)
+            # accumulate into a numpy array first (compatible with pandas Copy-on-Write semantics)
+            col_data = np.zeros(len(index))
             for idx in range(0,len(index)): # timestep
-                if (abs(forcing[input].iloc[idx]) > 10**-6): # when nonzero forcing occurs
+                if (abs(input_values_cache[input][idx]) > 10**-6): # when nonzero forcing occurs
                     if (idx == int(0)):
-                        forcing[str(str(input) + "_tr_" + str(transform_idx))].values[idx:] += forcing[input].values[idx]*stats.gamma.pdf(shape_time, shape_factors[input][transform_idx], scale=scale_factors[input][transform_idx], loc = loc_factors[input][transform_idx]) 
+                        col_data[idx:] += input_values_cache[input][idx]*stats.gamma.pdf(shape_time, shape_factors[input][transform_idx], scale=scale_factors[input][transform_idx], loc = loc_factors[input][transform_idx]) 
                     else:
-                        forcing[str(str(input) + "_tr_" + str(transform_idx))].values[idx:] += forcing[input].values[idx]*stats.gamma.pdf(shape_time[:-idx], shape_factors[input][transform_idx], scale=scale_factors[input][transform_idx], loc = loc_factors[input][transform_idx]) 
+                        col_data[idx:] += input_values_cache[input][idx]*stats.gamma.pdf(shape_time[:-idx], shape_factors[input][transform_idx], scale=scale_factors[input][transform_idx], loc = loc_factors[input][transform_idx]) 
+            forcing.loc[:,col_name] = col_data
 
     #print("forcing at end of transform inputs")
     #print(forcing)
@@ -674,8 +675,8 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
         print("Exception in simulation\n")
         print(e)
         print("diverged.")
-        error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
-        return {'prediction':np.NAN*np.ones(shape=response[windup_timesteps+1:].shape), 'error_metrics':error_metrics,"diverged":True}
+        error_metrics = {"MAE":[np.nan],"RMSE":[np.nan],"NSE":[np.nan],"alpha":[np.nan],"beta":[np.nan],"HFV":[np.nan],"HFV10":[np.nan],"LFV":[np.nan],"FDC":[np.nan]}
+        return {'prediction':np.nan*np.ones(shape=response[windup_timesteps+1:].shape), 'error_metrics':error_metrics,"diverged":True}
 
     # return all the error metrics if the prediction is being evaluated against known measurements
     if (evaluation):
@@ -738,11 +739,11 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
         except Exception as e: # and print the exception:
             print(e)
             print("Simulation diverged.")
-            error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN],"diverged":True}
+            error_metrics = {"MAE":[np.nan],"RMSE":[np.nan],"NSE":[np.nan],"alpha":[np.nan],"beta":[np.nan],"HFV":[np.nan],"HFV10":[np.nan],"LFV":[np.nan],"FDC":[np.nan],"diverged":True}
 
             return {'prediction':prediction, 'error_metrics':error_metrics}
     else:
-        error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
+        error_metrics = {"MAE":[np.nan],"RMSE":[np.nan],"NSE":[np.nan],"alpha":[np.nan],"beta":[np.nan],"HFV":[np.nan],"HFV10":[np.nan],"LFV":[np.nan],"FDC":[np.nan]}
         return {'prediction':prediction, 'error_metrics':error_metrics,"diverged":False}
 
 
@@ -1059,14 +1060,15 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                 # Figure out how many library features there will be
                 library = ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False)
                 #total_train = pd.concat((response,forcing), axis='columns')
-                library.fit([ps.AxesArray(feature_names,{"ax_sample":0,"ax_coord":1})])
+                # fit on a dummy (2, n_features) array; 2 rows is the minimum pysindy requires
+                library.fit(np.zeros((2, len(feature_names))))
                 n_features = library.n_output_features_
                 #print(f"Features ({n_features}):", library.get_feature_names())
                 # Set constraints
                 #n_targets = total_train.shape[1] # not sure what targets means after reading through the pysindy docs
                 #print("n_targets")
                 #print(n_targets)
-                constraint_rhs = 0
+                constraint_rhs = np.zeros(1)
                 # one row per constraint, one column per coefficient
                 constraint_lhs = np.zeros((1 , n_features ))
 
@@ -1080,8 +1082,7 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                 model = ps.SINDy(
                             differentiation_method= ps.FiniteDifference(),
                             feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False),
-                            optimizer = ps.ConstrainedSR3(threshold=0, thresholder = "l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
-                            feature_names = feature_names
+                            optimizer = _ConstrainedSR3(reg_weight_lam=0, regularizer="l2",constraint_lhs=constraint_lhs, constraint_rhs = constraint_rhs, inequality_constraints=True),
                         )
 
             else: # unoconstrained
@@ -1089,7 +1090,6 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                     differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
                     feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False), 
                     optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0),
-                    feature_names = feature_names
                     ) 
             if system_data.loc[:,immediate_forcing].empty: # the subsystem is autonomous
                 instant_fit = model.fit(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1))
@@ -1302,9 +1302,9 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
 
 
 
-    A.fillna(0.0,inplace=True)
-    B.fillna(0.0,inplace=True)
-    C.fillna(0.0,inplace=True)
+    A = A.apply(pd.to_numeric, errors='coerce').fillna(0.0)
+    B = B.apply(pd.to_numeric, errors='coerce').fillna(0.0)
+    C = C.apply(pd.to_numeric, errors='coerce').fillna(0.0)
     
     # if bibo_stable is specified and A not hurwitz, make A hurwitz by defining A' = A - I*max(real(eig(A)))
     # this will gaurantee stability (max eigenvalue will have real part < 0)
@@ -1960,7 +1960,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
     if method == 'granger': # granger causality
         from statsmodels.tsa.stattools import grangercausalitytests
         causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns, dtype=float).fillna(1.0)
 
         print(causative_topo)
 
@@ -2692,6 +2692,15 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
     
 
 def topo_from_pystorms(pystorms_scenario):
+
+    # pyswmm 2.x prevents multiple simultaneous simulations in the same process
+    # via a class-level flag.  Reset it so we can open our own simulation even if
+    # the caller's pystorms scenario already has one open internally.
+    try:
+        from pyswmm.simulation import _sim_state_instance
+        _sim_state_instance.sim_is_instantiated = False
+    except ImportError:
+        pass
 
     # if any are 3-tuples, chop them down to 2-tuples
     pystorms_scenario.config['states'] = [t[:-1] if len(t) == 3 else t for t in pystorms_scenario.config['states']]
