@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+
 import modpods
 import modpods_bayesian
 
@@ -14,13 +14,14 @@ t = np.arange(n_samples)
 # Simple system: output depends on delayed and transformed input
 input_signal = np.random.randn(n_samples) * 0.5 + np.sin(t * 0.1)
 delayed_input = np.concatenate([np.zeros(5), input_signal[:-5]])  # 5-step delay
-output_signal = 0.7 * delayed_input + 0.3 * np.roll(delayed_input, 3) + 0.1 * np.random.randn(n_samples)
+output_signal = (
+    0.7 * delayed_input
+    + 0.3 * np.roll(delayed_input, 3)
+    + 0.1 * np.random.randn(n_samples)
+)
 
 # Create DataFrame
-test_data = pd.DataFrame({
-    'input': input_signal,
-    'output': output_signal
-})
+test_data = pd.DataFrame({"input": input_signal, "output": output_signal})
 
 # Test with minimal parameters
 print("Testing Bayesian optimization with minimal example...")
@@ -28,31 +29,51 @@ try:
     # Test compass search first (original function)
     print("\n=== Testing Original Compass Search ===")
     model_compass = modpods.delay_io_train(
-        test_data, ['output'], ['input'],
-        windup_timesteps=10, init_transforms=1, max_transforms=1,
-        max_iter=5, verbose=True, poly_order=1
+        test_data,
+        ["output"],
+        ["input"],
+        windup_timesteps=10,
+        init_transforms=1,
+        max_transforms=1,
+        max_iter=5,
+        verbose=True,
+        poly_order=1,
     )
     print("Compass search completed successfully!")
     print(f"R² = {model_compass[1]['final_model']['error_metrics']['r2']:.6f}")
-    
-    # Test Bayesian optimization  
+
+    # Test Bayesian optimization
     print("\n=== Testing Bayesian Optimization ===")
     model_bayesian = modpods_bayesian.delay_io_train_bayesian(
-        test_data, ['output'], ['input'],
-        windup_timesteps=10, init_transforms=1, max_transforms=1,
-        max_iter=15, verbose=True, poly_order=1
+        test_data,
+        ["output"],
+        ["input"],
+        windup_timesteps=10,
+        init_transforms=1,
+        max_transforms=1,
+        max_iter=15,
+        verbose=True,
+        poly_order=1,
     )
     print("Bayesian optimization completed successfully!")
     print(f"R² = {model_bayesian[1]['final_model']['error_metrics']['r2']:.6f}")
-    
+
     print("\n=== Comparison ===")
-    print(f"Compass search R²: {model_compass[1]['final_model']['error_metrics']['r2']:.6f}")
-    print(f"Bayesian opt R²:   {model_bayesian[1]['final_model']['error_metrics']['r2']:.6f}")
-    
-    improvement = model_bayesian[1]['final_model']['error_metrics']['r2'] - model_compass[1]['final_model']['error_metrics']['r2']
+    print(
+        f"Compass search R²: {model_compass[1]['final_model']['error_metrics']['r2']:.6f}"
+    )
+    print(
+        f"Bayesian opt R²:   {model_bayesian[1]['final_model']['error_metrics']['r2']:.6f}"
+    )
+
+    improvement = (
+        model_bayesian[1]["final_model"]["error_metrics"]["r2"]
+        - model_compass[1]["final_model"]["error_metrics"]["r2"]
+    )
     print(f"Improvement:       {improvement:.6f}")
-    
+
 except Exception as e:
     print(f"Error: {e}")
     import traceback
+
     traceback.print_exc()
