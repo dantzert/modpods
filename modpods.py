@@ -48,14 +48,33 @@ def _propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=1
             min_x = res.x
             
     return min_x.reshape(-1, 1)
+import re
+import warnings
+from typing import Any
+
+import control
+import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
+import pandas as pd
+import pysindy as ps
+import pyswmm  # not a requirement for any other function
+import scipy.stats as stats
+from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
+
+# Suppress the specific AxesWarning from pysindy after import
+warnings.filterwarnings(
+    "ignore", message=".*axes labeled for array with.*", module="pysindy"
+)
+
 
 # delay model builds differential equations relating the dependent variables to transformations of all the variables
 # if there are no independent variables, then dependent_columns should be a list of all the columns in the dataframe
 # and independent_columns should be an empty list
 # by default, only the independent variables are transformed, but if transform_dependent is set to True, then the dependent variables are also transformed
-# REQUIRES: 
-# a pandas dataframe, 
-# the column names of the dependent and indepdent variables, 
+# REQUIRES:
+# a pandas dataframe,
+# the column names of the dependent and indepdent variables,
 # the number of timesteps to "wind up" the latent states,
 # the initial number of transformations to use in the optimization,
 # the maximum number of transformations to use in the optimization,
@@ -84,59 +103,88 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
     orig_forcing_columns = forcing.columns
     response = system_data[dependent_columns].copy(deep=True)
 
-    results = dict() # to store the optimized models for each number of transformations
+    results = dict()  # to store the optimized models for each number of transformations
 
     if transform_dependent:
-        shape_factors = pd.DataFrame(columns = system_data.columns, index = range(init_transforms, max_transforms+1))
-        shape_factors.iloc[0,:] = 1 # first transformation is [1,1,0] for each input
-        scale_factors = pd.DataFrame(columns = system_data.columns, index = range(init_transforms, max_transforms+1))
-        scale_factors.iloc[0,:] = 1 # first transformation is [1,1,0] for each input
-        loc_factors = pd.DataFrame(columns = system_data.columns, index = range(init_transforms, max_transforms+1))
-        loc_factors.iloc[0,:] = 0 # first transformation is [1,1,0] for each input
-    elif transform_only is not None: # the user provided a list of columns to transform
-        shape_factors = pd.DataFrame(columns = transform_only, index = range(init_transforms, max_transforms+1))
-        shape_factors.iloc[0,:] = 1 # first transformation is [1,1,0] for each input
-        scale_factors = pd.DataFrame(columns = transform_only, index = range(init_transforms, max_transforms+1))
-        scale_factors.iloc[0,:] = 1 # first transformation is [1,1,0] for each input
-        loc_factors = pd.DataFrame(columns = transform_only, index = range(init_transforms, max_transforms+1))
-        loc_factors.iloc[0,:] = 0 # first transformation is [1,1,0] for each input
+        shape_factors = pd.DataFrame(
+            columns=system_data.columns,
+            index=range(init_transforms, max_transforms + 1),
+        )
+        shape_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
+        scale_factors = pd.DataFrame(
+            columns=system_data.columns,
+            index=range(init_transforms, max_transforms + 1),
+        )
+        scale_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
+        loc_factors = pd.DataFrame(
+            columns=system_data.columns,
+            index=range(init_transforms, max_transforms + 1),
+        )
+        loc_factors.iloc[0, :] = 0  # first transformation is [1,1,0] for each input
+    elif transform_only is not None:  # the user provided a list of columns to transform
+        shape_factors = pd.DataFrame(
+            columns=transform_only, index=range(init_transforms, max_transforms + 1)
+        )
+        shape_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
+        scale_factors = pd.DataFrame(
+            columns=transform_only, index=range(init_transforms, max_transforms + 1)
+        )
+        scale_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
+        loc_factors = pd.DataFrame(
+            columns=transform_only, index=range(init_transforms, max_transforms + 1)
+        )
+        loc_factors.iloc[0, :] = 0  # first transformation is [1,1,0] for each input
     else:
         # the transformation factors should be pandas dataframes where the index is which transformation it is and the columns are the variables
-        shape_factors = pd.DataFrame(columns = forcing.columns, index = range(init_transforms, max_transforms+1))
-        shape_factors.iloc[0,:] = 1 # first transformation is [1,1,0] for each input
-        scale_factors = pd.DataFrame(columns = forcing.columns, index = range(init_transforms, max_transforms+1))
-        scale_factors.iloc[0,:] = 1 # first transformation is [1,1,0] for each input
-        loc_factors = pd.DataFrame(columns = forcing.columns, index = range(init_transforms, max_transforms+1))
-        loc_factors.iloc[0,:] = 0 # first transformation is [1,1,0] for each input
-    #print(shape_factors)
-    #print(scale_factors)
-    #print(loc_factors)
+        shape_factors = pd.DataFrame(
+            columns=forcing.columns, index=range(init_transforms, max_transforms + 1)
+        )
+        shape_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
+        scale_factors = pd.DataFrame(
+            columns=forcing.columns, index=range(init_transforms, max_transforms + 1)
+        )
+        scale_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
+        loc_factors = pd.DataFrame(
+            columns=forcing.columns, index=range(init_transforms, max_transforms + 1)
+        )
+        loc_factors.iloc[0, :] = 0  # first transformation is [1,1,0] for each input
+    # print(shape_factors)
+    # print(scale_factors)
+    # print(loc_factors)
     # first transformation is [1,1,0] for each input
-    '''
+    """
     shape_factors = np.ones(shape=(forcing.shape[1] , init_transforms)   )
     scale_factors = np.ones(shape=(forcing.shape[1] , init_transforms)   )
     loc_factors = np.zeros(shape=(forcing.shape[1] , init_transforms)   )
-    '''
-    #speeds =  list([500,200,50,10, 5,2, 1.1, 1.05,1.01]) 
-    speeds = list([100,50,20,10,5,2,1.1,1.05,1.01]) # I don't have a great idea of what good values for these are yet
-    if transform_dependent: # just trying something
-        improvement_threshold = 1.001 # when improvements are tiny, tighten up the jumps
+    """
+    # speeds =  list([500,200,50,10, 5,2, 1.1, 1.05,1.01])
+    speeds = list(
+        [100, 50, 20, 10, 5, 2, 1.1, 1.05, 1.01]
+    )  # I don't have a great idea of what good values for these are yet
+    if transform_dependent:  # just trying something
+        improvement_threshold = (
+            1.001  # when improvements are tiny, tighten up the jumps
+        )
     else:
         improvement_threshold = 1.0
 
-    for num_transforms in range(init_transforms,max_transforms + 1):
+    for num_transforms in range(init_transforms, max_transforms + 1):
         print("num_transforms")
         print(num_transforms)
         speed_idx = 0
         speed = speeds[speed_idx]
 
-        if (not num_transforms == init_transforms):  # if we're not starting right now
+        if not num_transforms == init_transforms:  # if we're not starting right now
             # start dull
-            shape_factors.iloc[num_transforms-1,:] = 10*(num_transforms-1) # start with a broad peak centered at ten timesteps
-            scale_factors.iloc[num_transforms-1,:] = 1
-            loc_factors.iloc[num_transforms-1,:] = 0
+            shape_factors.iloc[num_transforms - 1, :] = 10 * (
+                num_transforms - 1
+            )  # start with a broad peak centered at ten timesteps
+            scale_factors.iloc[num_transforms - 1, :] = 1
+            loc_factors.iloc[num_transforms - 1, :] = 0
             if verbose:
-                print("starting factors for additional transformation\nshape\nscale\nlocation")
+                print(
+                    "starting factors for additional transformation\nshape\nscale\nlocation"
+                )
                 print(shape_factors)
                 print(scale_factors)
                 print(loc_factors)
@@ -269,10 +317,10 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
 
         print("\nInitial model:\n")
         try:
-            print(prev_model['model'].print(precision=5))
+            print(prev_model["model"].print(precision=5))
             print("R^2")
-            print(prev_model['error_metrics']['r2'])
-        except Exception as e: # and print the exception:
+            print(prev_model["error_metrics"]["r2"])
+        except Exception as e:  # and print the exception:
             print(e)
             pass
         print("shape factors")
@@ -284,163 +332,343 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
         print("\n")
 
         if not verbose:
-            print("training ", end='')
+            print("training ", end="")
 
-        #no_improvement_last_time = False
-        for iterations in range(0,max_iter ):
+        # no_improvement_last_time = False
+        for iterations in range(0, max_iter):
             if not verbose and iterations % 5 == 0:
-                print(str(iterations)+".", end='')
+                print(str(iterations) + ".", end="")
 
             if transform_dependent:
-                tuning_input = system_data.columns[(iterations // num_transforms) %  len(system_data.columns)] # row =  iter // width % height]
+                tuning_input = system_data.columns[
+                    (iterations // num_transforms) % len(system_data.columns)
+                ]  # row =  iter // width % height]
             elif transform_only is not None:
-                tuning_input = transform_only[(iterations // num_transforms) %  len(transform_only)]
+                tuning_input = transform_only[
+                    (iterations // num_transforms) % len(transform_only)
+                ]
             else:
-                tuning_input = orig_forcing_columns[(iterations // num_transforms) %  len(orig_forcing_columns)] # row =  iter // width % height
-            tuning_line = iterations % num_transforms + 1 # col =  % width (plus one because there's no zeroth transformation)
+                tuning_input = orig_forcing_columns[
+                    (iterations // num_transforms) % len(orig_forcing_columns)
+                ]  # row =  iter // width % height
+            tuning_line = (
+                iterations % num_transforms + 1
+            )  # col =  % width (plus one because there's no zeroth transformation)
             if verbose:
-                print(str("tuning input: {i} | tuning transformation: {l:g}".format(i=tuning_input,l=tuning_line)))
-
+                print(
+                    str(
+                        "tuning input: {i} | tuning transformation: {l:g}".format(
+                            i=tuning_input, l=tuning_line
+                        )
+                    )
+                )
 
             sooner_locs = loc_factors.copy(deep=True)
-            #sooner_locs[tuning_input][tuning_line] = float(loc_factors[tuning_input][tuning_line] - speed/10  )
-            sooner_locs.loc[tuning_line,tuning_input] = float(loc_factors.loc[tuning_line,tuning_input] - speed/10)
-            if ( sooner_locs[tuning_input][tuning_line] < 0):
-                sooner = {'error_metrics':{'r2':-1}}
+            # sooner_locs[tuning_input][tuning_line] = float(loc_factors[tuning_input][tuning_line] - speed/10  )
+            sooner_locs.loc[tuning_line, tuning_input] = float(
+                loc_factors.loc[tuning_line, tuning_input] - speed / 10
+            )
+            if sooner_locs[tuning_input][tuning_line] < 0:
+                sooner = {"error_metrics": {"r2": -1}}
             else:
-                sooner = SINDY_delays_MI(shape_factors ,scale_factors ,sooner_locs, 
-                system_data.index, forcing, response, extra_verbose, poly_order , 
-                include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
-      
-      
+                sooner = SINDY_delays_MI(
+                    shape_factors,
+                    scale_factors,
+                    sooner_locs,
+                    system_data.index,
+                    forcing,
+                    response,
+                    extra_verbose,
+                    poly_order,
+                    include_bias,
+                    include_interaction,
+                    windup_timesteps,
+                    bibo_stable,
+                    transform_dependent=transform_dependent,
+                    transform_only=transform_only,
+                    forcing_coef_constraints=forcing_coef_constraints,
+                )
+
             later_locs = loc_factors.copy(deep=True)
-            #later_locs[tuning_input][tuning_line] = float ( loc_factors[tuning_input][tuning_line]  +   1.01*speed/10 )
-            later_locs.loc[tuning_line,tuning_input] = float(loc_factors.loc[tuning_line,tuning_input] + 1.01*speed/10)
-            later = SINDY_delays_MI(shape_factors , scale_factors,later_locs, 
-                system_data.index, forcing, response, extra_verbose, poly_order , 
-                include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
-      
+            # later_locs[tuning_input][tuning_line] = float ( loc_factors[tuning_input][tuning_line]  +   1.01*speed/10 )
+            later_locs.loc[tuning_line, tuning_input] = float(
+                loc_factors.loc[tuning_line, tuning_input] + 1.01 * speed / 10
+            )
+            later = SINDY_delays_MI(
+                shape_factors,
+                scale_factors,
+                later_locs,
+                system_data.index,
+                forcing,
+                response,
+                extra_verbose,
+                poly_order,
+                include_bias,
+                include_interaction,
+                windup_timesteps,
+                bibo_stable,
+                transform_dependent=transform_dependent,
+                transform_only=transform_only,
+                forcing_coef_constraints=forcing_coef_constraints,
+            )
 
             shape_up = shape_factors.copy(deep=True)
-            #shape_up[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]*speed*1.01 )
-            shape_up.loc[tuning_line,tuning_input] = float(shape_factors.loc[tuning_line,tuning_input]*speed*1.01)
-            shape_upped = SINDY_delays_MI(shape_up , scale_factors, loc_factors, 
-                                    system_data.index, forcing, response, extra_verbose, poly_order , 
-                                    include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
-      
+            # shape_up[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]*speed*1.01 )
+            shape_up.loc[tuning_line, tuning_input] = float(
+                shape_factors.loc[tuning_line, tuning_input] * speed * 1.01
+            )
+            shape_upped = SINDY_delays_MI(
+                shape_up,
+                scale_factors,
+                loc_factors,
+                system_data.index,
+                forcing,
+                response,
+                extra_verbose,
+                poly_order,
+                include_bias,
+                include_interaction,
+                windup_timesteps,
+                bibo_stable,
+                transform_dependent=transform_dependent,
+                transform_only=transform_only,
+                forcing_coef_constraints=forcing_coef_constraints,
+            )
+
             shape_down = shape_factors.copy(deep=True)
-            #shape_down[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]/speed )
-            shape_down.loc[tuning_line,tuning_input] = float(shape_factors.loc[tuning_line,tuning_input]/speed)
-            if (shape_down[tuning_input][tuning_line] < 1):
-                shape_downed = {'error_metrics':{'r2':-1}} # return a score of negative one as this is illegal
+            # shape_down[tuning_input][tuning_line] = float ( shape_factors[tuning_input][tuning_line]/speed )
+            shape_down.loc[tuning_line, tuning_input] = float(
+                shape_factors.loc[tuning_line, tuning_input] / speed
+            )
+            if shape_down[tuning_input][tuning_line] < 1:
+                shape_downed = {
+                    "error_metrics": {"r2": -1}
+                }  # return a score of negative one as this is illegal
             else:
-                shape_downed = SINDY_delays_MI(shape_down , scale_factors, loc_factors, 
-                                    system_data.index, forcing, response, extra_verbose, poly_order , 
-                                    include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
+                shape_downed = SINDY_delays_MI(
+                    shape_down,
+                    scale_factors,
+                    loc_factors,
+                    system_data.index,
+                    forcing,
+                    response,
+                    extra_verbose,
+                    poly_order,
+                    include_bias,
+                    include_interaction,
+                    windup_timesteps,
+                    bibo_stable,
+                    transform_dependent=transform_dependent,
+                    transform_only=transform_only,
+                    forcing_coef_constraints=forcing_coef_constraints,
+                )
 
             scale_up = scale_factors.copy(deep=True)
-            #scale_up[tuning_input][tuning_line] = float(  scale_factors[tuning_input][tuning_line]*speed*1.01 )
-            scale_up.loc[tuning_line,tuning_input] = float(scale_factors.loc[tuning_line,tuning_input]*speed*1.01)
-            scaled_up = SINDY_delays_MI(shape_factors , scale_up, loc_factors, 
-                                    system_data.index, forcing, response, extra_verbose, poly_order , 
-                                    include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
-
+            # scale_up[tuning_input][tuning_line] = float(  scale_factors[tuning_input][tuning_line]*speed*1.01 )
+            scale_up.loc[tuning_line, tuning_input] = float(
+                scale_factors.loc[tuning_line, tuning_input] * speed * 1.01
+            )
+            scaled_up = SINDY_delays_MI(
+                shape_factors,
+                scale_up,
+                loc_factors,
+                system_data.index,
+                forcing,
+                response,
+                extra_verbose,
+                poly_order,
+                include_bias,
+                include_interaction,
+                windup_timesteps,
+                bibo_stable,
+                transform_dependent=transform_dependent,
+                transform_only=transform_only,
+                forcing_coef_constraints=forcing_coef_constraints,
+            )
 
             scale_down = scale_factors.copy(deep=True)
-            #scale_down[tuning_input][tuning_line] = float ( scale_factors[tuning_input][tuning_line]/speed )
-            scale_down.loc[tuning_line,tuning_input] = float(scale_factors.loc[tuning_line,tuning_input]/speed)
-            scaled_down = SINDY_delays_MI(shape_factors , scale_down, loc_factors, 
-                                    system_data.index, forcing, response, extra_verbose, poly_order , 
-                                    include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
-      
+            # scale_down[tuning_input][tuning_line] = float ( scale_factors[tuning_input][tuning_line]/speed )
+            scale_down.loc[tuning_line, tuning_input] = float(
+                scale_factors.loc[tuning_line, tuning_input] / speed
+            )
+            scaled_down = SINDY_delays_MI(
+                shape_factors,
+                scale_down,
+                loc_factors,
+                system_data.index,
+                forcing,
+                response,
+                extra_verbose,
+                poly_order,
+                include_bias,
+                include_interaction,
+                windup_timesteps,
+                bibo_stable,
+                transform_dependent=transform_dependent,
+                transform_only=transform_only,
+                forcing_coef_constraints=forcing_coef_constraints,
+            )
+
             # rounder
             rounder_shape = shape_factors.copy(deep=True)
-            #rounder_shape[tuning_input][tuning_line] = shape_factors[tuning_input][tuning_line]*(speed*1.01)
-            rounder_shape.loc[tuning_line,tuning_input] = shape_factors.loc[tuning_line,tuning_input]*(speed*1.01)
+            # rounder_shape[tuning_input][tuning_line] = shape_factors[tuning_input][tuning_line]*(speed*1.01)
+            rounder_shape.loc[tuning_line, tuning_input] = shape_factors.loc[
+                tuning_line, tuning_input
+            ] * (speed * 1.01)
             rounder_scale = scale_factors.copy(deep=True)
-            #rounder_scale[tuning_input][tuning_line] = scale_factors[tuning_input][tuning_line]/(speed*1.01)
-            rounder_scale.loc[tuning_line,tuning_input] = scale_factors.loc[tuning_line,tuning_input]/(speed*1.01)
-            rounder = SINDY_delays_MI(rounder_shape , rounder_scale, loc_factors, 
-                                    system_data.index, forcing, response, extra_verbose, poly_order , 
-                                    include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
+            # rounder_scale[tuning_input][tuning_line] = scale_factors[tuning_input][tuning_line]/(speed*1.01)
+            rounder_scale.loc[tuning_line, tuning_input] = scale_factors.loc[
+                tuning_line, tuning_input
+            ] / (speed * 1.01)
+            rounder = SINDY_delays_MI(
+                rounder_shape,
+                rounder_scale,
+                loc_factors,
+                system_data.index,
+                forcing,
+                response,
+                extra_verbose,
+                poly_order,
+                include_bias,
+                include_interaction,
+                windup_timesteps,
+                bibo_stable,
+                transform_dependent=transform_dependent,
+                transform_only=transform_only,
+                forcing_coef_constraints=forcing_coef_constraints,
+            )
 
             # sharper
             sharper_shape = shape_factors.copy(deep=True)
-            #sharper_shape[tuning_input][tuning_line] = shape_factors[tuning_input][tuning_line]/speed
-            sharper_shape.loc[tuning_line,tuning_input] = shape_factors.loc[tuning_line,tuning_input]/speed
-            if (sharper_shape[tuning_input][tuning_line] < 1):
-                sharper = {'error_metrics':{'r2':-1}} # lower bound on shape to avoid inf
+            # sharper_shape[tuning_input][tuning_line] = shape_factors[tuning_input][tuning_line]/speed
+            sharper_shape.loc[tuning_line, tuning_input] = (
+                shape_factors.loc[tuning_line, tuning_input] / speed
+            )
+            if sharper_shape[tuning_input][tuning_line] < 1:
+                sharper = {
+                    "error_metrics": {"r2": -1}
+                }  # lower bound on shape to avoid inf
             else:
                 sharper_scale = scale_factors.copy(deep=True)
-                #sharper_scale[tuning_input][tuning_line] = scale_factors[tuning_input][tuning_line]*speed
-                sharper_scale.loc[tuning_line,tuning_input] = scale_factors.loc[tuning_line,tuning_input]*speed
-                sharper = SINDY_delays_MI(sharper_shape ,sharper_scale,loc_factors, 
-                                            system_data.index, forcing, response, extra_verbose, poly_order , 
-                                            include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
+                # sharper_scale[tuning_input][tuning_line] = scale_factors[tuning_input][tuning_line]*speed
+                sharper_scale.loc[tuning_line, tuning_input] = (
+                    scale_factors.loc[tuning_line, tuning_input] * speed
+                )
+                sharper = SINDY_delays_MI(
+                    sharper_shape,
+                    sharper_scale,
+                    loc_factors,
+                    system_data.index,
+                    forcing,
+                    response,
+                    extra_verbose,
+                    poly_order,
+                    include_bias,
+                    include_interaction,
+                    windup_timesteps,
+                    bibo_stable,
+                    transform_dependent=transform_dependent,
+                    transform_only=transform_only,
+                    forcing_coef_constraints=forcing_coef_constraints,
+                )
 
+            scores = [
+                prev_model["error_metrics"]["r2"],
+                shape_upped["error_metrics"]["r2"],
+                shape_downed["error_metrics"]["r2"],
+                scaled_up["error_metrics"]["r2"],
+                scaled_down["error_metrics"]["r2"],
+                sooner["error_metrics"]["r2"],
+                later["error_metrics"]["r2"],
+                rounder["error_metrics"]["r2"],
+                sharper["error_metrics"]["r2"],
+            ]
+            # print(scores)
 
-    
-
-            scores = [prev_model['error_metrics']['r2'], shape_upped['error_metrics']['r2'], shape_downed['error_metrics']['r2'], 
-                      scaled_up['error_metrics']['r2'], scaled_down['error_metrics']['r2'], sooner['error_metrics']['r2'], 
-                      later['error_metrics']['r2'], rounder['error_metrics']['r2'], sharper['error_metrics']['r2'] ]
-            #print(scores)
-
-            if (sooner['error_metrics']['r2'] >= max(scores) and sooner['error_metrics']['r2'] > improvement_threshold*prev_model['error_metrics']['r2']):
+            if (
+                sooner["error_metrics"]["r2"] >= max(scores)
+                and sooner["error_metrics"]["r2"]
+                > improvement_threshold * prev_model["error_metrics"]["r2"]
+            ):
                 prev_model = sooner.copy()
                 loc_factors = sooner_locs.copy(deep=True)
-            elif (later['error_metrics']['r2'] >= max(scores) and later['error_metrics']['r2'] > improvement_threshold*prev_model['error_metrics']['r2']):
+            elif (
+                later["error_metrics"]["r2"] >= max(scores)
+                and later["error_metrics"]["r2"]
+                > improvement_threshold * prev_model["error_metrics"]["r2"]
+            ):
                 prev_model = later.copy()
                 loc_factors = later_locs.copy(deep=True)
-            elif(shape_upped['error_metrics']['r2'] >= max(scores) and shape_upped['error_metrics']['r2'] > improvement_threshold*prev_model['error_metrics']['r2']):
+            elif (
+                shape_upped["error_metrics"]["r2"] >= max(scores)
+                and shape_upped["error_metrics"]["r2"]
+                > improvement_threshold * prev_model["error_metrics"]["r2"]
+            ):
                 prev_model = shape_upped.copy()
                 shape_factors = shape_up.copy(deep=True)
-            elif(shape_downed['error_metrics']['r2'] >=max(scores) and shape_downed['error_metrics']['r2'] > improvement_threshold*prev_model['error_metrics']['r2']):
+            elif (
+                shape_downed["error_metrics"]["r2"] >= max(scores)
+                and shape_downed["error_metrics"]["r2"]
+                > improvement_threshold * prev_model["error_metrics"]["r2"]
+            ):
                 prev_model = shape_downed.copy()
                 shape_factors = shape_down.copy(deep=True)
-            elif(scaled_up['error_metrics']['r2'] >= max(scores) and scaled_up['error_metrics']['r2'] > improvement_threshold*prev_model['error_metrics']['r2']):
+            elif (
+                scaled_up["error_metrics"]["r2"] >= max(scores)
+                and scaled_up["error_metrics"]["r2"]
+                > improvement_threshold * prev_model["error_metrics"]["r2"]
+            ):
                 prev_model = scaled_up.copy()
                 scale_factors = scale_up.copy(deep=True)
-            elif(scaled_down['error_metrics']['r2'] >= max(scores) and scaled_down['error_metrics']['r2'] > improvement_threshold*prev_model['error_metrics']['r2']):
+            elif (
+                scaled_down["error_metrics"]["r2"] >= max(scores)
+                and scaled_down["error_metrics"]["r2"]
+                > improvement_threshold * prev_model["error_metrics"]["r2"]
+            ):
                 prev_model = scaled_down.copy()
                 scale_factors = scale_down.copy(deep=True)
-            elif (rounder['error_metrics']['r2'] >= max(scores) and rounder['error_metrics']['r2'] > improvement_threshold*prev_model['error_metrics']['r2']):
+            elif (
+                rounder["error_metrics"]["r2"] >= max(scores)
+                and rounder["error_metrics"]["r2"]
+                > improvement_threshold * prev_model["error_metrics"]["r2"]
+            ):
                 prev_model = rounder.copy()
                 shape_factors = rounder_shape.copy(deep=True)
                 scale_factors = rounder_scale.copy(deep=True)
-            elif (sharper['error_metrics']['r2'] >= max(scores) and sharper['error_metrics']['r2'] > improvement_threshold*prev_model['error_metrics']['r2']):
+            elif (
+                sharper["error_metrics"]["r2"] >= max(scores)
+                and sharper["error_metrics"]["r2"]
+                > improvement_threshold * prev_model["error_metrics"]["r2"]
+            ):
                 prev_model = sharper.copy()
                 shape_factors = sharper_shape.copy(deep=True)
                 scale_factors = sharper_scale.copy(deep=True)
             # the middle was best, but it's bad, tighten up the bounds (if we're at the last tuning line of the last input)
-            
-            elif( num_transforms == tuning_line and tuning_input == shape_factors.columns[-1]): # no improvement transforming last column
-                #no_improvement_last_time=True
+
+            elif (
+                num_transforms == tuning_line
+                and tuning_input == shape_factors.columns[-1]
+            ):  # no improvement transforming last column
+                # no_improvement_last_time=True
                 speed_idx = speed_idx + 1
                 if verbose:
                     print("\n\ntightening bounds\n\n")
-                '''
+                """
             elif (num_transforms == tuning_line and tuning_input == orig_forcing_columns[0] and no_improvement_last_time): # no improvement next iteration (first column)
                 speed_idx = speed_idx + 1
                 no_improvement_last_time=False
                 if verbose:
                     print("\n\ntightening bounds\n\n")
-                    '''
+                    """
 
-            if (speed_idx >= len(speeds)):
+            if speed_idx >= len(speeds):
                 print("\n\noptimization complete\n\n")
                 break
             speed = speeds[speed_idx]
-            if (verbose):
-                print("\nprevious, shape up, shape down, scale up, scale down, sooner, later, rounder, sharper")
+            if verbose:
+                print(
+                    "\nprevious, shape up, shape down, scale up, scale down, sooner, later, rounder, sharper"
+                )
                 print(scores)
                 print("speed")
                 print(speed)
@@ -454,23 +682,35 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                 print(iterations)
                 print("model")
                 try:
-                    prev_model['model'].print(precision=5)
+                    prev_model["model"].print(precision=5)
                 except Exception as e:
                     print(e)
                 print("\n")
 
-    
-    
-        final_model = SINDY_delays_MI(shape_factors, scale_factors ,loc_factors,system_data.index, forcing, response, True, poly_order , 
-                                      include_bias, include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                     transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
+        final_model = SINDY_delays_MI(
+            shape_factors,
+            scale_factors,
+            loc_factors,
+            system_data.index,
+            forcing,
+            response,
+            True,
+            poly_order,
+            include_bias,
+            include_interaction,
+            windup_timesteps,
+            bibo_stable,
+            transform_dependent=transform_dependent,
+            transform_only=transform_only,
+            forcing_coef_constraints=forcing_coef_constraints,
+        )
         print("\nFinal model:\n")
         try:
-            print(final_model['model'].print(precision=5))
+            print(final_model["model"].print(precision=5))
         except Exception as e:
             print(e)
         print("R^2")
-        print(prev_model['error_metrics']['r2'])
+        print(prev_model["error_metrics"]["r2"])
         print("shape factors")
         print(shape_factors)
         print("scale factors")
@@ -478,52 +718,96 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
         print("location factors")
         print(loc_factors)
         print("\n")
-        results[num_transforms] = {'final_model':final_model.copy(), 
-                                   'shape_factors':shape_factors.copy(deep=True), 
-                                   'scale_factors':scale_factors.copy(deep=True), 
-                                   'loc_factors':loc_factors.copy(deep=True),
-                                   'windup_timesteps':windup_timesteps,
-                                   'dependent_columns':dependent_columns,
-                                   'independent_columns':independent_columns}
+        results[num_transforms] = {
+            "final_model": final_model.copy(),
+            "shape_factors": shape_factors.copy(deep=True),
+            "scale_factors": scale_factors.copy(deep=True),
+            "loc_factors": loc_factors.copy(deep=True),
+            "windup_timesteps": windup_timesteps,
+            "dependent_columns": dependent_columns,
+            "independent_columns": independent_columns,
+        }
 
         # check if the benefit from adding the last transformation is less than the early stopping threshold
-        if num_transforms > init_transforms and results[num_transforms]['final_model']['error_metrics']['r2'] - results[num_transforms-1]['final_model']['error_metrics']['r2'] < early_stopping_threshold:
-            print("Last transformation added less than ", early_stopping_threshold*100," % to R2 score. Terminating early.")
+        if (
+            num_transforms > init_transforms
+            and results[num_transforms]["final_model"]["error_metrics"]["r2"]
+            - results[num_transforms - 1]["final_model"]["error_metrics"]["r2"]
+            < early_stopping_threshold
+        ):
+            print(
+                "Last transformation added less than ",
+                early_stopping_threshold * 100,
+                " % to R2 score. Terminating early.",
+            )
             break
 
     return results
 
 
-def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, response, final_run, 
-                    poly_degree, include_bias, include_interaction,windup_timesteps,bibo_stable=False,
-                    transform_dependent=False,transform_only=None, forcing_coef_constraints=None):
+def SINDY_delays_MI(
+    shape_factors,
+    scale_factors,
+    loc_factors,
+    index,
+    forcing,
+    response,
+    final_run,
+    poly_degree,
+    include_bias,
+    include_interaction,
+    windup_timesteps,
+    bibo_stable=False,
+    transform_dependent=False,
+    transform_only=None,
+    forcing_coef_constraints=None,
+):
     if transform_only is not None:
-        transformed_forcing = transform_inputs(shape_factors, scale_factors,loc_factors, index, forcing.loc[:,transform_only])
+        transformed_forcing = transform_inputs(
+            shape_factors,
+            scale_factors,
+            loc_factors,
+            index,
+            forcing.loc[:, transform_only],
+        )
         untransformed_forcing = forcing.drop(columns=transform_only)
         # combine forcing and transformed forcing column-wise
-        forcing = pd.concat((untransformed_forcing,transformed_forcing),axis='columns')
+        forcing = pd.concat(
+            (untransformed_forcing, transformed_forcing), axis="columns"
+        )
     else:
-        forcing = transform_inputs(shape_factors, scale_factors,loc_factors, index, forcing)
+        forcing = transform_inputs(
+            shape_factors, scale_factors, loc_factors, index, forcing
+        )
 
-    feature_names =  response.columns.tolist() +  forcing.columns.tolist()
+    feature_names = response.columns.tolist() + forcing.columns.tolist()
 
     # SINDy
-    if (not bibo_stable and forcing_coef_constraints is None): # no constraints, normal mode
+    if (
+        not bibo_stable and forcing_coef_constraints is None
+    ):  # no constraints, normal mode
         model = ps.SINDy(
-            differentiation_method= ps.FiniteDifference(),
-            feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction), 
-            optimizer = ps.STLSQ(threshold=0), 
-            
+            differentiation_method=ps.FiniteDifference(),
+            feature_library=ps.PolynomialLibrary(
+                degree=poly_degree,
+                include_bias=include_bias,
+                include_interaction=include_interaction,
+            ),
+            optimizer=ps.STLSQ(threshold=0),
         )
-    elif (forcing_coef_constraints is not None and not bibo_stable):
-        library = ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction)
-        total_train = pd.concat((response,forcing), axis='columns')
-        library.fit([ps.AxesArray(total_train,{"ax_sample":0,"ax_coord":1})])
+    elif forcing_coef_constraints is not None and not bibo_stable:
+        library = ps.PolynomialLibrary(
+            degree=poly_degree,
+            include_bias=include_bias,
+            include_interaction=include_interaction,
+        )
+        total_train = pd.concat((response, forcing), axis="columns")
+        library.fit([ps.AxesArray(total_train, {"ax_sample": 0, "ax_coord": 1})])
         n_features = library.n_output_features_
         n_targets = len(response.columns)
-        constraint_rhs = np.zeros((n_features,)) # every feature is constrained
+        constraint_rhs = np.zeros((n_features,))  # every feature is constrained
         # one row per constraint, one column per coefficient
-        constraint_lhs = np.zeros((n_features , n_targets*n_features ) )
+        constraint_lhs = np.zeros((n_features, n_targets * n_features))
 
         # now implement the forcing coefficient constraints
         for i, col in enumerate(feature_names):
@@ -533,52 +817,73 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
                     # invert the sign because the eqn is written as "leq 0"
 
         model = ps.SINDy(
-                    differentiation_method= ps.FiniteDifference(),
-                    feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
-                    optimizer = ps.STLSQ(threshold=0),
-                    
-                )
-    elif (bibo_stable): # highest order output autocorrelation is constrained to be negative
-        #import cvxpy
-        #run_cvxpy= True
+            differentiation_method=ps.FiniteDifference(),
+            feature_library=ps.PolynomialLibrary(
+                degree=poly_degree,
+                include_bias=include_bias,
+                include_interaction=include_interaction,
+            ),
+            optimizer=_ConstrainedSR3(
+                reg_weight_lam=0,
+                regularizer="l2",
+                constraint_lhs=constraint_lhs,
+                constraint_rhs=constraint_rhs,
+                inequality_constraints=True,
+            ),
+        )
+    elif (
+        bibo_stable
+    ):  # highest order output autocorrelation is constrained to be negative
+        # import cvxpy
+        # run_cvxpy= True
         # Figure out how many library features there will be
-        library = ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction)
-        total_train = pd.concat((response,forcing), axis='columns')
-        library.fit([ps.AxesArray(total_train,{"ax_sample":0,"ax_coord":1})])
+        library = ps.PolynomialLibrary(
+            degree=poly_degree,
+            include_bias=include_bias,
+            include_interaction=include_interaction,
+        )
+        total_train = pd.concat((response, forcing), axis="columns")
+        library.fit([ps.AxesArray(total_train, {"ax_sample": 0, "ax_coord": 1})])
         n_features = library.n_output_features_
-        #print(f"Features ({n_features}):", library.get_feature_names(input_features=total_train.columns))
+        # print(f"Features ({n_features}):", library.get_feature_names(input_features=total_train.columns))
         feature_names = library.get_feature_names(input_features=total_train.columns)
         # Set constraints
-        n_targets = total_train.shape[1] # not sure what targets means after reading through the pysindy docs
-        #print("n_targets")
-        #print(n_targets)
-        constraint_rhs = np.zeros((len(response.columns),1))
+        n_targets = total_train.shape[
+            1
+        ]  # not sure what targets means after reading through the pysindy docs
+        # print("n_targets")
+        # print(n_targets)
+        constraint_rhs = np.zeros((len(response.columns), 1))
         # one row per constraint, one column per coefficient
-        constraint_lhs = np.zeros((len(response.columns) , n_features ))
+        constraint_lhs = np.zeros((len(response.columns), n_features))
 
-        #print(constraint_rhs)
-        #print(constraint_lhs)
+        # print(constraint_rhs)
+        # print(constraint_lhs)
         # constrain the highest order output autocorrelation to be negative
         # this indexing is only right for include_interaction=False, include_bias=False, and pure polynomial library
         # for more complex libraries, some conditional logic will be needed to grab the right column
-        constraint_lhs[:,-len(forcing.columns)-len(response.columns):-len(forcing.columns)] = 1
+        constraint_lhs[
+            :, -len(forcing.columns) - len(response.columns) : -len(forcing.columns)
+        ] = 1
         # leq 0
-        #print("constraint lhs")
-        #print(constraint_lhs)
+        # print("constraint lhs")
+        # print(constraint_lhs)
 
         # forcing_coef_constraints only implemented for bibo stable MISO models right now
         if forcing_coef_constraints is not None:
             n_targets = len(response.columns)
-            constraint_rhs = np.zeros((n_features,)) # every feature is constrained
+            constraint_rhs = np.zeros((n_features,))  # every feature is constrained
             # one row per constraint, one column per coefficient
-            constraint_lhs = np.zeros((n_features , n_targets*n_features ) )
+            constraint_lhs = np.zeros((n_features, n_targets * n_features))
             # bibo stability, set the highest order output autocorrelation to be negative for each response variable
             # the index corresponds to the last entry in "feature_names" which includes the name of the response column
             highest_power_col_idx = 0
             for i, col in enumerate(feature_names):
                 if response.columns[0] in col:
                     highest_power_col_idx = i
-            constraint_lhs[0, highest_power_col_idx] = 1 # first row, highest power of the response variable
+            constraint_lhs[0, highest_power_col_idx] = (
+                1  # first row, highest power of the response variable
+            )
 
             # now implement the forcing coefficient constraints
             for i, col in enumerate(feature_names):
@@ -586,7 +891,7 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
                     if key in col:
                         constraint_lhs[i, i] = -forcing_coef_constraints[key]
                         # invert the sign because the eqn is written as "leq 0"
-            ''''
+            """'
             print(forcing.columns)
             forcing_constraints_array = np.ndarray(shape=(1,len(forcing.columns)))
             for i, col in enumerate(forcing.columns):
@@ -600,115 +905,205 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
                     forcing_constraints_array[0,i] = -forcing_coef_constraints[str(col).replace('_tr_3','')]
                 else:
                     forcing_constraints_array[0,i] = 0
-                    
+
             for row in range(n_targets, n_features):
                 constraint_lhs[row, row] = forcing_constraints_array[0,row - n_targets]
-            '''
+            """
 
             # constrain the highest order output autocorrelation to be negative
             # this indexing is only right for include_interaction=False, include_bias=False, and pure polynomial library
             # for more complex libraries, some conditional logic will be needed to grab the right column
-            #constraint_lhs[:n_targets,-len(forcing.columns)-len(response.columns):-len(forcing.columns)] = 1
+            # constraint_lhs[:n_targets,-len(forcing.columns)-len(response.columns):-len(forcing.columns)] = 1
 
-            #print(forcing_constraints_array)
+            # print(forcing_constraints_array)
 
-            #print('constraint lhs')
-            #print(constraint_lhs)
-            #print('constraint rhs')
-            #print(constraint_rhs)
-
+            # print('constraint lhs')
+            # print(constraint_lhs)
+            # print('constraint rhs')
+            # print(constraint_rhs)
 
         model = ps.SINDy(
-            differentiation_method= ps.FiniteDifference(),
-            feature_library=ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction),
-            optimizer = ps.STLSQ(threshold=0),
-            
+            differentiation_method=ps.FiniteDifference(),
+            feature_library=ps.PolynomialLibrary(
+                degree=poly_degree,
+                include_bias=include_bias,
+                include_interaction=include_interaction,
+            ),
+            optimizer=_ConstrainedSR3(
+                reg_weight_lam=0,
+                regularizer="l2",
+                constraint_lhs=constraint_lhs,
+                constraint_rhs=constraint_rhs,
+                inequality_constraints=True,
+            ),
         )
     if transform_dependent:
         # combine response and forcing into one dataframe
-        total_train = pd.concat((response,forcing), axis='columns')
-        total_train = transform_inputs(shape_factors, scale_factors,loc_factors, index, total_train)
+        total_train = pd.concat((response, forcing), axis="columns")
+        total_train = transform_inputs(
+            shape_factors, scale_factors, loc_factors, index, total_train
+        )
         # remove the columns in total_train that are already in response (just want to keep the transformed forcing)
-        total_train = total_train.drop(columns = response.columns)
-        feature_names =  response.columns.tolist() +  total_train.columns.tolist()
-        
+        total_train = total_train.drop(columns=response.columns)
+        feature_names = response.columns.tolist() + total_train.columns.tolist()
+
         # need to add constraints such that variables don't depend on their own past values (but they can have autocorrelations)
 
-
-        library = ps.PolynomialLibrary(degree=poly_degree,include_bias = include_bias, include_interaction=include_interaction)
-        library_terms = pd.concat((total_train,response), axis='columns')
-        library.fit([ps.AxesArray(library_terms,{"ax_sample":0,"ax_coord":1})])
+        library = ps.PolynomialLibrary(
+            degree=poly_degree,
+            include_bias=include_bias,
+            include_interaction=include_interaction,
+        )
+        library_terms = pd.concat((total_train, response), axis="columns")
+        library.fit([ps.AxesArray(library_terms, {"ax_sample": 0, "ax_coord": 1})])
         n_features = library.n_output_features_
-        #print(f"Features ({n_features}):", library.get_feature_names())
+        # print(f"Features ({n_features}):", library.get_feature_names())
         # Set constraints
-        n_targets = response.shape[1] # not sure what targets means after reading through the pysindy docs
+        n_targets = response.shape[
+            1
+        ]  # not sure what targets means after reading through the pysindy docs
 
         constraint_rhs = np.zeros((n_targets,))
         # one row per constraint, one column per coefficient
-        constraint_lhs = np.zeros((n_targets , n_features*n_targets))
+        constraint_lhs = np.zeros((n_targets, n_features * n_targets))
         # for bibo stability, starting guess is that each dependent variable is negatively autocorrelated and depends on no other variable
         if bibo_stable:
-            initial_guess = np.zeros((n_targets,n_features))
-            for idx in range(0,n_targets):
-                initial_guess[idx,idx] = -1
+            initial_guess = np.zeros((n_targets, n_features))
+            for idx in range(0, n_targets):
+                initial_guess[idx, idx] = -1
         else:
             initial_guess = None
-        #print(constraint_rhs)
-        #print(constraint_lhs)
+        # print(constraint_rhs)
+        # print(constraint_lhs)
         # set the coefficient on a variable's own transformed value to 0
-        for idx in range(0,n_targets):
-            constraint_lhs[idx,(idx+1)*n_features - n_targets + idx] = 1
+        for idx in range(0, n_targets):
+            constraint_lhs[idx, (idx + 1) * n_features - n_targets + idx] = 1
 
-        #print("constraint lhs")
-        #print(constraint_lhs)
+        # print("constraint lhs")
+        # print(constraint_lhs)
 
         model = ps.SINDy(
-            differentiation_method= ps.FiniteDifference(),
+            differentiation_method=ps.FiniteDifference(),
             feature_library=library,
-            optimizer = ps.SR3(threshold=0, thresholder = "l0",
-                                          nu = 10e9, initial_guess = initial_guess,
-                                          constraint_lhs=constraint_lhs, 
-                                          constraint_rhs = constraint_rhs, 
-                                          inequality_constraints=False,
-                                          max_iter=10000),
-            
+            optimizer=_ConstrainedSR3(
+                reg_weight_lam=0,
+                regularizer="l0",
+                relax_coeff_nu=10e9,
+                initial_guess=initial_guess,
+                constraint_lhs=constraint_lhs,
+                constraint_rhs=constraint_rhs,
+                inequality_constraints=False,
+                max_iter=10000,
+            ),
         )
 
         try:
             # windup latent states (if your windup is too long, this will error)
-            model.fit(response.values[windup_timesteps:,:], t = np.arange(0,len(index),1)[windup_timesteps:], u = total_train.values[windup_timesteps:,:])
-            r2 = model.score(response.values[windup_timesteps:,:],t=np.arange(0,len(index),1)[windup_timesteps:],u=total_train.values[windup_timesteps:,:]) # training data score
-        except Exception as e: # and print the exception
+            model.fit(
+                response.values[windup_timesteps:, :],
+                t=np.arange(0, len(index), 1)[windup_timesteps:],
+                u=total_train.values[windup_timesteps:, :],
+            )
+            r2 = model.score(
+                response.values[windup_timesteps:, :],
+                t=np.arange(0, len(index), 1)[windup_timesteps:],
+                u=total_train.values[windup_timesteps:, :],
+            )  # training data score
+        except Exception as e:  # and print the exception
             print("Exception in model fitting, returning r2=-1\n")
             print(e)
-            error_metrics = {"MAE":[False],"RMSE":[False],"NSE":[False],"alpha":[False],"beta":[False],"HFV":[False],"HFV10":[False],"LFV":[False],"FDC":[False],"r2":-1}
-            return {"error_metrics": error_metrics, "model": None, "simulated": False, "response": response, "forcing": forcing, "index": index,"diverged":False}
-        
+            error_metrics = {
+                "MAE": [False],
+                "RMSE": [False],
+                "NSE": [False],
+                "alpha": [False],
+                "beta": [False],
+                "HFV": [False],
+                "HFV10": [False],
+                "LFV": [False],
+                "FDC": [False],
+                "r2": -1,
+            }
+            return {
+                "error_metrics": error_metrics,
+                "model": None,
+                "simulated": False,
+                "response": response,
+                "forcing": forcing,
+                "index": index,
+                "diverged": False,
+            }
 
     else:
         try:
             # windup latent states (if your windup is too long, this will error)
-            model.fit(response.values[windup_timesteps:,:], t = np.arange(0,len(index),1)[windup_timesteps:], u = forcing.values[windup_timesteps:,:])
-            r2 = model.score(response.values[windup_timesteps:,:],t=np.arange(0,len(index),1)[windup_timesteps:],u=forcing.values[windup_timesteps:,:]) # training data score
-        except Exception as e: # and print the exception
+            model.fit(
+                response.values[windup_timesteps:, :],
+                t=np.arange(0, len(index), 1)[windup_timesteps:],
+                u=forcing.values[windup_timesteps:, :],
+            )
+            r2 = model.score(
+                response.values[windup_timesteps:, :],
+                t=np.arange(0, len(index), 1)[windup_timesteps:],
+                u=forcing.values[windup_timesteps:, :],
+            )  # training data score
+        except Exception as e:  # and print the exception
             print("Exception in model fitting, returning r2=-1\n")
             print(e)
-            error_metrics = {"MAE":[False],"RMSE":[False],"NSE":[False],"alpha":[False],"beta":[False],"HFV":[False],"HFV10":[False],"LFV":[False],"FDC":[False],"r2":-1}
-            return {"error_metrics": error_metrics, "model": None, "simulated": False, "response": response, "forcing": forcing, "index": index,"diverged":False}
+            error_metrics = {
+                "MAE": [False],
+                "RMSE": [False],
+                "NSE": [False],
+                "alpha": [False],
+                "beta": [False],
+                "HFV": [False],
+                "HFV10": [False],
+                "LFV": [False],
+                "FDC": [False],
+                "r2": -1,
+            }
+            return {
+                "error_metrics": error_metrics,
+                "model": None,
+                "simulated": False,
+                "response": response,
+                "forcing": forcing,
+                "index": index,
+                "diverged": False,
+            }
         # r2 is how well we're doing across all the outputs. that's actually good to keep model accuracy lumped because that's what makes most sense to drive the optimization
     # even though the metrics we'll want to evaluate models on are individual output accuracy
-    #print("training R^2", r2)
-    #model.print(precision=5)
+    # print("training R^2", r2)
+    # model.print(precision=5)
 
     # return false for things not evaluated / don't exist
-    error_metrics = {"MAE":[False],"RMSE":[False],"NSE":[False],"alpha":[False],"beta":[False],"HFV":[False],"HFV10":[False],"LFV":[False],"FDC":[False],"r2":r2}
+    error_metrics = {
+        "MAE": [False],
+        "RMSE": [False],
+        "NSE": [False],
+        "alpha": [False],
+        "beta": [False],
+        "HFV": [False],
+        "HFV10": [False],
+        "LFV": [False],
+        "FDC": [False],
+        "r2": r2,
+    }
     simulated = False
-    if (final_run): # only simulate final runs because it's slow
-        try: #once in high volume training put this back in, but want to see the errors during development
+    if final_run:  # only simulate final runs because it's slow
+        try:  # once in high volume training put this back in, but want to see the errors during development
             if transform_dependent:
-                simulated = model.simulate(response.values[windup_timesteps,:],t=np.arange(0,len(index),1)[windup_timesteps:],u=total_train.values[windup_timesteps:,:])
+                simulated = model.simulate(
+                    response.values[windup_timesteps, :],
+                    t=np.arange(0, len(index), 1)[windup_timesteps:],
+                    u=total_train.values[windup_timesteps:, :],
+                )
             else:
-                simulated = model.simulate(response.values[windup_timesteps,:],t=np.arange(0,len(index),1)[windup_timesteps:],u=forcing.values[windup_timesteps:,:])
+                simulated = model.simulate(
+                    response.values[windup_timesteps, :],
+                    t=np.arange(0, len(index), 1)[windup_timesteps:],
+                    u=forcing.values[windup_timesteps:, :],
+                )
             mae = list()
             rmse = list()
             nse = list()
@@ -718,29 +1113,114 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
             hfv10 = list()
             lfv = list()
             fdc = list()
-            for col_idx in range(0,len(response.columns)): # univariate performance metrics
-                error = response.values[windup_timesteps+1:,col_idx]-simulated[:,col_idx]
+            for col_idx in range(
+                0, len(response.columns)
+            ):  # univariate performance metrics
+                error = (
+                    response.values[windup_timesteps + 1 :, col_idx]
+                    - simulated[:, col_idx]
+                )
 
-                #print("error")
-                #print(error)
+                # print("error")
+                # print(error)
                 # nash sutcliffe efficiency between response and simulated
                 mae.append(np.mean(np.abs(error)))
-                rmse.append(np.sqrt(np.mean(error**2 ) ))
-                #print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
-                #print("sum of squared error between measured and model = ", np.sum((error)**2 ))
-                #print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
-                nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ) )
-                alpha.append(np.std(simulated[:,col_idx])/np.std(response.values[windup_timesteps+1:,col_idx]))
-                beta.append(np.mean(simulated[:,col_idx])/np.mean(response.values[windup_timesteps+1:,col_idx]))
-                hfv.append(100*np.sum(np.sort(simulated[:,col_idx])[-int(0.02*len(index)):]-np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.02*len(index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.02*len(index)):]))
-                hfv10.append(100*np.sum(np.sort(simulated[:,col_idx])[-int(0.1*len(index)):]-np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.1*len(index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.1*len(index)):]))
-                lfv.append(100*np.sum(np.sort(simulated[:,col_idx])[-int(0.3*len(index)):]-np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.3*len(index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.3*len(index)):]))
-                fdc.append(100*(np.log10(np.sort(simulated[:,col_idx])[int(0.2*len(simulated))]) 
-                                -  np.log10(np.sort(simulated[:,col_idx])[int(0.7*len(simulated))])  
-                           - np.log10(np.sort(response.values[windup_timesteps+1:,col_idx])[int(0.2*len(simulated))])
-                                      + np.log10(np.sort(response.values[windup_timesteps+1:,col_idx])[int(0.7*len(simulated))]) ) 
-                           / np.log10(np.sort(response.values[windup_timesteps+1:,col_idx])[int(0.2*len(simulated))])
-                                      - np.log10(np.sort(response.values[windup_timesteps+1:,col_idx])[int(0.7*len(simulated))])) 
+                rmse.append(np.sqrt(np.mean(error**2)))
+                # print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
+                # print("sum of squared error between measured and model = ", np.sum((error)**2 ))
+                # print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
+                nse.append(
+                    1
+                    - np.sum((error) ** 2)
+                    / np.sum(
+                        (
+                            response.values[windup_timesteps + 1 :, col_idx]
+                            - np.mean(response.values[windup_timesteps + 1 :, col_idx])
+                        )
+                        ** 2
+                    )
+                )
+                alpha.append(
+                    np.std(simulated[:, col_idx])
+                    / np.std(response.values[windup_timesteps + 1 :, col_idx])
+                )
+                beta.append(
+                    np.mean(simulated[:, col_idx])
+                    / np.mean(response.values[windup_timesteps + 1 :, col_idx])
+                )
+                hfv.append(
+                    100
+                    * np.sum(
+                        np.sort(simulated[:, col_idx])[-int(0.02 * len(index)) :]
+                        - np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.02 * len(index)) :
+                        ]
+                    )
+                    / np.sum(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.02 * len(index)) :
+                        ]
+                    )
+                )
+                hfv10.append(
+                    100
+                    * np.sum(
+                        np.sort(simulated[:, col_idx])[-int(0.1 * len(index)) :]
+                        - np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.1 * len(index)) :
+                        ]
+                    )
+                    / np.sum(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.1 * len(index)) :
+                        ]
+                    )
+                )
+                lfv.append(
+                    100
+                    * np.sum(
+                        np.sort(simulated[:, col_idx])[-int(0.3 * len(index)) :]
+                        - np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.3 * len(index)) :
+                        ]
+                    )
+                    / np.sum(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.3 * len(index)) :
+                        ]
+                    )
+                )
+                fdc.append(
+                    100
+                    * (
+                        np.log10(
+                            np.sort(simulated[:, col_idx])[int(0.2 * len(simulated))]
+                        )
+                        - np.log10(
+                            np.sort(simulated[:, col_idx])[int(0.7 * len(simulated))]
+                        )
+                        - np.log10(
+                            np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                                int(0.2 * len(simulated))
+                            ]
+                        )
+                        + np.log10(
+                            np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                                int(0.7 * len(simulated))
+                            ]
+                        )
+                    )
+                    / np.log10(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            int(0.2 * len(simulated))
+                        ]
+                    )
+                    - np.log10(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            int(0.7 * len(simulated))
+                        ]
+                    )
+                )
 
             print("MAE = ", mae)
             print("RMSE = ", rmse)
@@ -757,79 +1237,172 @@ def SINDY_delays_MI(shape_factors, scale_factors, loc_factors, index, forcing, r
             # bias of FDC midsegment slope due to yilmaz et al 2008
             print("FDC = ", fdc)
             # compile all the error metrics into a dictionary
-            error_metrics = {"MAE":mae,"RMSE":rmse,"NSE":nse,"alpha":alpha,"beta":beta,"HFV":hfv,"HFV10":hfv10,"LFV":lfv,"FDC":fdc,"r2":r2}
-        
-        except Exception as e: # and print the exception:
+            error_metrics = {
+                "MAE": mae,
+                "RMSE": rmse,
+                "NSE": nse,
+                "alpha": alpha,
+                "beta": beta,
+                "HFV": hfv,
+                "HFV10": hfv10,
+                "LFV": lfv,
+                "FDC": fdc,
+                "r2": r2,
+            }
+
+        except Exception as e:  # and print the exception:
             print("Exception in simulation\n")
             print(e)
-            error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN],"r2":r2}
+            error_metrics = {
+                "MAE": [np.nan],
+                "RMSE": [np.nan],
+                "NSE": [np.nan],
+                "alpha": [np.nan],
+                "beta": [np.nan],
+                "HFV": [np.nan],
+                "HFV10": [np.nan],
+                "LFV": [np.nan],
+                "FDC": [np.nan],
+                "r2": r2,
+            }
 
-            return {"error_metrics": error_metrics, "model": model, "simulated": response[1:], "response": response, "forcing": forcing, "index": index,"diverged":True}
+            return {
+                "error_metrics": error_metrics,
+                "model": model,
+                "simulated": response[1:],
+                "response": response,
+                "forcing": forcing,
+                "index": index,
+                "diverged": True,
+            }
 
-        
-          
-    return {"error_metrics": error_metrics, "model": model, "simulated": simulated, "response": response, "forcing": forcing, "index": index,"diverged":False}
-    #return [r2, model, mae, rmse, index, simulated , response , forcing]
+    return {
+        "error_metrics": error_metrics,
+        "model": model,
+        "simulated": simulated,
+        "response": response,
+        "forcing": forcing,
+        "index": index,
+        "diverged": False,
+    }
+    # return [r2, model, mae, rmse, index, simulated , response , forcing]
 
 
-
-def transform_inputs(shape_factors, scale_factors, loc_factors,index, forcing):
+def transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing):
     # original forcing columns -> columns of forcing that don't have _tr_ in their name
     orig_forcing_columns = [col for col in forcing.columns if "_tr_" not in col]
-    #print("original forcing columns = ", orig_forcing_columns)
+    # print("original forcing columns = ", orig_forcing_columns)
     # how many rows of shape_factors do not contain NaNs?
     num_transforms = shape_factors.count().iloc[0]
-    #print("num_transforms = ", num_transforms)
-    #print("forcing at beginning of transform inputs")
-    #print(forcing)
-    shape_time = np.arange(0,len(index),1) 
-    for input in orig_forcing_columns: # which input are we talking about?
-        for transform_idx in range(1,num_transforms + 1): # which transformation of that input are we talking about?
+    # print("num_transforms = ", num_transforms)
+    # print("forcing at beginning of transform inputs")
+    # print(forcing)
+    shape_time = np.arange(0, len(index), 1)
+    input_values_cache = {
+        col: np.array(forcing[col].values, dtype=float) for col in orig_forcing_columns
+    }
+    for input in orig_forcing_columns:  # which input are we talking about?
+        for transform_idx in range(
+            1, num_transforms + 1
+        ):  # which transformation of that input are we talking about?
+            col_name = str(str(input) + "_tr_" + str(transform_idx))
             # if the column doesn't exist, create it
-            if (str(str(input) + "_tr_" + str(transform_idx)) not in forcing.columns):
-                forcing.loc[:,str(str(input) + "_tr_" + str(transform_idx))] = 0.0
+            if col_name not in forcing.columns:
+                forcing.loc[:, col_name] = 0.0
             # now, fill it with zeros (need to reset between different transformation shape factors)
-            forcing[str(str(input) + "_tr_" + str(transform_idx))].values[:] = float(0.0)
-            #print(forcing)
-            for idx in range(0,len(index)): # timestep
-                if (abs(forcing[input].iloc[idx]) > 10**-6): # when nonzero forcing occurs
-                    if (idx == int(0)):
-                        forcing[str(str(input) + "_tr_" + str(transform_idx))].values[idx:] += forcing[input].values[idx]*stats.gamma.pdf(shape_time, shape_factors[input][transform_idx], scale=scale_factors[input][transform_idx], loc = loc_factors[input][transform_idx]) 
+            # accumulate into a numpy array first (compatible with pandas Copy-on-Write semantics)
+            col_data = np.zeros(len(index))
+            for idx in range(0, len(index)):  # timestep
+                if (
+                    abs(input_values_cache[input][idx]) > 10**-6
+                ):  # when nonzero forcing occurs
+                    if idx == int(0):
+                        col_data[idx:] += input_values_cache[input][
+                            idx
+                        ] * stats.gamma.pdf(
+                            shape_time,
+                            shape_factors[input][transform_idx],
+                            scale=scale_factors[input][transform_idx],
+                            loc=loc_factors[input][transform_idx],
+                        )
                     else:
-                        forcing[str(str(input) + "_tr_" + str(transform_idx))].values[idx:] += forcing[input].values[idx]*stats.gamma.pdf(shape_time[:-idx], shape_factors[input][transform_idx], scale=scale_factors[input][transform_idx], loc = loc_factors[input][transform_idx]) 
+                        col_data[idx:] += input_values_cache[input][
+                            idx
+                        ] * stats.gamma.pdf(
+                            shape_time[:-idx],
+                            shape_factors[input][transform_idx],
+                            scale=scale_factors[input][transform_idx],
+                            loc=loc_factors[input][transform_idx],
+                        )
+            forcing.loc[:, col_name] = col_data
 
-    #print("forcing at end of transform inputs")
-    #print(forcing)
+    # print("forcing at end of transform inputs")
+    # print(forcing)
     # assert there are no NaNs in the forcing
-    assert(forcing.isnull().values.any() == False)
+    assert not forcing.isnull().values.any()
     return forcing
+
 
 # REQUIRES: the output of delay_io_train, starting value of otuput, forcing timeseries
 # EFFECTS: returns a simulated response given forcing and a model
 # REQUIRED EDITS: not written to accomodate transform_dependent yet
-def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=False , windup_timesteps=None):
-    if windup_timesteps is None: # user didn't specify windup timesteps, use what the model trained with.
-        windup_timesteps = delay_io_model[num_transforms]['windup_timesteps']
-    forcing = system_data[delay_io_model[num_transforms]['independent_columns']].copy(deep=True)
-    response = system_data[delay_io_model[num_transforms]['dependent_columns']].copy(deep=True)
-            
-    transformed_forcing = transform_inputs(shape_factors=delay_io_model[num_transforms]['shape_factors'], 
-                                           scale_factors=delay_io_model[num_transforms]['scale_factors'], 
-                                           loc_factors=delay_io_model[num_transforms]['loc_factors'], 
-                                           index=system_data.index,forcing=forcing)
+def delay_io_predict(
+    delay_io_model,
+    system_data,
+    num_transforms=1,
+    evaluation=False,
+    windup_timesteps=None,
+):
+    if (
+        windup_timesteps is None
+    ):  # user didn't specify windup timesteps, use what the model trained with.
+        windup_timesteps = delay_io_model[num_transforms]["windup_timesteps"]
+    forcing = system_data[delay_io_model[num_transforms]["independent_columns"]].copy(
+        deep=True
+    )
+    response = system_data[delay_io_model[num_transforms]["dependent_columns"]].copy(
+        deep=True
+    )
+
+    transformed_forcing = transform_inputs(
+        shape_factors=delay_io_model[num_transforms]["shape_factors"],
+        scale_factors=delay_io_model[num_transforms]["scale_factors"],
+        loc_factors=delay_io_model[num_transforms]["loc_factors"],
+        index=system_data.index,
+        forcing=forcing,
+    )
     try:
-        prediction = delay_io_model[num_transforms]['final_model']['model'].simulate(system_data[delay_io_model[num_transforms]['dependent_columns']].iloc[windup_timesteps,:], 
-                                                                         t=np.arange(0,len(system_data.index),1)[windup_timesteps:], 
-                                                                         u=transformed_forcing[windup_timesteps:])
-    except Exception as e: # and print the exception:
+        prediction = delay_io_model[num_transforms]["final_model"]["model"].simulate(
+            system_data[delay_io_model[num_transforms]["dependent_columns"]].iloc[
+                windup_timesteps, :
+            ],
+            t=np.arange(0, len(system_data.index), 1)[windup_timesteps:],
+            u=transformed_forcing[windup_timesteps:],
+        )
+    except Exception as e:  # and print the exception:
         print("Exception in simulation\n")
         print(e)
         print("diverged.")
-        error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
-        return {'prediction':np.NAN*np.ones(shape=response[windup_timesteps+1:].shape), 'error_metrics':error_metrics,"diverged":True}
+        error_metrics = {
+            "MAE": [np.nan],
+            "RMSE": [np.nan],
+            "NSE": [np.nan],
+            "alpha": [np.nan],
+            "beta": [np.nan],
+            "HFV": [np.nan],
+            "HFV10": [np.nan],
+            "LFV": [np.nan],
+            "FDC": [np.nan],
+        }
+        return {
+            "prediction": np.nan
+            * np.ones(shape=response[windup_timesteps + 1 :].shape),
+            "error_metrics": error_metrics,
+            "diverged": True,
+        }
 
     # return all the error metrics if the prediction is being evaluated against known measurements
-    if (evaluation):
+    if evaluation:
         try:
             mae = list()
             rmse = list()
@@ -840,34 +1413,102 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
             hfv10 = list()
             lfv = list()
             fdc = list()
-            for col_idx in range(0,len(response.columns)): # univariate performance metrics
-                error = response.values[windup_timesteps+1:,col_idx]-prediction[:,col_idx]
+            for col_idx in range(
+                0, len(response.columns)
+            ):  # univariate performance metrics
+                error = (
+                    response.values[windup_timesteps + 1 :, col_idx]
+                    - prediction[:, col_idx]
+                )
 
                 initial_error_length = len(error)
                 error = error[~np.isnan(error)]
-                if (len(error) < 0.75*initial_error_length):
+                if len(error) < 0.75 * initial_error_length:
                     print("WARNING: More than 25% of the entries in error were NaN")
 
-                #print("error")
-                #print(error)
+                # print("error")
+                # print(error)
                 # nash sutcliffe efficiency between response and prediction
                 mae.append(np.mean(np.abs(error)))
-                rmse.append(np.sqrt(np.mean(error**2 ) ))
-                #print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
-                #print("sum of squared error between measured and model = ", np.sum((error)**2 ))
-                #print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
-                nse.append(1 - np.sum((error)**2 )  /  np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ) )
-                alpha.append(np.std(prediction[:,col_idx])/np.std(response.values[windup_timesteps+1:,col_idx]))
-                beta.append(np.mean(prediction[:,col_idx])/np.mean(response.values[windup_timesteps+1:,col_idx]))
-                hfv.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.02*len(system_data.index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.02*len(system_data.index)):]))
-                hfv10.append(np.sum(np.sort(prediction[:,col_idx])[-int(0.1*len(system_data.index)):])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.1*len(system_data.index)):]))
-                lfv.append(np.sum(np.sort(prediction[:,col_idx])[:int(0.3*len(system_data.index))])/np.sum(np.sort(response.values[windup_timesteps+1:,col_idx])[:int(0.3*len(system_data.index))]))
-                fdc.append(np.mean(np.sort(prediction[:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))])/np.mean(np.sort(response.values[windup_timesteps+1:,col_idx])[-int(0.6*len(system_data.index)):-int(0.4*len(system_data.index))]))
-            
+                rmse.append(np.sqrt(np.mean(error**2)))
+                # print("mean measured = ", np.mean(response.values[windup_timesteps+1:,col_idx]  ))
+                # print("sum of squared error between measured and model = ", np.sum((error)**2 ))
+                # print("sum of squared error between measured and mean of measured = ", np.sum((response.values[windup_timesteps+1:,col_idx]-np.mean(response.values[windup_timesteps+1:,col_idx]  ) )**2 ))
+                nse.append(
+                    1
+                    - np.sum((error) ** 2)
+                    / np.sum(
+                        (
+                            response.values[windup_timesteps + 1 :, col_idx]
+                            - np.mean(response.values[windup_timesteps + 1 :, col_idx])
+                        )
+                        ** 2
+                    )
+                )
+                alpha.append(
+                    np.std(prediction[:, col_idx])
+                    / np.std(response.values[windup_timesteps + 1 :, col_idx])
+                )
+                beta.append(
+                    np.mean(prediction[:, col_idx])
+                    / np.mean(response.values[windup_timesteps + 1 :, col_idx])
+                )
+                hfv.append(
+                    np.sum(
+                        np.sort(prediction[:, col_idx])[
+                            -int(0.02 * len(system_data.index)) :
+                        ]
+                    )
+                    / np.sum(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.02 * len(system_data.index)) :
+                        ]
+                    )
+                )
+                hfv10.append(
+                    np.sum(
+                        np.sort(prediction[:, col_idx])[
+                            -int(0.1 * len(system_data.index)) :
+                        ]
+                    )
+                    / np.sum(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.1 * len(system_data.index)) :
+                        ]
+                    )
+                )
+                lfv.append(
+                    np.sum(
+                        np.sort(prediction[:, col_idx])[
+                            : int(0.3 * len(system_data.index))
+                        ]
+                    )
+                    / np.sum(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            : int(0.3 * len(system_data.index))
+                        ]
+                    )
+                )
+                fdc.append(
+                    np.mean(
+                        np.sort(prediction[:, col_idx])[
+                            -int(0.6 * len(system_data.index)) : -int(
+                                0.4 * len(system_data.index)
+                            )
+                        ]
+                    )
+                    / np.mean(
+                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
+                            -int(0.6 * len(system_data.index)) : -int(
+                                0.4 * len(system_data.index)
+                            )
+                        ]
+                    )
+                )
 
             print("MAE = ", mae)
             print("RMSE = ", rmse)
-            
+
             print("NSE = ", nse)
             # alpha nse decomposition due to gupta et al 2009
             print("alpha = ", alpha)
@@ -881,22 +1522,59 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
             # bias of FDC midsegment slope due to yilmaz et al 2008
             print("FDC = ", fdc)
             # compile all the error metrics into a dictionary
-            error_metrics = {"MAE":mae,"RMSE":rmse,"NSE":nse,"alpha":alpha,"beta":beta,"HFV":hfv,"HFV10":hfv10,"LFV":lfv,"FDC":fdc}
+            error_metrics = {
+                "MAE": mae,
+                "RMSE": rmse,
+                "NSE": nse,
+                "alpha": alpha,
+                "beta": beta,
+                "HFV": hfv,
+                "HFV10": hfv10,
+                "LFV": lfv,
+                "FDC": fdc,
+            }
             # omit r2 here because it doesn't mean the same thing as it does for training, would be misleading.
             # r2 in training expresses how much of the derivative is predicted by the model, whereas in evaluation it expresses how much of the response is predicted by the model
 
-            return {'prediction':prediction, 'error_metrics':error_metrics,"diverged":False}
-        except Exception as e: # and print the exception:
+            return {
+                "prediction": prediction,
+                "error_metrics": error_metrics,
+                "diverged": False,
+            }
+        except Exception as e:  # and print the exception:
             print(e)
             print("Simulation diverged.")
-            error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN],"diverged":True}
+            error_metrics = {
+                "MAE": [np.nan],
+                "RMSE": [np.nan],
+                "NSE": [np.nan],
+                "alpha": [np.nan],
+                "beta": [np.nan],
+                "HFV": [np.nan],
+                "HFV10": [np.nan],
+                "LFV": [np.nan],
+                "FDC": [np.nan],
+                "diverged": [True],
+            }
 
-            return {'prediction':prediction, 'error_metrics':error_metrics}
+            return {"prediction": prediction, "error_metrics": error_metrics}
     else:
-        error_metrics = {"MAE":[np.NAN],"RMSE":[np.NAN],"NSE":[np.NAN],"alpha":[np.NAN],"beta":[np.NAN],"HFV":[np.NAN],"HFV10":[np.NAN],"LFV":[np.NAN],"FDC":[np.NAN]}
-        return {'prediction':prediction, 'error_metrics':error_metrics,"diverged":False}
-
-
+        error_metrics = {
+            "MAE": [np.nan],
+            "RMSE": [np.nan],
+            "NSE": [np.nan],
+            "alpha": [np.nan],
+            "beta": [np.nan],
+            "HFV": [np.nan],
+            "HFV10": [np.nan],
+            "LFV": [np.nan],
+            "FDC": [np.nan],
+        }
+        return {
+            "prediction": prediction,
+            "error_metrics": error_metrics,
+            "diverged": False,
+        }
 
 
 ### the functions below are for generating LTI systems directly from data (aka system identification)
@@ -905,23 +1583,37 @@ def delay_io_predict(delay_io_model, system_data, num_transforms=1,evaluation=Fa
 # the function below returns an LTI system (in the matrices A, B, and C) that mimic the shape of a given gamma distribution
 # scaling should be correct, but need to verify that
 # max state dim, resolution, and max iterations could be icnrased to improve accuracy
-def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False,
-                   max_state_dim=50,max_iterations=200, max_pole_speed = 5, min_pole_speed = 0.01):
+def lti_from_gamma(
+    shape,
+    scale,
+    location,
+    dt=0,
+    desired_NSE=0.999,
+    verbose=False,
+    max_state_dim=50,
+    max_iterations=200,
+    max_pole_speed=5,
+    min_pole_speed=0.01,
+):
     # a pole of speed -5 decays to less than 1% of it's value after one timestep
     # a pole of speed -0.01 decays to more than 99% of it's value after one timestep
 
     # i've assumed here that gamma pdf is defined the same as in matlab
     # if that's not true testing will show it soon enough
-    t50 = shape*scale + location # center of mass
+    t50 = shape * scale + location  # center of mass
     skewness = 2 / np.sqrt(shape)
-    total_time_base = 2*t50 # not that this contains the full shape, but if we fit this much of the curve perfectly we'll be close enough
-    #resolution = (t50)/((skewness + location)) # make this coarser for faster debugging
-    resolution = (t50)/(10*(skewness + location)) # production version
+    total_time_base = (
+        2 * t50
+    )  # not that this contains the full shape, but if we fit this much of the curve perfectly we'll be close enough
+    # resolution = (t50)/((skewness + location)) # make this coarser for faster debugging
+    resolution = (t50) / (10 * (skewness + location))  # production version
 
-    #resolution = 1/ skewness
+    # resolution = 1/ skewness
     decay_rate = 1 / resolution
-    decay_rate = np.clip(decay_rate ,min_pole_speed, max_pole_speed)
-    state_dim = int(np.floor(total_time_base*decay_rate)) # this keeps the time base fixed for a given decay rate
+    decay_rate = np.clip(decay_rate, min_pole_speed, max_pole_speed)
+    state_dim = int(
+        np.floor(total_time_base * decay_rate)
+    )  # this keeps the time base fixed for a given decay rate
     if state_dim > max_state_dim:
         state_dim = max_state_dim
         decay_rate = state_dim / total_time_base
@@ -930,43 +1622,44 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
         state_dim = 1
         decay_rate = state_dim / total_time_base
         resolution = 1 / decay_rate
-        
-    decay_rate = np.clip(decay_rate ,min_pole_speed, max_pole_speed)
+
+    decay_rate = np.clip(decay_rate, min_pole_speed, max_pole_speed)
 
     if verbose:
-        print("state dimension is ",state_dim)
-        print("decay rate is ",decay_rate)
-        print("total time base is ",total_time_base)
+        print("state dimension is ", state_dim)
+        print("decay rate is ", decay_rate)
+        print("total time base is ", total_time_base)
         print("resolution is", resolution)
 
-
     # make the timestep one so that the relative error is correct (dt too small makes error bigger than written)
-    #t = np.linspace(0,3*total_time_base,1000)
-    #desired_error = desired_error / dt
-    '''
+    # t = np.linspace(0,3*total_time_base,1000)
+    # desired_error = desired_error / dt
+    """
     if dt > 0: # true if numeric
         t = np.arange(0,2*total_time_base,dt)
     else:
-        t= np.linspace(0,2*total_time_base,num=200) 
-    '''
-    t = np.linspace(0,2*total_time_base,num=200)
-    
-    #if verbose:
+        t= np.linspace(0,2*total_time_base,num=200)
+    """
+    t = np.linspace(0, 2 * total_time_base, num=200)
+
+    # if verbose:
     #    print("dt is ",dt)
     #    print("scaled desired error is ",desired_error)
 
-    gam = stats.gamma.pdf(t,shape,location,scale)
+    gam = stats.gamma.pdf(t, shape, location, scale)
 
     # A is a cascade with the appropriate decay rate
-    A = decay_rate*np.diag(np.ones((state_dim-1)) , -1) - decay_rate*np.diag(np.ones((state_dim)),0)
+    A = decay_rate * np.diag(np.ones((state_dim - 1)), -1) - decay_rate * np.diag(
+        np.ones((state_dim)), 0
+    )
     # influence enters at the top state only
-    B = np.concatenate((np.ones((1,1)),np.zeros((state_dim-1,1))))
+    B = np.concatenate((np.ones((1, 1)), np.zeros((state_dim - 1, 1))))
     # contributions of states to the output will be scaled to match the gamma distribution
-    C = np.ones((1,state_dim))*max(gam)
-    lti_sys = control.ss(A,B,C,0)
+    C = np.ones((1, state_dim)) * max(gam)
+    lti_sys = control.ss(A, B, C, 0)
 
-    lti_approx = control.impulse_response(lti_sys,t)
-    '''
+    lti_approx = control.impulse_response(lti_sys, t)
+    """
     error = np.sum(np.abs(gam - lti_approx.y))
     if(verbose):
         print("initial error")
@@ -974,135 +1667,160 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
         #print("desired error")
         #print(max(gam))
         #print(desired_error)
-        '''
-    NSE = 1 - (np.sum(np.square(gam - lti_approx.y)) / np.sum(np.square(gam - np.mean(gam)) ))
+        """
+    NSE = 1 - (
+        np.sum(np.square(gam - lti_approx.y)) / np.sum(np.square(gam - np.mean(gam)))
+    )
     # if NSE is nan, set to -10e6
     if np.isnan(NSE):
         NSE = -10e6
-
 
     if verbose:
         print("initial NSE")
         print(NSE)
         print("desired NSE")
         print(desired_NSE)
-        
+
     iterations = 0
 
-    speeds = [10,5,2,1.1,1.05,1.01,1.001]
+    speeds = [10, 5, 2, 1.1, 1.05, 1.01, 1.001]
     speed_idx = 0
     leap = speeds[speed_idx]
-    # the area under the curve is normalized to be one. so rather than basing our desired error off the 
+    # the area under the curve is normalized to be one. so rather than basing our desired error off the
     # max of the distribution, it might be better to make it a percentage error, one percent or five percent
-    while (NSE < desired_NSE and iterations < max_iterations):
-        
-        og_was_best = True # start each iteration assuming that the original is the best
+    while NSE < desired_NSE and iterations < max_iterations:
+
+        og_was_best = (
+            True  # start each iteration assuming that the original is the best
+        )
         # search across the C vector
-        for i in range(C.shape[1]-1,int(-1),int(-1)): # accross the columns # start at the end and come back
-        #for i in range(int(0),C.shape[1],int(1)): # accross the columns, start at the beginning and go forward
-            
-            og_approx = control.ss(A,B,C,0)
-            og_y = np.ndarray.flatten(control.impulse_response(og_approx,t).y)
+        for i in range(
+            C.shape[1] - 1, int(-1), int(-1)
+        ):  # accross the columns # start at the end and come back
+            # for i in range(int(0),C.shape[1],int(1)): # accross the columns, start at the beginning and go forward
+
+            og_approx = control.ss(A, B, C, 0)
+            og_y = np.ndarray.flatten(control.impulse_response(og_approx, t).y)
             og_error = np.sum(np.abs(gam - og_y))
-            og_NSE = 1 - (np.sum((gam - og_y)**2) / np.sum((gam - np.mean(gam))**2))
+            og_NSE = 1 - (np.sum((gam - og_y) ** 2) / np.sum((gam - np.mean(gam)) ** 2))
 
             Ctwice = np.array(C, copy=True)
-            Ctwice[0,i] = leap*C[0,i]
-            twice_approx = control.ss(A,B,Ctwice,0)
-            twice_y = np.ndarray.flatten(control.impulse_response(twice_approx,t).y)
-            twice_error = np.sum(np.abs(gam - twice_y))
-            twice_NSE = 1 - (np.sum((gam - twice_y)**2) / np.sum((gam - np.mean(gam))**2))
+            Ctwice[0, i] = leap * C[0, i]
+            twice_approx = control.ss(A, B, Ctwice, 0)
+            twice_y = np.ndarray.flatten(control.impulse_response(twice_approx, t).y)
+            np.sum(np.abs(gam - twice_y))
+            twice_NSE = 1 - (
+                np.sum((gam - twice_y) ** 2) / np.sum((gam - np.mean(gam)) ** 2)
+            )
 
-            Chalf = np.array(C,copy=True)
-            Chalf[0,i] = (1/leap)*C[0,i]
-            half_approx = control.ss(A,B,Chalf,0)
-            half_y = np.ndarray.flatten(control.impulse_response(half_approx,t).y)
-            half_error = np.sum(np.abs(gam - half_y))
-            half_NSE = 1 - (np.sum((gam - half_y)**2) / np.sum((gam - np.mean(gam))**2))
-            '''
+            Chalf = np.array(C, copy=True)
+            Chalf[0, i] = (1 / leap) * C[0, i]
+            half_approx = control.ss(A, B, Chalf, 0)
+            half_y = np.ndarray.flatten(control.impulse_response(half_approx, t).y)
+            np.sum(np.abs(gam - half_y))
+            half_NSE = 1 - (
+                np.sum((gam - half_y) ** 2) / np.sum((gam - np.mean(gam)) ** 2)
+            )
+            """
             Cneg = np.array(C,copy=True)
             Cneg[0,i] = -C[0,i]
             neg_approx = control.ss(A,B,Cneg,0)
             neg_y = np.ndarray.flatten(control.impulse_response(neg_approx,t).y)
             neg_error = np.sum(np.abs(gam - neg_y))
             neg_NSE = 1 - (np.sum((gam - neg_y)**2) / np.sum((gam - np.mean(gam))**2))
-            '''
-            faster = np.array(A,copy=True)
-            faster[i,i] = A[i,i]*leap # faster decay
-            if abs(faster[i,i]) < abs(max_pole_speed):
-                if i > 0: # first reservoir doesn't receive contribution from another reservoir. want to keep B at 1 for scaling
-                    faster[i,i-1] = A[i,i-1]*leap # faster rise
-                faster_approx = control.ss(faster,B,C,0)
-                faster_y = np.ndarray.flatten(control.impulse_response(faster_approx,t).y)
-                faster_error = np.sum(np.abs(gam - faster_y))
-                faster_NSE = 1 - (np.sum((gam - faster_y)**2) / np.sum((gam - np.mean(gam))**2))
+            """
+            faster = np.array(A, copy=True)
+            faster[i, i] = A[i, i] * leap  # faster decay
+            if abs(faster[i, i]) < abs(max_pole_speed):
+                if (
+                    i > 0
+                ):  # first reservoir doesn't receive contribution from another reservoir. want to keep B at 1 for scaling
+                    faster[i, i - 1] = A[i, i - 1] * leap  # faster rise
+                faster_approx = control.ss(faster, B, C, 0)
+                faster_y = np.ndarray.flatten(
+                    control.impulse_response(faster_approx, t).y
+                )
+                np.sum(np.abs(gam - faster_y))
+                faster_NSE = 1 - (
+                    np.sum((gam - faster_y) ** 2) / np.sum((gam - np.mean(gam)) ** 2)
+                )
             else:
-                faster_NSE = -10e6 # disallowed because the pole is too fast
+                faster_NSE = -10e6  # disallowed because the pole is too fast
 
-            slower = np.array(A,copy=True)
-            slower[i,i] = A[i,i]/leap # slower decay
-            if abs(slower[i,i]) > abs(min_pole_speed):
+            slower = np.array(A, copy=True)
+            slower[i, i] = A[i, i] / leap  # slower decay
+            if abs(slower[i, i]) > abs(min_pole_speed):
                 if i > 0:
-                    slower[i,i-1] = A[i,i-1]/leap # slower rise
-                slower_approx = control.ss(slower,B,C,0)
-                slower_y = np.ndarray.flatten(control.impulse_response(slower_approx,t).y)
-                slower_error = np.sum(np.abs(gam - slower_y))
-                slower_NSE = 1 - (np.sum((gam - slower_y)**2) / np.sum((gam - np.mean(gam))**2))
+                    slower[i, i - 1] = A[i, i - 1] / leap  # slower rise
+                slower_approx = control.ss(slower, B, C, 0)
+                slower_y = np.ndarray.flatten(
+                    control.impulse_response(slower_approx, t).y
+                )
+                np.sum(np.abs(gam - slower_y))
+                slower_NSE = 1 - (
+                    np.sum((gam - slower_y) ** 2) / np.sum((gam - np.mean(gam)) ** 2)
+                )
             else:
-                slower_NSE = -10e6 # disallowed because the pole is too slow
+                slower_NSE = -10e6  # disallowed because the pole is too slow
 
-            #all_errors = [og_error, twice_error, half_error, faster_error, slower_error]
-            all_NSE  = [og_NSE, twice_NSE, half_NSE, faster_NSE, slower_NSE]# , neg_NSE]
+            # all_errors = [og_error, twice_error, half_error, faster_error, slower_error]
+            all_NSE = [
+                og_NSE,
+                twice_NSE,
+                half_NSE,
+                faster_NSE,
+                slower_NSE,
+            ]  # , neg_NSE]
 
-            if (twice_NSE >= max(all_NSE) and twice_NSE > og_NSE):
+            if twice_NSE >= max(all_NSE) and twice_NSE > og_NSE:
                 C = Ctwice
-                if twice_NSE > 1.001*og_NSE: # an appreciable difference
-                    og_was_best = False # did we change something this iteration?
-            elif (half_NSE >= max(all_NSE) and half_NSE > og_NSE):
+                if twice_NSE > 1.001 * og_NSE:  # an appreciable difference
+                    og_was_best = False  # did we change something this iteration?
+            elif half_NSE >= max(all_NSE) and half_NSE > og_NSE:
                 C = Chalf
-                if half_NSE > 1.001*og_NSE: # an appreciable difference
-                    og_was_best = False # did we change something this iteration?
-                
-            elif (slower_NSE >= max(all_NSE) and slower_NSE > og_NSE):
+                if half_NSE > 1.001 * og_NSE:  # an appreciable difference
+                    og_was_best = False  # did we change something this iteration?
+
+            elif slower_NSE >= max(all_NSE) and slower_NSE > og_NSE:
                 A = slower
-                if slower_NSE > 1.001*og_NSE: # an appreciable difference
-                    og_was_best = False # did we change something this iteration?
-            elif (faster_NSE >= max(all_NSE) and faster_NSE > og_NSE):
+                if slower_NSE > 1.001 * og_NSE:  # an appreciable difference
+                    og_was_best = False  # did we change something this iteration?
+            elif faster_NSE >= max(all_NSE) and faster_NSE > og_NSE:
                 A = faster
-                if faster_NSE > 1.001*og_NSE: # an appreciable difference
-                    og_was_best = False # did we change something this iteration?
-                    '''
+                if faster_NSE > 1.001 * og_NSE:  # an appreciable difference
+                    og_was_best = False  # did we change something this iteration?
+                    """
             elif (neg_NSE >= max(all_NSE) and neg_NSE > og_NSE):
                 C = Cneg
                 if neg_NSE > 1.001*og_NSE:
                     og_was_best = False
-                    '''
-                    
-
+                    """
 
         NSE = og_NSE
         error = og_error
-        iterations += 1 # this shouldn't be the termination condition unless the resolution is too coarse
+        iterations += 1  # this shouldn't be the termination condition unless the resolution is too coarse
         # normally the optimization should exit because the leap has become too small
-        if og_was_best: # the original was the best, so we're going to tighten up the optimization
+        if (
+            og_was_best
+        ):  # the original was the best, so we're going to tighten up the optimization
             speed_idx += 1
-            if speed_idx > len(speeds)-1:
-                break # we're done
+            if speed_idx > len(speeds) - 1:
+                break  # we're done
             leap = speeds[speed_idx]
         # print the iteration count every ten
         # comment out for production
-        if (iterations % 2 == 0 and verbose):
+        if iterations % 2 == 0 and verbose:
             print("iterations = ", iterations)
             print("error = ", error)
             print("NSE = ", NSE)
             print("leap = ", leap)
 
-    lti_approx = control.ss(A,B,C,0)
-    y = np.ndarray.flatten(control.impulse_response(og_approx,t).y)
+    lti_approx = control.ss(A, B, C, 0)
+    y = np.ndarray.flatten(control.impulse_response(og_approx, t).y)
     error = np.sum(np.abs(gam - og_y))
     print("LTI_from_gamma final NSE")
     print(NSE)
-    if (verbose):
+    if verbose:
         print("final system\n")
         print("A")
         print(A)
@@ -1116,21 +1834,35 @@ def lti_from_gamma(shape, scale, location,dt=0,desired_NSE = 0.999,verbose=False
 
     # are any of the final eigenvalues outside the bounds specified?
     E = np.linalg.eigvals(A)
-    if (np.any(np.abs(E) > max_pole_speed) or np.any(np.abs(E) < min_pole_speed)):
+    if np.any(np.abs(E) > max_pole_speed) or np.any(np.abs(E) < min_pole_speed):
         print("WARNING: final eigenvalues are outside the bounds specified")
 
-
-    return {"lti_approx":lti_approx, "lti_approx_output":y, "error":error, "t":t, "gamma_pdf":gam}
-
+    return {
+        "lti_approx": lti_approx,
+        "lti_approx_output": y,
+        "error": error,
+        "t": t,
+        "gamma_pdf": gam,
+    }
 
 
 # this function takes the system data and the causative topology and returns an LTI system
 # if the causative topology isn't already defined, it needs to be created using infer_causative_topology
-def lti_system_gen(causative_topology, system_data,independent_columns,dependent_columns,max_iter=250,
-                   swmm=False,bibo_stable = False,max_transition_state_dim=50, max_transforms = 1, early_stopping_threshold = 0.005):
+def lti_system_gen(
+    causative_topology,
+    system_data,
+    independent_columns,
+    dependent_columns,
+    max_iter=250,
+    swmm=False,
+    bibo_stable=False,
+    max_transition_state_dim=50,
+    max_transforms=1,
+    early_stopping_threshold=0.005,
+):
 
     # cast the columns and indices of causative_topology to strings so sindy can run properly
-    # We need the tuples to link the columns in system_data to the object names in the swmm model  
+    # We need the tuples to link the columns in system_data to the object names in the swmm model
     # so we'll cast these back to tuples once we're done
     if swmm:
         causative_topology.columns = causative_topology.columns.astype(str)
@@ -1145,26 +1877,26 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         independent_columns = [str(col) for col in independent_columns]
         print(dependent_columns)
         print(independent_columns)
-    
-    
+
         # do the same for the columns of system_data
         system_data.columns = system_data.columns.astype(str)
         print(system_data.columns)
 
-
     A = pd.DataFrame(index=dependent_columns, columns=dependent_columns)
     B = pd.DataFrame(index=dependent_columns, columns=independent_columns)
-    C = pd.DataFrame(index=dependent_columns,columns=dependent_columns)
-    C.loc[:,:] = np.diag(np.ones(len(dependent_columns))) # these are the states which are observable
-   
+    C = pd.DataFrame(index=dependent_columns, columns=dependent_columns)
+    C.loc[:, :] = np.diag(
+        np.ones(len(dependent_columns))
+    )  # these are the states which are observable
+
     # copy the corresponding entries from the causative topology into B
     for row in B.index:
         for col in B.columns:
-            B.loc[row,col] = causative_topology.loc[row,col]
+            B.loc[row, col] = causative_topology.loc[row, col]
     # and into A
     for row in A.index:
         for col in A.columns:
-            A.loc[row,col] = causative_topology.loc[row,col]
+            A.loc[row, col] = causative_topology.loc[row, col]
 
     print("A")
     print(A)
@@ -1174,14 +1906,14 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
     print(C)
     # use transform_only when calling delay_io_train to only train transfomrations for connections marked "d"
     # train a MISO model for each output
-    delay_models = {key: None for key in dependent_columns}
-    
+    delay_models: dict[Any, Any] = {key: None for key in dependent_columns}
+
     for row in A.index:
         immediate_forcing = []
         delayed_forcing = []
         for col in A.columns:
             if col == row:
-                continue # don't need to include the output state as a forcing variable. it's already included by default
+                continue  # don't need to include the output state as a forcing variable. it's already included by default
             if A[col][row] == "d":
                 delayed_forcing.append(col)
             elif A[col][row] == "i":
@@ -1194,76 +1926,130 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         # make total_forcing the union of immediate and delayed forcing
         total_forcing = immediate_forcing + delayed_forcing
         feature_names = [row] + total_forcing
-        if (delayed_forcing):
-            print("training delayed model for ", row, " with forcing ", total_forcing, "\n")
-            delay_models[row] = delay_io_train(system_data,[row],total_forcing,
-                                     transform_only=delayed_forcing, max_transforms=max_transforms,
-                                     poly_order=1, max_iter=max_iter,verbose=False,bibo_stable=bibo_stable)
+        if delayed_forcing:
+            print(
+                "training delayed model for ",
+                row,
+                " with forcing ",
+                total_forcing,
+                "\n",
+            )
+            delay_models[row] = delay_io_train(
+                system_data,
+                [row],
+                total_forcing,
+                transform_only=delayed_forcing,
+                max_transforms=max_transforms,
+                poly_order=1,
+                max_iter=max_iter,
+                verbose=False,
+                bibo_stable=bibo_stable,
+            )
             # we'll parse this delayed causation into the matrices A, B, and C later
         else:
             ####### TODO: incorporate bibo stability constraint into instantaneous fits ########
-            print("training immediate model for ", row, " with forcing ", total_forcing, "\n")
+            print(
+                "training immediate model for ",
+                row,
+                " with forcing ",
+                total_forcing,
+                "\n",
+            )
             delay_models[row] = None
             # we can put immediate causation into the matrices A, B, and C now
 
-            if (bibo_stable): # negative autocorrelatoin
+            if bibo_stable:  # negative autocorrelatoin
                 # Figure out how many library features there will be
-                library = ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False)
-                #total_train = pd.concat((response,forcing), axis='columns')
-                library.fit([ps.AxesArray(feature_names,{"ax_sample":0,"ax_coord":1})])
+                library = ps.PolynomialLibrary(
+                    degree=1, include_bias=False, include_interaction=False
+                )
+                # total_train = pd.concat((response,forcing), axis='columns')
+                # fit on a dummy (2, n_features) array; 2 rows is the minimum pysindy requires
+                library.fit(np.zeros((2, len(feature_names))))
                 n_features = library.n_output_features_
-                #print(f"Features ({n_features}):", library.get_feature_names())
+                # print(f"Features ({n_features}):", library.get_feature_names())
                 # Set constraints
-                #n_targets = total_train.shape[1] # not sure what targets means after reading through the pysindy docs
-                #print("n_targets")
-                #print(n_targets)
-                constraint_rhs = 0
+                # n_targets = total_train.shape[1] # not sure what targets means after reading through the pysindy docs
+                # print("n_targets")
+                # print(n_targets)
+                constraint_rhs = np.zeros(1)
                 # one row per constraint, one column per coefficient
-                constraint_lhs = np.zeros((1 , n_features ))
+                constraint_lhs = np.zeros((1, n_features))
 
-                #print(constraint_rhs)
-                #print(constraint_lhs)
+                # print(constraint_rhs)
+                # print(constraint_lhs)
                 # constrain the highest order output autocorrelation to be negative
                 # this indexing is only right for include_interaction=False, include_bias=False, and pure polynomial library
                 # for more complex libraries, some conditional logic will be needed to grab the right column
-                constraint_lhs[:,0] = 1
-                
-                model = ps.SINDy(
-                            differentiation_method= ps.FiniteDifference(),
-                            feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False),
-                            optimizer = ps.STLSQ(threshold=0),
-                            
-                        )
+                constraint_lhs[:, 0] = 1
 
-            else: # unoconstrained
                 model = ps.SINDy(
-                    differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
-                    feature_library=ps.PolynomialLibrary(degree=1,include_bias = False, include_interaction=False), 
-                    optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0),
-                    
-                    ) 
-            if system_data.loc[:,immediate_forcing].empty: # the subsystem is autonomous
-                instant_fit = model.fit(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1))
+                    differentiation_method=ps.FiniteDifference(),
+                    feature_library=ps.PolynomialLibrary(
+                        degree=1, include_bias=False, include_interaction=False
+                    ),
+                    optimizer=_ConstrainedSR3(
+                        reg_weight_lam=0,
+                        regularizer="l2",
+                        constraint_lhs=constraint_lhs,
+                        constraint_rhs=constraint_rhs,
+                        inequality_constraints=True,
+                    ),
+                )
+
+            else:  # unoconstrained
+                model = ps.SINDy(
+                    differentiation_method=ps.FiniteDifference(
+                        order=10, drop_endpoints=True
+                    ),
+                    feature_library=ps.PolynomialLibrary(
+                        degree=1, include_bias=False, include_interaction=False
+                    ),
+                    optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+                )
+            if system_data.loc[
+                :, immediate_forcing
+            ].empty:  # the subsystem is autonomous
+                instant_fit = model.fit(
+                    x=system_data.loc[:, row], t=np.arange(0, len(system_data.index), 1)
+                )
                 instant_fit.print(precision=3)
-                print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1)))
+                print(
+                    "Training r2 = ",
+                    instant_fit.score(
+                        x=system_data.loc[:, row],
+                        t=np.arange(0, len(system_data.index), 1),
+                    ),
+                )
                 print(instant_fit.coefficients())
-            else: # there is some forcing
-                #instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing]) # sindy can't take datetime indices
-                instant_fit = model.fit(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1) , u = system_data.loc[:,immediate_forcing])
+            else:  # there is some forcing
+                # instant_fit = model.fit(x = system_data.loc[:,row] ,t = system_data.index.values, u = system_data.loc[:,immediate_forcing]) # sindy can't take datetime indices
+                instant_fit = model.fit(
+                    x=system_data.loc[:, row],
+                    t=np.arange(0, len(system_data.index), 1),
+                    u=system_data.loc[:, immediate_forcing],
+                )
                 instant_fit.print(precision=3)
-                print("Training r2 = ", instant_fit.score(x = system_data.loc[:,row] ,t = np.arange(0,len(system_data.index),1), u = system_data.loc[:,immediate_forcing]))
+                print(
+                    "Training r2 = ",
+                    instant_fit.score(
+                        x=system_data.loc[:, row],
+                        t=np.arange(0, len(system_data.index), 1),
+                        u=system_data.loc[:, immediate_forcing],
+                    ),
+                )
                 print(instant_fit.coefficients())
             for idx in range(len(feature_names)):
                 if feature_names[idx] in A.columns:
-                    A.loc[row,feature_names[idx]] = instant_fit.coefficients()[0][idx]
+                    A.loc[row, feature_names[idx]] = instant_fit.coefficients()[0][idx]
                 elif feature_names[idx] in B.columns:
-                    B.loc[row,feature_names[idx]] = instant_fit.coefficients()[0][idx]
+                    B.loc[row, feature_names[idx]] = instant_fit.coefficients()[0][idx]
                 else:
                     print("couldn't find a column for ", feature_names[idx])
-            #print("updated A")
-            #print(A)
-            #print("updated B")
-            #print(B)
+            # print("updated A")
+            # print(A)
+            # print("updated B")
+            # print(B)
 
     original_A = A.copy(deep=True)
     # now, parse the delay models into the A, B, and C matrices
@@ -1275,105 +2061,167 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
     for row in original_A.index:
         if delay_models[row] is None:
             pass
-        else: # we want the model with the most transformations where the last trnasformation added at least 0.5% to the R2 score
-            for num_transforms in range(1,max_transforms+1):
+        else:  # we want the model with the most transformations where the last trnasformation added at least 0.5% to the R2 score
+            for num_transforms in range(1, max_transforms + 1):
                 if num_transforms == 1:
                     optimal_number_transforms = num_transforms
-                elif delay_models[row][num_transforms]['final_model']['error_metrics']['r2'] - delay_models[row][num_transforms-1]['final_model']['error_metrics']['r2'] < early_stopping_threshold:
+                elif (
+                    delay_models[row][num_transforms]["final_model"]["error_metrics"][
+                        "r2"
+                    ]
+                    - delay_models[row][num_transforms - 1]["final_model"][
+                        "error_metrics"
+                    ]["r2"]
+                    < early_stopping_threshold
+                ):
                     optimal_number_transforms = num_transforms - 1
-                    break # improvement is too small to justify additional complexity
+                    break  # improvement is too small to justify additional complexity
                 else:
-                    optimal_number_transforms = num_transforms # the most recent one was worth it
-            
-            transformation_approximations = {transform_key: None for transform_key in delay_models[row][optimal_number_transforms]['shape_factors'].columns}
-            for transform_key in transformation_approximations.keys(): # which input
-                for idx in range(1,optimal_number_transforms+1): # which transformation
+                    optimal_number_transforms = (
+                        num_transforms  # the most recent one was worth it
+                    )
+
+            transformation_approximations: dict[Any, Any] = {
+                transform_key: None
+                for transform_key in delay_models[row][optimal_number_transforms][
+                    "shape_factors"
+                ].columns
+            }
+            for transform_key in transformation_approximations.keys():  # which input
+                for idx in range(
+                    1, optimal_number_transforms + 1
+                ):  # which transformation
                     print("variable = ", transform_key, ", transformation = ", idx)
-                    delay_models[row][optimal_number_transforms]['final_model']['model'].print(precision=5)
-                    shape = delay_models[row][optimal_number_transforms]['shape_factors'].loc[idx,transform_key]
-                    scale = delay_models[row][optimal_number_transforms]['scale_factors'].loc[idx,transform_key]
-                    loc = delay_models[row][optimal_number_transforms]['loc_factors'].loc[idx,transform_key]
-                    '''
+                    delay_models[row][optimal_number_transforms]["final_model"][
+                        "model"
+                    ].print(precision=5)
+                    shape = delay_models[row][optimal_number_transforms][
+                        "shape_factors"
+                    ].loc[idx, transform_key]
+                    scale = delay_models[row][optimal_number_transforms][
+                        "scale_factors"
+                    ].loc[idx, transform_key]
+                    loc = delay_models[row][optimal_number_transforms][
+                        "loc_factors"
+                    ].loc[idx, transform_key]
+                    """
                     # infer the timestep of system_data from the index
                     timestep = system_data.index[1] - system_data.index[0]
                     try: # if the timestep is numeric
                         pd.to_numeric(timestep)
                         transformation_approximations[transform_key] = lti_from_gamma(shape,scale,loc,dt=timestep)
-                    
+
                         Agam = transformation_approximations[transform_key]['lti_approx'].A / timestep
-                        Bgam = transformation_approximations[transform_key]['lti_approx'].B / timestep 
+                        Bgam = transformation_approximations[transform_key]['lti_approx'].B / timestep
                         Cgam = transformation_approximations[transform_key]['lti_approx'].C / timestep
                     except Exception as e: # if the timestep is something like a datetime
-                        print(e)'''
+                        print(e)"""
                     # this will get overwritten if we use more than one transformation per input. i think that's okay.
-                    transformation_approximations[transform_key] = lti_from_gamma(shape,scale,loc,max_state_dim = max_transition_state_dim)
-                    
-                    Agam = transformation_approximations[transform_key]['lti_approx'].A 
-                    Bgam = transformation_approximations[transform_key]['lti_approx'].B # only entry is unit impulse at top state
-                    Cgam = transformation_approximations[transform_key]['lti_approx'].C 
+                    transformation_approximations[transform_key] = lti_from_gamma(
+                        shape, scale, loc, max_state_dim=max_transition_state_dim
+                    )
+
+                    Agam = transformation_approximations[transform_key]["lti_approx"].A
+                    Bgam = transformation_approximations[transform_key][
+                        "lti_approx"
+                    ].B  # only entry is unit impulse at top state
+                    Cgam = transformation_approximations[transform_key]["lti_approx"].C
 
                     tr_string = str("_tr_" + str(idx))
 
                     # Cgam needs to be scaled by the coefficient the forcing term had in the delay model
-                    #coefficients = {coef_key: None for coef_key in delay_models[row][1]['final_model']['model'].feature_names}
-                    coefficients = {coef_key: None for coef_key in delay_models[row][optimal_number_transforms]['final_model']['model'].feature_names}
+                    # coefficients = {coef_key: None for coef_key in delay_models[row][1]['final_model']['model'].feature_names}
+                    coefficients = {
+                        coef_key: None
+                        for coef_key in delay_models[row][optimal_number_transforms][
+                            "final_model"
+                        ]["model"].feature_names
+                    }
                     for coef_key in coefficients.keys():
-                        coef_index = delay_models[row][optimal_number_transforms]['final_model']['model'].feature_names.index(coef_key)
-                        coefficients[coef_key] = delay_models[row][optimal_number_transforms]['final_model']['model'].coefficients()[0][coef_index]
-                        #if "_tr_1" in coef_key and coef_key.replace("_tr_1","") == transform_key.replace("_tr_1",""):
-                        if tr_string in coef_key and coef_key.replace(tr_string,"") == transform_key.replace(tr_string,""):
-                            '''
-                            try: 
+                        coef_index = delay_models[row][optimal_number_transforms][
+                            "final_model"
+                        ]["model"].feature_names.index(coef_key)
+                        coefficients[coef_key] = delay_models[row][
+                            optimal_number_transforms
+                        ]["final_model"]["model"].coefficients()[0][coef_index]
+                        # if "_tr_1" in coef_key and coef_key.replace("_tr_1","") == transform_key.replace("_tr_1",""):
+                        if tr_string in coef_key and coef_key.replace(
+                            tr_string, ""
+                        ) == transform_key.replace(tr_string, ""):
+                            """
+                            try:
                                 pd.to_numeric(timestep,errors='raise')
                                 Cgam = Cgam * coefficients[coef_key] / timestep
                             except Exception as e:
                                 print(e)
                                 Cgam = Cgam * coefficients[coef_key]
-                            '''
-                        
-                            Cgam = Cgam * coefficients[coef_key] # scaling
-                        else: # these are the immediate effects, insert them now
-                            if coef_key in A.columns:
-                                A.loc[row,coef_key] = coefficients[coef_key]
-                            elif coef_key in B.columns:
-                                B.loc[row,coef_key] = coefficients[coef_key]
+                            """
 
-                
+                            Cgam = Cgam * coefficients[coef_key]  # scaling
+                        else:  # these are the immediate effects, insert them now
+                            if coef_key in A.columns:
+                                A.loc[row, coef_key] = coefficients[coef_key]
+                            elif coef_key in B.columns:
+                                B.loc[row, coef_key] = coefficients[coef_key]
+
                     Agam_index = []
                     for agam_idx in range(Agam.shape[0]):
-                        #Agam_index.append(transform_key.replace("_tr_1","") + "->" + row + "_" + str(idx))
-                        Agam_index.append(transform_key.replace(tr_string,"") + "->" + row + tr_string + "_" + str(agam_idx))
-                    Agam = pd.DataFrame(Agam, index = Agam_index, columns = Agam_index)
-                    Bgam = pd.DataFrame(Bgam, index = Agam_index, columns = [transform_key.replace(tr_string,"")])
-                    Cgam = pd.DataFrame(Cgam, index = [row], columns = Agam_index)
-                    #print("Agam")
-                    #print(Agam)
-                    #print("Bgam")
-                    #print(Bgam)
-                    #print("Cgam")
-                    #print(Cgam)
+                        # Agam_index.append(transform_key.replace("_tr_1","") + "->" + row + "_" + str(idx))
+                        Agam_index.append(
+                            transform_key.replace(tr_string, "")
+                            + "->"
+                            + row
+                            + tr_string
+                            + "_"
+                            + str(agam_idx)
+                        )
+                    Agam = pd.DataFrame(Agam, index=Agam_index, columns=Agam_index)
+                    Bgam = pd.DataFrame(
+                        Bgam,
+                        index=Agam_index,
+                        columns=[transform_key.replace(tr_string, "")],
+                    )
+                    Cgam = pd.DataFrame(Cgam, index=[row], columns=Agam_index)
+                    # print("Agam")
+                    # print(Agam)
+                    # print("Bgam")
+                    # print(Bgam)
+                    # print("Cgam")
+                    # print(Cgam)
                     # insert these into the A, B, and C matrices
                     # for Agam, the insertion row is immediately after the source (key)
                     # the insertion column is also immediately after the source (key)
-                
-                    ### everything below this point is garbage. not performing at all as desired at the moment
 
+                    ### everything below this point is garbage. not performing at all as desired at the moment
 
                     # first need to create space for the new rows and columns
                     # create before_index and after_index variables, which record the parts of the index of A that occur before and after row
                     before_index = []
-                    #after_index = []
-                    #if transform_key.replace("_tr_1","") not in A.index: # it's one of the forcing terms. put it in at the beginning
-                    if transform_key.replace(tr_string,"") not in A.index: # it's one of the forcing terms. put it in at the beginning
-                        after_index = list(A.index) # it's a forcing variable, so we don't want it in the newA index
-                    else: # it is a state variable
-                        #before_index = list(A.index[:A.index.get_loc(transform_key.replace("_tr_1",""))])
-                        before_index = list(A.index[:A.index.get_loc(transform_key.replace(tr_string,""))])
+                    # after_index = []
+                    # if transform_key.replace("_tr_1","") not in A.index: # it's one of the forcing terms. put it in at the beginning
+                    if (
+                        transform_key.replace(tr_string, "") not in A.index
+                    ):  # it's one of the forcing terms. put it in at the beginning
+                        after_index = list(
+                            A.index
+                        )  # it's a forcing variable, so we don't want it in the newA index
+                    else:  # it is a state variable
+                        # before_index = list(A.index[:A.index.get_loc(transform_key.replace("_tr_1",""))])
+                        before_index = list(
+                            A.index[
+                                : A.index.get_loc(transform_key.replace(tr_string, ""))
+                            ]
+                        )
 
-                        #after_index = list(A.index[A.index.get_loc(transform_key.replace("_tr_1",""))+1:])
-                        after_index = list(A.index[A.index.get_loc(transform_key.replace(tr_string,""))+1:])
+                        # after_index = list(A.index[A.index.get_loc(transform_key.replace("_tr_1",""))+1:])
+                        after_index = list(
+                            A.index[
+                                A.index.get_loc(transform_key.replace(tr_string, ""))
+                                + 1 :
+                            ]
+                        )
 
-                        '''
+                        """
                         for idx in A.index:
                             if idx == key.replace("_tr_1",""):
                                 before_index.append(idx) # if it's a state variable, we want it in the newA index
@@ -1382,63 +2230,88 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
                                 before_index.append(idx)
                         for idx in range(A.index.get_loc(key.replace("_tr_1",""))+1,len(A.index)):
                             after_index.append(A.index[idx])
-                            '''
-                    #if transform_key.replace("_tr_1","") in A.index: # the transform key refers to a state (x)
-                    if transform_key.replace(tr_string,"") in A.index:
-                        #states = before_index + [transform_key.replace("_tr_1","")] + Agam_index + after_index # state dim expands by the number of rows in Agam
-                        states = before_index + [transform_key.replace(tr_string,"")] + Agam_index + after_index # state dim expands by the number of rows in Agam
+                            """
+                    # if transform_key.replace("_tr_1","") in A.index: # the transform key refers to a state (x)
+                    if transform_key.replace(tr_string, "") in A.index:
+                        # states = before_index + [transform_key.replace("_tr_1","")] + Agam_index + after_index # state dim expands by the number of rows in Agam
+                        states = (
+                            before_index
+                            + [transform_key.replace(tr_string, "")]
+                            + Agam_index
+                            + after_index
+                        )  # state dim expands by the number of rows in Agam
                         # include the current transform key in A because it's a state variable
-                    #elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
-                    elif transform_key.replace(tr_string,"") in B.columns: # the transform key refers to a control input (u)
-                        states = before_index + Agam_index + after_index # state dim expands by the number of rows in Agam    
+                    # elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
+                    elif (
+                        transform_key.replace(tr_string, "") in B.columns
+                    ):  # the transform key refers to a control input (u)
+                        states = (
+                            before_index + Agam_index + after_index
+                        )  # state dim expands by the number of rows in Agam
                         # don't include the current transform key in A because it's a control input, not a state variable
-                    
-                    newA = pd.DataFrame(index=states, columns = states) 
-                    newB = pd.DataFrame(index = states, columns = B.columns) # input dim remains consistent (columns of B)
-                    newC = pd.DataFrame(index = C.index, columns = states) # output dim remains consistent (rows of C)
+
+                    newA = pd.DataFrame(index=states, columns=states)
+                    newB = pd.DataFrame(
+                        index=states, columns=B.columns
+                    )  # input dim remains consistent (columns of B)
+                    newC = pd.DataFrame(
+                        index=C.index, columns=states
+                    )  # output dim remains consistent (rows of C)
 
                     # fill in newA with the corresponding entries from A
                     for idx in newA.index:
                         for col in newA.columns:
-                            if idx in A.index and col in A.columns: # if it's in the original A matrix, copy it over
-                                newA.loc[idx,col] = A.loc[idx,col]
-                            if idx in Agam.index and col in Agam.columns: # if it's in Agam, copy it over
-                                newA.loc[idx,col] = Agam.loc[idx,col]
-                            if idx in Bgam.index and col in Bgam.columns: # the input to the cascade is a state
-                                newA.loc[idx,col] = Bgam.loc[idx,col]
-
+                            if (
+                                idx in A.index and col in A.columns
+                            ):  # if it's in the original A matrix, copy it over
+                                newA.loc[idx, col] = A.loc[idx, col]
+                            if (
+                                idx in Agam.index and col in Agam.columns
+                            ):  # if it's in Agam, copy it over
+                                newA.loc[idx, col] = Agam.loc[idx, col]
+                            if (
+                                idx in Bgam.index and col in Bgam.columns
+                            ):  # the input to the cascade is a state
+                                newA.loc[idx, col] = Bgam.loc[idx, col]
 
                     for idx in newB.index:
                         for col in newB.columns:
-                            if idx in B.index and col in B.columns: # if it's in the original B matrix, copy it over
-                                newB.loc[idx,col] = B.loc[idx,col]
-                            if idx in Bgam.index and col in Bgam.columns: # the input to the cascade is a forcing term
-                                newB.loc[idx,col] = Bgam.loc[idx,col]
+                            if (
+                                idx in B.index and col in B.columns
+                            ):  # if it's in the original B matrix, copy it over
+                                newB.loc[idx, col] = B.loc[idx, col]
+                            if (
+                                idx in Bgam.index and col in Bgam.columns
+                            ):  # the input to the cascade is a forcing term
+                                newB.loc[idx, col] = Bgam.loc[idx, col]
 
                     for idx in newC.index:
                         for col in newC.columns:
-                            if idx in C.index and col in C.columns: # if it's in the original C matrix, copy it over
-                                newC.loc[idx,col] = C.loc[idx,col]
-                            if idx in Cgam.index and col in Cgam.columns: # outputs from the cascades
-                                newA.loc[idx,col] = Cgam.loc[idx,col]
+                            if (
+                                idx in C.index and col in C.columns
+                            ):  # if it's in the original C matrix, copy it over
+                                newC.loc[idx, col] = C.loc[idx, col]
+                            if (
+                                idx in Cgam.index and col in Cgam.columns
+                            ):  # outputs from the cascades
+                                newA.loc[idx, col] = Cgam.loc[idx, col]
 
-                    #print("newA")
-                    #print(newA.to_string())
-                    #print("newB")
-                    #print(newB.to_string())
-                    #print("newC")
-                    #print(newC.to_string())
+                    # print("newA")
+                    # print(newA.to_string())
+                    # print("newB")
+                    # print(newB.to_string())
+                    # print("newC")
+                    # print(newC.to_string())
 
                     # copy over
                     A = newA.copy(deep=True)
                     B = newB.copy(deep=True)
                     C = newC.copy(deep=True)
 
+    A.replace("n", 0.0, inplace=True)
+    B.replace("n", 0.0, inplace=True)
+    C.replace("n", 0.0, inplace=True)
 
-    A.replace("n",0.0,inplace=True)
-    B.replace("n",0.0,inplace=True)
-    C.replace("n",0.0,inplace=True)
-    
     if swmm:
         pass
         #############
@@ -1449,14 +2322,11 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         # do the same for dependent_columns and independent_columns
 
         # do the same for the columns of system_data
-    
 
+    A = A.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    B = B.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    C = C.apply(pd.to_numeric, errors="coerce").fillna(0.0)
 
-
-    A.fillna(0.0,inplace=True)
-    B.fillna(0.0,inplace=True)
-    C.fillna(0.0,inplace=True)
-    
     # if bibo_stable is specified and A not hurwitz, make A hurwitz by defining A' = A - I*max(real(eig(A)))
     # this will gaurantee stability (max eigenvalue will have real part < 0)
     if bibo_stable:
@@ -1464,49 +2334,782 @@ def lti_system_gen(causative_topology, system_data,independent_columns,dependent
         if any(np.real(orig_eigs) > 0):
             print("stabilizing unstable plant by subtracting I*max(real(eig)) from A")
             epsilon = 10e-4
-            A_stab = A - np.eye(len(A))*(1+epsilon)*max(np.real(orig_eigs)) # add factor of (1+epsilon) for stability, not marginal stabilty
+            A_stab = A - np.eye(len(A)) * (1 + epsilon) * max(
+                np.real(orig_eigs)
+            )  # add factor of (1+epsilon) for stability, not marginal stabilty
             stab_eigs, _ = np.linalg.eig(A_stab)
             A = A_stab.copy(deep=True)
 
-    # sindy will scale the coefficients according to the timestep if the index is numeric 
+    # sindy will scale the coefficients according to the timestep if the index is numeric
     # so the whole system needs to be scaled by the timestep if its numeric
     try:
-        pd.to_numeric(system_data.index,errors='raise') # can the index be converted to a numeric type?
+        pd.to_numeric(
+            system_data.index, errors="raise"
+        )  # can the index be converted to a numeric type?
         dt = system_data.index.values[1] - system_data.index.values[0]
         A = A / dt
-        B = B / dt 
-        C = C # what we observe doesn't need to be adjusted, just the dynamics
+        B = B / dt
+        C = C  # what we observe doesn't need to be adjusted, just the dynamics
         print("system response data index converted to numeric type. dt = ")
         print(dt)
     except Exception as e:
         print(e)
         dt = None
-    
+
     # cast all of A, B, and C to type float (integers cause issues with LQR / LQE calculations)
     A = A.astype(float)
     B = B.astype(float)
     C = C.astype(float)
 
-    lti_sys = control.ss(A,B,C,0,inputs=B.columns,outputs=C.index,states=A.columns)
-
+    lti_sys = control.ss(
+        A, B, C, 0, inputs=B.columns, outputs=C.index, states=A.columns
+    )
 
     # returning the matrices too because control.ss strips the labels from the pandas dataframes and stores them as numpy matrices
-    return {"system":lti_sys,"A":A,"B":B,"C":C}
+    return {"system": lti_sys, "A": A, "B": B, "C": C}
+
+
+def find_topology(
+    system_data,
+    dependent_columns,
+    independent_columns,
+    method="ccm",
+    graph_type="Weak-Conn",
+    verbose=False,
+):
+    from scipy.optimize import minimize
+
+    # drop columns from system_data which aren't in dependent_columns or independent_columns
+    # this ensures we only analyze the variables of interest
+    system_data = pd.concat(
+        (system_data[independent_columns], system_data[dependent_columns]),
+        axis="columns",
+    )
+
+    # Store results for each column pair
+    best_params = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=object
+    )
+    pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
+    pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
+    pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
+    r2_values = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=float
+    )
+    edges = pd.DataFrame(
+        index=system_data.columns, columns=system_data.columns, dtype=int, data=0
+    )  # from column, to row. causation, not flow.
+
+    for dep_col in dependent_columns:
+        np.array(system_data[dep_col].values)
+
+        for forcing_col in system_data.columns:
+            if forcing_col == dep_col:
+                continue  # autocorrelation is always included in the sindy fit
+
+            print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
+            forcing_orig = system_data[[forcing_col]].copy(deep=True)
+
+            # Objective function to minimize (negative because we want to maximize correlation - p_value)
+            def objective(params):
+                shape, scale, loc = params
+
+                # Create transformation parameter DataFrames
+                shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                shape_factors.loc[1, forcing_col] = shape
+                scale_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                scale_factors.loc[1, forcing_col] = scale
+                loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                loc_factors.loc[1, forcing_col] = loc
+
+                try:
+                    # build the candidate input set
+                    # selected_inputs = list(edges.loc[output_variable, edges.loc[output_variable,:] == 1].index)
+                    # candidate_inputs = selected_inputs + [forcing_variable]
+                    # build the transformed timeseries for these candidate inputs using the best transformation parameters found earlier
+                    transformed_inputs = pd.DataFrame(index=system_data.index)
+                    """
+                    for input_var in candidate_inputs:
+                        shape, scale, loc = best_params.loc[output_variable, input_var]
+                        shape_factors = pd.DataFrame(columns=[input_var], index=[1])
+                        shape_factors.loc[1, input_var] = shape
+                        scale_factors = pd.DataFrame(columns=[input_var], index=[1])
+                        scale_factors.loc[1, input_var] = scale
+                        loc_factors = pd.DataFrame(columns=[input_var], index=[1])
+                        loc_factors.loc[1, input_var] = loc
+                        forcing_orig = system_data[[input_var]].copy()
+                        transformed = transform_inputs(shape_factors, scale_factors, loc_factors,
+                                                        system_data.index, forcing_orig)
+                        transformed_inputs = pd.concat((transformed_inputs, transformed[[input_var + "_tr_1"]]), axis='columns')
+                    """
+                    # SINDY way
+                    transformed = transform_inputs(
+                        shape_factors,
+                        scale_factors,
+                        loc_factors,
+                        system_data.index,
+                        forcing_orig,
+                    )
+                    transformed_inputs = pd.concat(
+                        (transformed_inputs, transformed[[forcing_col + "_tr_1"]]),
+                        axis="columns",
+                    )
+                    # build a sindy model with these inputs
+                    # feature_names = [output_variable] + candidate_inputs
+                    feature_names = [dep_col, str(forcing_col + "_tr_1")]
+                    model = ps.SINDy(
+                        differentiation_method=ps.FiniteDifference(
+                            order=10, drop_endpoints=True
+                        ),
+                        feature_library=ps.PolynomialLibrary(
+                            degree=1, include_bias=False, include_interaction=False
+                        ),
+                        optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+                    )
+                    # fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
+                    #        feature_names = feature_names)
+                    fit = model.fit(
+                        x=system_data.loc[:, dep_col],
+                        u=transformed_inputs,
+                        t=np.arange(0, len(system_data.index), 1),
+                        feature_names=feature_names,
+                    )
+                    r2 = fit.score(
+                        x=system_data.loc[:, dep_col],
+                        u=transformed_inputs,
+                        t=np.arange(0, len(system_data.index), 1),
+                    )
+                    # model.print(precision=5)
+
+                    """
+                    # polynomial regression way (might be faster than sindy, doesn't consider autocorrelation)
+                    forcing = np.array(transformed[forcing_col + "_tr_1"].values)
+
+
+                    # fourth order polynomial regression between transformed forcing and derivative of response
+                    coeffs = np.polyfit(forcing, np.gradient(response), 4)
+                    r_value_poly = np.corrcoef(np.polyval(coeffs, forcing), np.gradient(response))[0, 1]
+
+                    # r^2 likely makes more sense as our criterion.
+                    r2 = sklearn.metrics.r2_score(np.gradient(response), np.polyval(coeffs, forcing))
+                    """
+
+                    return -r2  # Negative because minimize
+                except Exception as e:
+                    # if e contains any letters or numbers, print it for debugging
+                    if any(c.isalnum() for c in str(e)):
+                        if verbose:
+                            print(f"Exception in objective function: {e}")
+
+                    return 1e10  # Large penalty for invalid parameters
+
+            # Initial guess and bounds
+            x0 = [2.0, 2.0, 0.0]
+            bounds = [(1.0, 100.0), (0.1, 100.0), (0.0, 20.0)]  # shape, scale, loc
+
+            # Optimize
+            # result = minimize(objective, x0, method='Nelder-Mead',
+            #                    options={'maxiter': 5, 'disp': verbose})
+            # optimize using a method that supports bounds
+            result = minimize(
+                objective,
+                x0,
+                method="Nelder-Mead",
+                bounds=bounds,
+                options={"maxiter": 50, "disp": verbose},
+            )
+
+            # Store best results
+            best_shape, best_scale, best_loc = result.x
+
+            # Compute final correlation and p_value with best parameters
+            shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            shape_factors.loc[1, forcing_col] = best_shape
+            scale_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            scale_factors.loc[1, forcing_col] = best_scale
+            loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            loc_factors.loc[1, forcing_col] = best_loc
+
+            transformed = transform_inputs(
+                shape_factors,
+                scale_factors,
+                loc_factors,
+                system_data.index,
+                forcing_orig,
+            )
+            np.array(transformed[forcing_col + "_tr_1"].values)
+            feature_names = [dep_col, forcing_col]
+            model = ps.SINDy(
+                differentiation_method=ps.FiniteDifference(
+                    order=10, drop_endpoints=True
+                ),
+                feature_library=ps.PolynomialLibrary(
+                    degree=2, include_bias=False, include_interaction=False
+                ),
+                optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+            )
+            fit = model.fit(
+                x=system_data.loc[:, dep_col],
+                t=np.arange(0, len(system_data.index), 1),
+                u=transformed,
+                feature_names=feature_names,
+            )
+            # evaluate the r2 score
+            r2 = fit.score(
+                x=system_data.loc[:, dep_col],
+                t=np.arange(0, len(system_data.index), 1),
+                u=transformed,
+            )
+            try:
+                model.print()
+            except Exception as e:
+                print(e)
+
+            r2_values.loc[dep_col, forcing_col] = r2
+            print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
+            print(
+                f"  BEST: shape={best_shape:.2f}, scale={best_scale:.2f}, loc={best_loc:.2f}"
+            )
+            # save the best parameters
+            best_params.loc[dep_col, forcing_col] = (best_shape, best_scale, best_loc)
+
+            print("R2 Values:")
+            print(r2_values)
+            print("\n")
+
+    print("Final SISO R2 Values:")
+    print(r2_values)
+    current_best_r2 = pd.Series(index=dependent_columns, dtype=float, data=0.0)
+
+    # first identify the maximum r^2 value in each row. we know these will be included in the final topology
+    for dep_col in dependent_columns:
+        forcing_col = r2_values.loc[dep_col, :].idxmax()
+        edges.loc[dep_col, forcing_col] = 1
+        current_best_r2[dep_col] = r2_values.loc[dep_col, forcing_col]
+
+    forcing_corr_w_existing = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=float
+    )
+    corr_wted_r2 = r2_values.copy(deep=True)
+    # for each entry, weight it by (1 - its correlation with other inputs already selected for that output)
+    for dep_col in dependent_columns:
+        selected_inputs = list(edges.loc[dep_col, edges.loc[dep_col, :] == 1].index)
+        for forcing_col in system_data.columns:
+            if forcing_col in selected_inputs or forcing_col == dep_col:
+                continue  # skip already selected inputs / autocorrelation
+            # compute the average correlation of forcing_col with selected_inputs
+            if len(selected_inputs) > 0:
+                correlations = []
+                for sel_input in selected_inputs:
+                    # corr = np.corrcoef(system_data[forcing_col], system_data[sel_input])[0,1]
+                    # compute the correlation between the transformed versions of forcing_col and sel_input
+                    shape_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
+                    shape_factors_1.loc[1, forcing_col] = best_params.loc[
+                        dep_col, forcing_col
+                    ][0]
+                    scale_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
+                    scale_factors_1.loc[1, forcing_col] = best_params.loc[
+                        dep_col, forcing_col
+                    ][1]
+                    loc_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
+                    loc_factors_1.loc[1, forcing_col] = best_params.loc[
+                        dep_col, forcing_col
+                    ][2]
+                    transformed_1 = transform_inputs(
+                        shape_factors_1,
+                        scale_factors_1,
+                        loc_factors_1,
+                        system_data.index,
+                        system_data[[forcing_col]],
+                    )
+                    shape_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
+                    shape_factors_2.loc[1, sel_input] = best_params.loc[
+                        dep_col, sel_input
+                    ][0]
+                    scale_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
+                    scale_factors_2.loc[1, sel_input] = best_params.loc[
+                        dep_col, sel_input
+                    ][1]
+                    loc_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
+                    loc_factors_2.loc[1, sel_input] = best_params.loc[
+                        dep_col, sel_input
+                    ][2]
+                    transformed_2 = transform_inputs(
+                        shape_factors_2,
+                        scale_factors_2,
+                        loc_factors_2,
+                        system_data.index,
+                        system_data[[sel_input]],
+                    )
+                    together = pd.DataFrame(index=system_data.index)
+                    together[forcing_col] = transformed_1[str(forcing_col + "_tr_1")]
+                    together[sel_input] = transformed_2[str(sel_input + "_tr_1")]
+                    # Check for zero variance before computing correlation
+                    if (
+                        together[forcing_col].std() == 0
+                        or together[sel_input].std() == 0
+                    ):
+                        corr = 2.0  # if this variable is constant, it's not contributing any information, so set to 2.0 so it gets excluded
+                    else:
+                        corr = np.corrcoef(together[forcing_col], together[sel_input])[
+                            0, 1
+                        ]
+                        # Handle NaN from corrcoef (shouldn't happen after std check, but be safe)
+                        forcing_corr_w_existing.loc[dep_col, forcing_col] = corr
+                        if np.isnan(corr):
+                            corr = 0.0
+                    correlations.append(abs(corr))
+                max_corr = np.max(correlations)
+                np.sum(correlations)
+            else:
+                max_corr = 0.0
+            corr_wted_r2.loc[dep_col, forcing_col] = r2_values.loc[
+                dep_col, forcing_col
+            ] * ((1 - max_corr) ** 10)
+            # might want sum of correlation rather than max if multiple rounds are ever used.
+
+    r2_values.stack().sort_values(ascending=False)
+    sorted_corr_wted_r2 = corr_wted_r2.stack().sort_values(ascending=False)
+    # iterate descending over sorted corr_wted_r2 values, adding edges if they improve the model r^2 significantly
+    for idx in sorted_corr_wted_r2.index:
+        # do we already have this edge?
+        if edges.loc[idx[0], idx[1]] == 1:
+            continue  # already have this edge
+
+        output_variable = idx[0]
+        forcing_variable = idx[1]
+        r2 = r2_values.loc[output_variable, forcing_variable]
+
+        non_rain_edges = edges.loc[
+            ~edges.index.str.contains("rain"), ~edges.columns.str.contains("rain")
+        ]
+
+        # would adding this edge reduce the number of components in the graph? (not considering rain)
+        non_rain_edges_if_added = non_rain_edges.copy(deep=True)
+        non_rain_edges_if_added.loc[output_variable, forcing_variable] = 1
+
+        n_components_now = nx.number_weakly_connected_components(
+            nx.from_pandas_adjacency(non_rain_edges, create_using=nx.DiGraph)
+        )
+        if n_components_now == 1:
+            print("graph is weakly connected.")
+            # done
+            break
+
+        n_components = nx.number_weakly_connected_components(
+            nx.from_pandas_adjacency(non_rain_edges_if_added, create_using=nx.DiGraph)
+        )
+        if "rain" not in forcing_variable.lower():  # always allow rain edges
+            if n_components >= n_components_now:
+                print(
+                    f"Skipping addition of {forcing_variable} -> {output_variable} as it does not improve connectivity"
+                )
+                continue  # skip this addition as it doesn't improve connectivity
+
+        print(
+            f"Evaluating edge {forcing_variable} -> {output_variable} with r2 = {r2:.4f}"
+        )
+        print("current best r2 values:")
+        print(current_best_r2)
+        # build the candidate input set
+        selected_inputs = list(
+            edges.loc[output_variable, edges.loc[output_variable, :] == 1].index
+        )
+        candidate_inputs = selected_inputs + [forcing_variable]
+
+        # optimize the transformations for all candidate inputs together, using siso best params as initial guesses
+        def joint_objective(params):
+            # params is a flat list of shape, scale, loc for each candidate input
+            transformed_inputs = pd.DataFrame(index=system_data.index)
+            for i, input_var in enumerate(candidate_inputs):
+                shape = params[i * 3]
+                scale = params[i * 3 + 1]
+                loc = params[i * 3 + 2]
+                shape_factors = pd.DataFrame(columns=[input_var], index=[1])
+                shape_factors.loc[1, input_var] = shape
+                scale_factors = pd.DataFrame(columns=[input_var], index=[1])
+                scale_factors.loc[1, input_var] = scale
+                loc_factors = pd.DataFrame(columns=[input_var], index=[1])
+                loc_factors.loc[1, input_var] = loc
+                forcing_orig = system_data[[input_var]].copy()
+                transformed = transform_inputs(
+                    shape_factors,
+                    scale_factors,
+                    loc_factors,
+                    system_data.index,
+                    forcing_orig,
+                )
+                transformed_inputs = pd.concat(
+                    (transformed_inputs, transformed[[input_var + "_tr_1"]]),
+                    axis="columns",
+                )
+            # build and fit the sindy model
+            feature_names = [output_variable] + candidate_inputs
+            model = ps.SINDy(
+                differentiation_method=ps.FiniteDifference(
+                    order=10, drop_endpoints=True
+                ),
+                feature_library=ps.PolynomialLibrary(
+                    degree=2, include_bias=False, include_interaction=False
+                ),
+                optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+            )
+            fit = model.fit(
+                x=system_data.loc[:, output_variable],
+                t=np.arange(0, len(system_data.index), 1),
+                u=transformed_inputs,
+                feature_names=feature_names,
+            )
+            r2 = fit.score(
+                x=system_data.loc[:, output_variable],
+                t=np.arange(0, len(system_data.index), 1),
+                u=transformed_inputs,
+            )
+            return -r2  # Negative because minimize
+
+        # initial guesses
+        x0 = []
+        for input_var in candidate_inputs:
+            shape, scale, loc = best_params.loc[output_variable, input_var]
+            x0.extend([shape, scale, loc])
+        bounds = []
+        for input_var in candidate_inputs:
+            bounds.extend(
+                [(1.0, 100.0), (0.1, 100.0), (0.0, 20.0)]
+            )  # shape, scale, loc
+
+        # optimize
+        result = minimize(
+            joint_objective,
+            x0,
+            method="Nelder-Mead",
+            bounds=bounds,
+            options={"maxiter": 50, "disp": verbose},
+        )
+        # extract best params
+        optimized_params = result.x
+        for i, input_var in enumerate(candidate_inputs):
+            shape = optimized_params[i * 3]
+            scale = optimized_params[i * 3 + 1]
+            loc = optimized_params[i * 3 + 2]
+            best_params.loc[output_variable, input_var] = (shape, scale, loc)
+        # compute final r2 with optimized params
+        transformed_inputs = pd.DataFrame(index=system_data.index)
+        for i, input_var in enumerate(candidate_inputs):
+            shape = optimized_params[i * 3]
+            scale = optimized_params[i * 3 + 1]
+            loc = optimized_params[i * 3 + 2]
+            shape_factors = pd.DataFrame(columns=[input_var], index=[1])
+            shape_factors.loc[1, input_var] = shape
+            scale_factors = pd.DataFrame(columns=[input_var], index=[1])
+            scale_factors.loc[1, input_var] = scale
+            loc_factors = pd.DataFrame(columns=[input_var], index=[1])
+            loc_factors.loc[1, input_var] = loc
+            forcing_orig = system_data[[input_var]].copy()
+            transformed = transform_inputs(
+                shape_factors,
+                scale_factors,
+                loc_factors,
+                system_data.index,
+                forcing_orig,
+            )
+            transformed_inputs = pd.concat(
+                (transformed_inputs, transformed[[input_var + "_tr_1"]]), axis="columns"
+            )
+        feature_names = [output_variable] + candidate_inputs
+        model = ps.SINDy(
+            differentiation_method=ps.FiniteDifference(order=10, drop_endpoints=True),
+            feature_library=ps.PolynomialLibrary(
+                degree=2, include_bias=False, include_interaction=False
+            ),
+            optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+        )
+        fit = model.fit(
+            x=system_data.loc[:, output_variable],
+            t=np.arange(0, len(system_data.index), 1),
+            u=transformed_inputs,
+            feature_names=feature_names,
+        )
+        r2 = fit.score(
+            x=system_data.loc[:, output_variable],
+            t=np.arange(0, len(system_data.index), 1),
+            u=transformed_inputs,
+        )
+
+        print(
+            f"Testing inputs {candidate_inputs} for output {output_variable} -> r2 = {r2:.4f}"
+        )
+        if (
+            r2 > current_best_r2[output_variable] + 0.01
+        ):  # only keep it if it improves the r2 by at least 1%
+            # add a conditional here for reducing the number of components in the graph. if it doesn't connect things that were previously unconnected, we don't want it.
+            selected_inputs = candidate_inputs
+            current_best_r2[output_variable] = r2
+            print(
+                f"  Accepted new input {forcing_variable}, updated r2 = {current_best_r2[output_variable]:.4f}"
+            )
+            edges.loc[output_variable, forcing_variable] = 1
+        else:
+            print(f"  Rejected new input {forcing_variable}, r2 would be {r2:.4f}")
+
+    return {"edges": edges, "best_params": best_params}
+
+    """
+    # build the transformed timeseries for these candidate inputs using the best transformation parameters found earlier
+    transformed_inputs = pd.DataFrame(index=system_data.index)
+    for input_var in candidate_inputs:
+        shape, scale, loc = best_params.loc[output_variable, input_var]
+        shape_factors = pd.DataFrame(columns=[input_var], index=[1])
+        shape_factors.loc[1, input_var] = shape
+        scale_factors = pd.DataFrame(columns=[input_var], index=[1])
+        scale_factors.loc[1, input_var] = scale
+        loc_factors = pd.DataFrame(columns=[input_var], index=[1])
+        loc_factors.loc[1, input_var] = loc
+        forcing_orig = system_data[[input_var]].copy()
+        transformed = transform_inputs(shape_factors, scale_factors, loc_factors,
+                                        system_data.index, forcing_orig)
+        transformed_inputs = pd.concat((transformed_inputs, transformed[[input_var + "_tr_1"]]), axis='columns')
+
+    # build a sindy model with these inputs
+    feature_names = [output_variable] + candidate_inputs
+    model = ps.SINDy(
+            differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
+            feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False),
+            optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
+            )
+    if system_data.loc[:,candidate_inputs].empty: # the subsystem is autonomous
+        fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1),
+            feature_names = feature_names)
+    else: # there is some forcing
+        #fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = system_data.loc[:,candidate_inputs])
+        fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
+            feature_names = feature_names)
+    # evaluate the r2 score
+    r2 = fit.score(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1), u = transformed_inputs)
+    model.print(precision=5)
+    """
+
+    """
+    for dep_col in dependent_columns:
+        response = np.array(system_data[dep_col].values)
+
+        for forcing_col in system_data.columns:
+            #if forcing_col == dep_col:
+            #    continue  # autocorrelation is always included.
+            # we already know autocorrelation will be included in the model, but we still want to quantify the r^2 value of that autocorrelation.
+            print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
+            forcing_orig = system_data[[forcing_col]].copy()
+
+            # Objective function to minimize (negative because we want to maximize correlation - p_value)
+            def objective(params):
+                shape, scale, loc = params
+
+                # Create transformation parameter DataFrames
+                shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                shape_factors.loc[1, forcing_col] = shape
+                scale_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                scale_factors.loc[1, forcing_col] = scale
+                loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                loc_factors.loc[1, forcing_col] = loc
+
+                # Transform the forcing
+                try:
+                    transformed = transform_inputs(shape_factors, scale_factors, loc_factors,
+                                                    system_data.index, forcing_orig)
+                    forcing = np.array(transformed[forcing_col + "_tr_1"].values)
+
+                    # Compute CCM
+                    cross_map = ccm(forcing, response)
+                    correlation, p_value = cross_map.causality()
+                    # linear regression between transformed forcing and derivative of response
+                    #slope, intercept, r_value, p_value_lr, std_err = stats.linregress(forcing, np.gradient(response))
+
+                    # fourth order polynomial regression between transformed forcing and derivative of response
+                    coeffs = np.polyfit(forcing, np.gradient(response), 4)
+                    r_value_poly = np.corrcoef(np.polyval(coeffs, forcing), np.gradient(response))[0, 1]
+                    result = r_value_poly
+                    # not actually using the CCM library right now
+                    # r^2 likely makes more sense as our criterion.
+                    r2_wrong_way = r_value_poly**2
+                    r2 = sklearn.metrics.r2_score(np.gradient(response), np.polyval(coeffs, forcing))
+                    r2_diff = r2 - r2_wrong_way
+                    #result = correlation - p_value + np.abs(r_value) - np.abs(intercept) - p_value_lr
+                    #print(f"  shape={shape:.2f}, scale={scale:.2f}, loc={loc:.2f} -> corr={correlation:.4f}, p={p_value:.4f}, slope = {slope:.4f}, r_value_lr = {r_value:.4f}, obj={result:.4f}")
+                    print(f"  shape={shape:.2f}, scale={scale:.2f}, loc={loc:.2f} -> corr={correlation:.4f}, p={p_value:.4f}, r_value_poly={result:.4f}")
+                    return -result  # Negative because minimize
+                except Exception as e:
+                    print(f"  Error with params: {e}")
+                    return 1e10  # Large penalty for invalid parameters
+
+            # Initial guess and bounds
+            x0 = [2.0, 2.0, 0.0]
+            bounds = [(1.0, 100.0), (0.1, 100.0), (0.0, 20.0)]  # shape, scale, loc
+
+            # Optimize
+            result = minimize(objective, x0, method='Nelder-Mead',
+                                options={'maxiter': 25, 'disp': verbose})
+
+            # Store best results
+            best_shape, best_scale, best_loc = result.x
+
+            # Compute final correlation and p_value with best parameters
+            shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            shape_factors.loc[1, forcing_col] = best_shape
+            scale_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            scale_factors.loc[1, forcing_col] = best_scale
+            loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            loc_factors.loc[1, forcing_col] = best_loc
+
+            transformed = transform_inputs(shape_factors, scale_factors, loc_factors,
+                                            system_data.index, forcing_orig)
+            forcing = np.array(transformed[forcing_col + "_tr_1"].values)
+            cross_map = ccm(forcing, response)
+            correlation, p_value = cross_map.causality()
+            slope, intercept, r_value, p_value_lr, std_err = stats.linregress(forcing, np.gradient(response))
+
+            coeffs = np.polyfit(forcing, np.gradient(response), 4)
+            r_value_poly = np.corrcoef(np.polyval(coeffs, forcing), np.gradient(response))[0, 1]
+            result = r_value_poly
+            r2 = sklearn.metrics.r2_score(np.gradient(response), np.polyval(coeffs, forcing))
+            r2_wrong_way = r_value_poly**2
+            r2_diff = r2 - r2_wrong_way
+
+            best_correlations.loc[dep_col, forcing_col] = correlation
+            best_p_values.loc[dep_col, forcing_col] = p_value
+            #best_scores.loc[dep_col, forcing_col] = correlation - p_value + np.abs(r_value) - np.abs(intercept) - p_value_lr
+            best_scores.loc[dep_col, forcing_col] = result
+            best_params.loc[dep_col, forcing_col] = (best_shape, best_scale, best_loc)
+            r2_values.loc[dep_col, forcing_col] = r2
+            print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
+            print(f"  BEST: shape={best_shape:.2f}, scale={best_scale:.2f}, loc={best_loc:.2f}")
+            print(f"  BEST: corr={correlation:.4f}, p={p_value:.4f}, r_value_poly={result:.4f}")
+
+            #print("Best Scores (r_value of polynomial):")
+            #print(best_scores)
+            print("R2 Values:")
+            print(r2_values)
+
+            #print(f"  Final: corr={correlation:.4f}, p={p_value:.4f}")
+            #print(f"  Final: corr={correlation:.4f}, p={p_value:.4f}, slope = {slope:.4f}, r_value_lr = {r_value:.4f}")
+            #print(f"  Score: {correlation - p_value + np.abs(r_value) - np.abs(intercept) - p_value_lr:.4f}")
+
+            # display time series of response and transformed forcing
+            plt.figure()
+            plt.plot(system_data.index, response, label='Response')
+            plt.plot(system_data.index, forcing, label='Transformed Forcing')
+            plt.xlabel('Time')
+            plt.legend()
+
+            # display phase portrait of response derivative vs transformed forcing
+            plt.figure()
+            plt.scatter(forcing,np.gradient(response),alpha=0.3)
+            # plot the linear regression line
+            #plt.plot(forcing, intercept + slope*forcing, color='red', label='Linear Fit')
+            # plot the polynomial regression line
+            x_vals = np.linspace(min(forcing), max(forcing), 100)
+            plt.plot(x_vals, np.polyval(coeffs, x_vals), color='red', label='Polynomial Fit')
+            plt.ylabel('Response Derivative')
+            plt.xlabel('Transformed Forcing')
+            plt.title(f'Phase Portrait for {dep_col} vs {forcing_col}')
 
 
 
 
+    #print("Best Scores:")
+    #print(best_scores)
+    #plt.show()
+    print("r2 Values:")
+    print(r2_values)
+    """
+    # once we start actually inferring the topology using these scores I'm thinking the inclusion decision should consider:
+    # 1 - what is the row-wise (output variable) sum of r^2 for the links added so far? Once we reach E(r^2) = 85%, it's probably not necessary to add more edges toward this variable
+    # the r^2 threhsold is noise dependent, so it would be good to scale it automatically based on the data.
+    # -> this idea is not applicable when there's a high degree of correlation between different transformed input variables (eg basin depths and rainfall)
+    # 2 - what is our current connectivity? It makes sense for our application to identify the minimum number of edges for a dendritic network
+    # our output is then "identified main flow paths" rather than "every feasible connection" -> currently implemented.
+    # also output those "likely, but not included" connections for review. you'd plot those as dotted lines rather than solid. -> not yet implemented nov 10.
+    # 3 - are these variables already indirectly causally connected? ie, is this a skip connection for a path already there?
+    # for example, if 1 -> 4 looks strong, but they're already linked through O4, that's a lower priority.
+    # a caveat here would be raingage data, but that will be clearly labeled as separate from the flow / depth data
+    # also, perhaps raindata isn't even an issue. it might make sense to not directly consider rainfall forcing for an interceptor
+    # and headwaters will obviously have to consider rainfall forcing directly as they won't achieve r^2 thresholds without it.
+    # solution -> so long as we exclude rainfall, this consideration is handled by only accepting edges that reduce the number of components in the graph.
+    # 4 - distinguish correlation from causation. Is a high degree of the variation in both of these variables explained by a third variable?
+    # if, C dominates the dynamics of A and B, A and B are strongly correlated.
+    # in the icud example, rainfall explains a lot of variation in all 4 locations, so they're all strongly correlated.
+    # edge selection logic will consider this. If edges are weighted by their r^2 score, there's likely a graph theoretic algorithm with applicability
+    # perhaps minimzing the sum of r^2 weights while building a spanning tree would give you the desired behavior in regards to this. "don't overexplain"
+    # this might complicate the early stopping. there could be a parameter like "initial_pair_eval" where we only look at the n (5?) closest for our first pass
+    # and then we only examine parts of the network that aren't yet connected afterwards.
+    # 5 - max junction degree. in a dendritic network, junctions don't have more than 3 inflows usually.
+    # so we can cap the number of incoming edges to each output variable. or at least favor a more parsimonious topology.
+    # solution -> this is basically handled by only accepting edges that reduce the number of components in the graph.
+    # 6 - consider implications on graph structure when choosing links. which combination of links produces the fewest components (most connected) graph?
+    # which combination minimizes skip connections? does one combination imply a loop?
+    # 7 - the expensive part of modpods is optimizing the input transformations.
+    # so we could incorporate the (hybrid)-sindy r^2 achieved by different combinations of transformed input variables into the decision without a ton of additional comp expense
+    # done that way we're learning the model at the same time we're inferring the topology. which does make a lot of sense.
+    # nov10 - the more I've been working on this I'm thinking that you need a mechanistic model to infer the causation.
+    # that is, it seems like you can't say where the causation is if you're not also identifying how it's happening.
 
-# this function takes in the system data, 
-# which columns are dependent and which are independent, 
+    # early stopping / comp expense idea:
+    # begin with the pairs with the least geographic distance between them
+    # once any output variables r^2 sum exceeds a noise-based threshold, we can skip any remaining forcing variables
+    # we could end up evaluating a very small fraction of the possible connections this way
+
+    # stray thought: for a pump station your forcing would either be the change in the wet well level (hybrid system)
+    # or the pump run-times (still continuous, just step inputs)
+
+    # return {'best_params': best_params, 'correlations': best_correlations, 'p_values': best_p_values, 'scores': best_scores}
+
+
+# this function takes in the system data,
+# which columns are dependent and which are independent,
 # as well as an optional constraint on the topology of the digraph
-# we will return a digraph (not multidigraph as there are no parallel edges) as defined in https://networkx.org/documentation/stable/reference/classes/digraph.html 
+# we will return a digraph (not multidigraph as there are no parallel edges) as defined in https://networkx.org/documentation/stable/reference/classes/digraph.html
 # we'll assume there are always self-loops (the derivative always depends on the current value of the variable)
 # this will also be returned as an adjacency matrix
 # this doesn't go all the way to turning the data into an LTI system. that will be another function that uses this one
-def infer_causative_topology(system_data, dependent_columns, independent_columns, 
-                             graph_type='Weak-Conn',verbose=False,max_iter = 250,swmm=False,
-                             method='granger', derivative=False):
+def infer_causative_topology(
+    system_data,
+    dependent_columns,
+    independent_columns,
+    graph_type="Weak-Conn",
+    verbose=False,
+    max_iter=250,
+    swmm=False,
+    method="granger",
+    derivative=False,
+):
+    """
+    # for each independent column, add a new column with the suffix "_tr".
+    # fill that column with the output of the function transform_inputs for gamma parameters (shape, scale, loc) = (2.0, 2.0, 0.0)
+    # and for the second transformation, (10.0, 10.0, 0.0)
+    # Create DataFrames for the transformation parameters
+    shape_factors = pd.DataFrame(columns=independent_columns, index=[1,2])
+    shape_factors.loc[1, :] = 3.0
+    shape_factors.loc[2, :] = 10.0
+    scale_factors = pd.DataFrame(columns=independent_columns, index=[1,2])
+    scale_factors.loc[1, :] = 3.0
+    scale_factors.loc[2, :] = 10.0
+    loc_factors = pd.DataFrame(columns=independent_columns, index=[1,2])
+    loc_factors.loc[1, :] = 0.0
+    loc_factors.loc[2, :] = 0.0
+
+    # Create a temporary dataframe with only the independent columns for transformation
+    forcing_data = system_data[independent_columns].copy()
+
+    # Transform all inputs at once
+    transformed_forcing = transform_inputs(shape_factors, scale_factors, loc_factors,
+                                          system_data.index, forcing_data)
+
+    # sort the columns of transfotmed_forcing reverse alphabetically so that the highest transformation number comes first
+    transformed_forcing = transformed_forcing.reindex(sorted(transformed_forcing.columns, reverse=True), axis=1)
+    print(transformed_forcing)
+    # Append transformed columns to the original system_data
+    system_data = pd.concat([system_data[dependent_columns], transformed_forcing], axis=1)
+    """
+    independent_columns = list(system_data.columns.difference(dependent_columns))
 
     if swmm:
         # do the same for dependent_columns and independent_columns
@@ -1514,71 +3117,127 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         independent_columns = [str(col) for col in independent_columns]
         print(dependent_columns)
         print(independent_columns)
-    
-    
+
         # do the same for the columns of system_data
         system_data.columns = system_data.columns.astype(str)
         print(system_data.columns)
 
-    if method == 'granger': # granger causality
+    if method == "granger":  # granger causality
         from statsmodels.tsa.stattools import grangercausalitytests
-        causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+
+        causative_topo = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna("n")
+        total_graph = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns, dtype=float
+        ).fillna(1.0)
 
         print(causative_topo)
 
-        max_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)        
-        min_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
-        median_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
-        three_quarters_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
-        one_quarter_p = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(2.0)
-        min_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
-        max_p_lag = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1)
-        max_p_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-        min_p_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-        median_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-        three_quarters_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-        one_quarter_f = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(-1.0)
-
+        max_p = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(-1.0)
+        min_p = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(2.0)
+        median_p = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(2.0)
+        three_quarters_p = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(2.0)
+        one_quarter_p = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(2.0)
+        min_p_lag = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(-1)
+        max_p_lag = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(-1)
+        max_p_f = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(-1.0)
+        min_p_f = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(-1.0)
+        median_f = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(-1.0)
+        three_quarters_f = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(-1.0)
+        one_quarter_f = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(-1.0)
 
         # first column in df is the output (granger caused by other)
         # second column is the proposed forcer
-        for dep_col in dependent_columns: # for each column which is out
-            for other_col in system_data.columns: # for every other variable (input)
+        for dep_col in dependent_columns:  # for each column which is out
+            for other_col in system_data.columns:  # for every other variable (input)
                 if other_col == dep_col:
-                    continue # we're already accounting for autocorrelatoin in every fit
+                    continue  # we're already accounting for autocorrelatoin in every fit
                 print("check if ", other_col, " granger causes ", dep_col)
-                #print(system_data[[dep_col,other_col]])
+                # print(system_data[[dep_col,other_col]])
                 try:
-                    gc_res = grangercausalitytests(system_data[[dep_col,other_col]],maxlag=25,verbose=False)
+                    gc_res = grangercausalitytests(
+                        system_data[[dep_col, other_col]], maxlag=25, verbose=False
+                    )
                 except Exception as e:
-                    print(e)    
+                    print(e)
                     continue
                 # iterate through the dictionary and compute the maximum and minimum p values for the F test
                 p_values = []
                 f_values = []
                 for key in gc_res.keys():
-                    f_test_p_value = gc_res[key][0]['ssr_ftest'][1]
+                    f_test_p_value = gc_res[key][0]["ssr_ftest"][1]
                     p_values.append(f_test_p_value)
-                    f_values.append(gc_res[key][0]['ssr_ftest'][0])
-                    if f_test_p_value > max_p.loc[dep_col,other_col]:
-                        max_p.loc[dep_col,other_col] = f_test_p_value
-                        max_p_f.loc[dep_col,other_col] = gc_res[key][0]['ssr_ftest'][0]
-                        max_p_lag.loc[dep_col,other_col] = key
-                        
-                    if f_test_p_value < min_p.loc[dep_col,other_col]:
-                        min_p.loc[dep_col,other_col] = f_test_p_value
-                        min_p_f.loc[dep_col,other_col] = gc_res[key][0]['ssr_ftest'][0]
-                        min_p_lag.loc[dep_col,other_col] = key
-                
-                median_p.loc[dep_col,other_col] = np.median(p_values)
-                median_f.loc[dep_col,other_col] = np.median(f_values)
-                three_quarters_p.loc[dep_col,other_col] = np.quantile(p_values,0.75)
-                three_quarters_f.loc[dep_col,other_col] = np.quantile(f_values,0.75)
-                one_quarter_p.loc[dep_col,other_col] = np.quantile(p_values,0.25)
-                one_quarter_f.loc[dep_col,other_col] = np.quantile(f_values,0.25)
-        
-        print("max p values")  
+                    f_values.append(gc_res[key][0]["ssr_ftest"][0])
+                    if f_test_p_value > max_p.loc[dep_col, other_col]:
+                        max_p.loc[dep_col, other_col] = f_test_p_value
+                        max_p_f.loc[dep_col, other_col] = gc_res[key][0]["ssr_ftest"][0]
+                        max_p_lag.loc[dep_col, other_col] = key
+
+                    if f_test_p_value < min_p.loc[dep_col, other_col]:
+                        min_p.loc[dep_col, other_col] = f_test_p_value
+                        min_p_f.loc[dep_col, other_col] = gc_res[key][0]["ssr_ftest"][0]
+                        min_p_lag.loc[dep_col, other_col] = key
+
+                median_p.loc[dep_col, other_col] = np.median(p_values)
+                median_f.loc[dep_col, other_col] = np.median(f_values)
+                three_quarters_p.loc[dep_col, other_col] = np.quantile(p_values, 0.75)
+                three_quarters_f.loc[dep_col, other_col] = np.quantile(f_values, 0.75)
+                one_quarter_p.loc[dep_col, other_col] = np.quantile(p_values, 0.25)
+                one_quarter_f.loc[dep_col, other_col] = np.quantile(f_values, 0.25)
+                # generate a timeseries plot of dep_col with other_col
+                if verbose and "tr" not in other_col:
+                    plt.figure(figsize=(10, 6))
+                    plt.plot(system_data.index, system_data[dep_col], label=dep_col)
+                    plt.plot(system_data.index, system_data[other_col], label=other_col)
+                    plt.title(f"Time Series of {dep_col} and {other_col}")
+                    plt.xlabel("Time")
+                    plt.ylabel("Values")
+                    plt.legend()
+                    # plt.show()
+                    # calculate the derivative of dep_col
+                    dep_col_derivative = np.gradient(system_data[dep_col])
+                    # generate a phase portrait of the derivative of dep_col vs other_col
+                    plt.figure(figsize=(8, 6))
+                    plt.scatter(
+                        system_data[other_col],
+                        dep_col_derivative,
+                        alpha=0.5,
+                        label="original",
+                    )
+                    # plot the transformed forcing columns vs the derivative of dep_col
+
+                    plt.title(f"Phase Portrait: Derivative of {dep_col} vs {other_col}")
+                    plt.xlabel(other_col)
+                    plt.ylabel(f"d{dep_col}/dt")
+                    plt.grid()
+                    plt.show()
+
+        print("max p values")
         print(max_p)
         print("f values corresponding to max p")
         print(max_p_f)
@@ -1594,15 +3253,15 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         print(median_p)
         print("median f values")
         print(median_f)
-        
+
         print("now determine causative topology based on connectivity constraint")
         # start with the maximum p values, taking the significant links, then move down through the quantiles
         # if the graph is not connected, we'll move down to the next quantile
         # keep going until you satisfy the connectivity criteria
-        if graph_type == 'Weak-Conn':
+        if graph_type == "Weak-Conn":
             # locate the smallest value of p in max_p which corresponds to an "n" in causative topo
             # this will be the first link we add
-            '''
+            """
             i = 0
             while(i < 10e3):
                 i += 1
@@ -1611,7 +3270,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                 min_p_col = None
                 for row in causative_topo.index:
                     for col in causative_topo.columns:
-                        if max_p.loc[row,col] < 0: 
+                        if max_p.loc[row,col] < 0:
                             continue # not valid
                         if max_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
                             min_p_value = max_p.loc[row,col]
@@ -1626,7 +3285,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                                     min_p_value = max_p.loc[row,col]
                                     min_p_row = row
                                     min_p_col = col
-    
+
                 if min_p_value < 0.05:
                     causative_topo.loc[min_p_row,min_p_col] = 'd'
                     total_graph.loc[min_p_row,min_p_col] = min_p_value
@@ -1650,7 +3309,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                 min_p_col = None
                 for row in causative_topo.index:
                     for col in causative_topo.columns:
-                        if three_quarters_p.loc[row,col] < 0: 
+                        if three_quarters_p.loc[row,col] < 0:
                             continue # not valid
                         if three_quarters_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
                             min_p_value = three_quarters_p.loc[row,col]
@@ -1689,7 +3348,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                 min_p_col = None
                 for row in causative_topo.index:
                     for col in causative_topo.columns:
-                        if median_p.loc[row,col] < 0: 
+                        if median_p.loc[row,col] < 0:
                             continue
                         if median_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
                             min_p_value = median_p.loc[row,col]
@@ -1703,7 +3362,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                                     min_p_value = median_p.loc[row,col]
                                     min_p_row = row
                                     min_p_col = col
-    
+
                 if min_p_value < 0.05:
                     causative_topo.loc[min_p_row,min_p_col] = 'd'
                     total_graph.loc[min_p_row,min_p_col] = min_p_value
@@ -1727,7 +3386,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                 min_p_col = None
                 for row in causative_topo.index:
                     for col in causative_topo.columns:
-                        if one_quarter_p.loc[row,col] < 0: 
+                        if one_quarter_p.loc[row,col] < 0:
                             continue
                         if one_quarter_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
                             min_p_value = one_quarter_p.loc[row,col]
@@ -1741,7 +3400,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                                     min_p_value = one_quarter_p.loc[row,col]
                                     min_p_row = row
                                     min_p_col = col
-    
+
                 if min_p_value < 0.05:
                     causative_topo.loc[min_p_row,min_p_col] = 'd'
                     total_graph.loc[min_p_row,min_p_col] = min_p_value
@@ -1757,38 +3416,64 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     print("no significant links found")
                     break
             print("done adding from median p, now adding from min p")
-            '''
+            """
             # move to the min
             i = 0
-            while(i < 10e3):
+            while i < 10e3:
                 i += 1
                 min_p_value = 2.0
                 min_p_row = None
                 min_p_col = None
                 for row in causative_topo.index:
                     for col in causative_topo.columns:
-                        if min_p.loc[row,col] < 0: 
+                        if min_p.loc[row, col] < 0:
                             continue
-                        if min_p.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
-                            min_p_value = min_p.loc[row,col]
+                        if (
+                            min_p.loc[row, col] < min_p_value
+                            and causative_topo.loc[row, col] == "n"
+                        ):
+                            min_p_value = min_p.loc[row, col]
                             min_p_row = row
                             min_p_col = col
-                        elif min_p.loc[row,col] == min_p_value and causative_topo.loc[row,col] == 'n':
+                        elif (
+                            min_p.loc[row, col] == min_p_value
+                            and causative_topo.loc[row, col] == "n"
+                        ):
                             if min_p_value < 0.05:
                                 print("tie in significant p")
                                 # take the one with the higher f value
-                                if min_p_f.loc[row,col] > min_p_f.loc[min_p_row,min_p_col]:
-                                    min_p_value = min_p.loc[row,col]
+                                if (
+                                    min_p_f.loc[row, col]
+                                    > min_p_f.loc[min_p_row, min_p_col]
+                                ):
+                                    min_p_value = min_p.loc[row, col]
                                     min_p_row = row
                                     min_p_col = col
-                                            
+
                 if min_p_value < 0.05 or True:
-                    causative_topo.loc[min_p_row,min_p_col] = 'd'
-                    total_graph.loc[min_p_row,min_p_col] = min_p_value
-                    print("added link from ", min_p_col, " to ", min_p_row, " with p = ", min_p_value)
+                    causative_topo.loc[min_p_row, min_p_col] = "d"
+                    total_graph.loc[min_p_row, min_p_col] = min_p_value
+                    print(
+                        "added link from ",
+                        min_p_col,
+                        " to ",
+                        min_p_row,
+                        " with p = ",
+                        min_p_value,
+                    )
                     print(causative_topo)
-                    print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)))
-                    if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph.replace(1.0,0),create_using=nx.DiGraph)):
+                    print(
+                        nx.is_weakly_connected(
+                            nx.from_pandas_adjacency(
+                                total_graph.replace(1.0, 0), create_using=nx.DiGraph
+                            )
+                        )
+                    )
+                    if nx.is_weakly_connected(
+                        nx.from_pandas_adjacency(
+                            total_graph.replace(1.0, 0), create_using=nx.DiGraph
+                        )
+                    ):
                         print("graph is connected")
                         print(causative_topo)
                         print(total_graph)
@@ -1801,24 +3486,37 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
             print(total_graph)
             return causative_topo, total_graph
 
-    
-    elif method == 'ccm': # convergent cross mapping per sugihara 2012
-        
-        correlations = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)        
-        p_values = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(1.0)
+    elif method == "ccm":  # convergent cross mapping per sugihara 2012
+        from causal_ccm.causal_ccm import (
+            ccm,  # move to initial imports if this ends up working
+        )
+
+        pd.DataFrame(index=dependent_columns, columns=system_data.columns).fillna(0.0)
+        p_values = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(1.0)
+        best_p_value = 1.0  # null hypothesis is that there is no causality
+        for dep_col in dependent_columns:  # for each column which is out
+            for forcing_col in independent_columns:  # for every other variable (input)
+
+                cross_map = ccm(system_data[forcing_col], system_data[dep_col])
+                correlation, p_value = cross_map.causality()
+                if p_value < best_p_value:
+                    best_p_value = p_value
+                    print("| p = ", p_value, " | corr = ", correlation)
+
+        """
         best_taus = pd.DataFrame(index=dependent_columns,columns=system_data.columns)
         best_Es = pd.DataFrame(index=dependent_columns,columns=system_data.columns)
 
-        from causal_ccm.causal_ccm import ccm # move to initial imports if this ends up working
-        
+
         for dep_col in dependent_columns: # for each column which is out
             if derivative:
                 response = np.array(system_data[dep_col].diff().values[1:])
             else:
                 response = np.array(system_data[dep_col].values)
-            
+
             for other_col in system_data.columns: # for every other variable (input)
-                plt.close('all')
                 if other_col == dep_col:
                     continue # we're already accounting for autocorrelatoin in every fit
                 print("check if ", other_col, " drives ", dep_col)
@@ -1826,7 +3524,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                     forcing = np.array(system_data[other_col].values[:-1])
                 else:
                     forcing = np.array(system_data[other_col].values)
-                
+
                 # start with tau_options to be between 1 and 25 timesteps
                 tau_options = np.arange(1,2)#1)
                 E_options = np.arange(1,3) # number of embedding dimensions
@@ -1846,11 +3544,11 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                             #cross_map.plot_ccm_correls()
                 if best_tau > -1:
                     cross_map = ccm(forcing,response,best_tau,best_E)
-                    '''
+
                     if best_tau > 0:
                         cross_map.visualize_cross_mapping()
                     cross_map.plot_ccm_correls()
-                    '''
+
                     correlation, p_value = cross_map.causality()
                     correlations.loc[dep_col,other_col] = correlation
                     p_values.loc[dep_col,other_col] = p_value
@@ -1858,7 +3556,6 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                         p_values.loc[dep_col,other_col] = sys.float_info.min
                     best_taus.loc[dep_col,other_col] = best_tau
                     best_Es.loc[dep_col,other_col] = best_E
-                    '''
                     lengths = np.linspace(250, len(response), 100,dtype='int')
                     corr_L = lengths*0.0
                     for length_idx in range(len(lengths)):
@@ -1867,19 +3564,46 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
                         cross_map = ccm(trunc_forcing,trunc_response,tau=best_tau,E=best_E)
                         correlation, p_value = cross_map.causality()
                         corr_L[length_idx] = correlation
-                   
-                
+
+
                     plt.plot(corr_L)
                     plt.ylabel("correlation")
                     plt.show(block=True)
-                    '''
+
                 elif best_tau == -1:
                     print("no good lags found for ", dep_col, " and ", other_col)
                     correlations.loc[dep_col,other_col] = 0.0
                     p_values.loc[dep_col,other_col] = 1.0
                     best_taus.loc[dep_col,other_col] = -1
-                    best_Es.loc[dep_col,other_col] = -1    
-                
+                    best_Es.loc[dep_col,other_col] = -1
+                                # generate a timeseries plot of dep_col with other_col
+                # generate a timeseries plot of dep_col with other_col
+                if verbose and "tr" not in other_col and other_col in transformed_forcing.columns:
+                    plt.figure(figsize=(10,6))
+                    plt.plot(system_data.index, system_data[dep_col], label=dep_col)
+                    plt.plot(system_data.index, system_data[other_col], label=other_col)
+                    plt.plot(system_data.index, system_data[other_col + "_tr_1"], label=other_col + "_tr_1")
+                    plt.plot(system_data.index, system_data[other_col + "_tr_2"], label=other_col + "_tr_2")
+                    plt.title(f'Time Series of {dep_col} and {other_col}')
+                    plt.xlabel('Time')
+                    plt.ylabel('Values')
+                    plt.legend()
+                    #plt.show()
+                    # calculate the derivative of dep_col
+                    dep_col_derivative = np.gradient(system_data[dep_col])
+                    # generate a phase portrait of the derivative of dep_col vs other_col
+                    plt.figure(figsize=(8,6))
+                    plt.scatter(system_data[other_col], dep_col_derivative, alpha=0.5, label='original')
+                    # plot the transformed forcing columns vs the derivative of dep_col
+                    plt.scatter(system_data[other_col + "_tr_1"], dep_col_derivative, alpha=0.5, label='tr_1')
+                    plt.scatter(system_data[other_col + "_tr_2"], dep_col_derivative, alpha=0.5, label='tr_2')
+                    plt.title(f'Phase Portrait: Derivative of {dep_col} vs {other_col}')
+                    plt.xlabel(other_col)
+                    plt.ylabel(f'd{dep_col}/dt')
+                    plt.grid()
+                    plt.legend()
+                    plt.show()
+
         print(correlations)
         print(p_values)
         print(best_taus)
@@ -1896,7 +3620,7 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
             min_p_col = None
             for row in causative_topo.index:
                 for col in causative_topo.columns:
-                    if p_values.loc[row,col] < 0: 
+                    if p_values.loc[row,col] < 0:
                         continue
                     if p_values.loc[row,col] < min_p_value and causative_topo.loc[row,col] == 'n':
                         min_p_value = p_values.loc[row,col]
@@ -1922,72 +3646,115 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
             else:
                 print("no significant links found")
                 break
-        
+
         print(causative_topo)
         print(total_graph)
         return causative_topo, total_graph
-                    
-    elif method == 'transfer-entropy':
-        
-        transfer_entropies = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)        
-        
+        """
+    elif method == "transfer-entropy":
+
+        transfer_entropies = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(0.0)
+
         from PyIF import te_compute as te
-        
-        for dep_col in dependent_columns: # for each column which is out
+
+        for dep_col in dependent_columns:  # for each column which is out
             if derivative:
                 response = np.array(system_data[dep_col].diff().values[1:])
             else:
                 response = np.array(system_data[dep_col].values)
-            
-            for other_col in system_data.columns: # for every other variable (input)
-                plt.close('all')
+
+            for other_col in system_data.columns:  # for every other variable (input)
+                plt.close("all")
                 if other_col == dep_col:
-                    continue # we're already accounting for autocorrelatoin in every fit
+                    continue  # we're already accounting for autocorrelatoin in every fit
                 print("check if ", other_col, " drives ", dep_col)
                 if derivative:
                     forcing = np.array(system_data[other_col].values[:-1])
                 else:
                     forcing = np.array(system_data[other_col].values)
-                
-               
-                k_options = np.arange(1,11) # number of neighbors used in KD-tree queries
-                E_options = np.arange(1,11) # number of embedding dimensions (delay)
-                best_TE = -1.0 # best transfer entropy so far
+
+                k_options = np.arange(
+                    1, 11
+                )  # number of neighbors used in KD-tree queries
+                E_options = np.arange(1, 11)  # number of embedding dimensions (delay)
+                best_TE = -1.0  # best transfer entropy so far
                 for k in k_options:
                     for E in E_options:
-                        TE = te.te_compute(forcing,response,k,E) # "information transfer from X to Y"
+                        TE = te.te_compute(
+                            forcing, response, k, E
+                        )  # "information transfer from X to Y"
                         if TE > best_TE:
                             best_TE = TE
-                            best_k = k
-                            best_E = E
-                            print("k (# neighbors) = ", k, "E (embedding dim) = ",E, " | Transfer Entropy = ", TE)
-                transfer_entropies.loc[dep_col,other_col] = best_TE
-                  
+                            print(
+                                "k (# neighbors) = ",
+                                k,
+                                "E (embedding dim) = ",
+                                E,
+                                " | Transfer Entropy = ",
+                                TE,
+                            )
+                transfer_entropies.loc[dep_col, other_col] = best_TE
+                # generate a timeseries plot of dep_col with other_col
+                if verbose:
+                    plt.figure(figsize=(10, 6))
+                    plt.plot(system_data.index, system_data[dep_col], label=dep_col)
+                    plt.plot(system_data.index, system_data[other_col], label=other_col)
+                    plt.title(f"Time Series of {dep_col} and {other_col}")
+                    plt.xlabel("Time")
+                    plt.ylabel("Values")
+                    plt.legend()
+                    # plt.show()
+                    # generate a phase portrait of dep_col vs other_col
+                    plt.figure(figsize=(8, 8))
+                    plt.scatter(system_data[other_col], system_data[dep_col], alpha=0.5)
+                    plt.title(f"Phase Portrait: {dep_col} vs {other_col}")
+                    plt.xlabel(other_col)
+                    plt.ylabel(dep_col)
+                    plt.grid()
+                    plt.show()
+
         print("transfer entropies")
         print(transfer_entropies)
-        
-        causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
-        total_graph = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna(0.0)
+
+        causative_topo = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna("n")
+        total_graph = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna(0.0)
         i = 0
-        while(i < 10e3):
+        while i < 10e3:
             i += 1
             max_te = 0.0
             max_te_row = None
             max_te_col = None
             for row in causative_topo.index:
                 for col in causative_topo.columns:
-                    if transfer_entropies.loc[row,col] > max_te and causative_topo.loc[row,col] == 'n':
-                        max_te = transfer_entropies.loc[row,col]
+                    if (
+                        transfer_entropies.loc[row, col] > max_te
+                        and causative_topo.loc[row, col] == "n"
+                    ):
+                        max_te = transfer_entropies.loc[row, col]
                         max_te_row = row
                         max_te_col = col
-            
-            causative_topo.loc[max_te_row,max_te_col] = 'd'
-            total_graph.loc[max_te_row,max_te_col] = max_te
-            print("added link from ", max_te_col, " to ", max_te_row, " with p = ", max_te)
+
+            causative_topo.loc[max_te_row, max_te_col] = "d"
+            total_graph.loc[max_te_row, max_te_col] = max_te
+            print(
+                "added link from ", max_te_col, " to ", max_te_row, " with p = ", max_te
+            )
             print(causative_topo)
 
-            print(nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph)))
-            if nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph)):
+            print(
+                nx.is_weakly_connected(
+                    nx.from_pandas_adjacency(total_graph, create_using=nx.DiGraph)
+                )
+            )
+            if nx.is_weakly_connected(
+                nx.from_pandas_adjacency(total_graph, create_using=nx.DiGraph)
+            ):
                 print("graph is connected")
                 break
 
@@ -1995,44 +3762,56 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
         print(total_graph)
         return causative_topo, total_graph
 
-    elif method == 'modpods':
+    elif method == "modpods":
         # first, identify any immediate causal relationships (no delay)
         # only using linear models for the sake of speed.
-        immediate_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
+        immediate_impact_strength = pd.DataFrame(
+            index=system_data.columns, columns=system_data.columns
+        ).fillna(0.0)
         # read as: row variable is affected by column variable
         # that way we can read each row (kind of) as a linear differential equation (not exactly, because they're all trained separately)
-        for dep_col in dependent_columns: # for each column which is out
+        for dep_col in dependent_columns:  # for each column which is out
             response = np.array(system_data[dep_col].values)
-            for other_col in system_data.columns: # for every other variable (input)
+            for other_col in system_data.columns:  # for every other variable (input)
                 if other_col == dep_col:
-                    continue # we're already accounting for autocorrelatoin in every fit
-            
+                    continue  # we're already accounting for autocorrelatoin in every fit
+
                 print("fitting ", dep_col, " to ", other_col)
                 forcing = np.array(system_data[other_col].values)
-            
+
                 model = ps.SINDy(
-                        differentiation_method= ps.FiniteDifference(),
-                        feature_library=ps.PolynomialLibrary(degree=1,include_bias = False), 
-                        optimizer = ps.STLSQ(threshold=0),
-                        feature_names = [str(dep_col),str(other_col)]
+                    differentiation_method=ps.FiniteDifference(),
+                    feature_library=ps.PolynomialLibrary(degree=1, include_bias=False),
+                    optimizer=ps.STLSQ(threshold=0),
+                    feature_names=[str(dep_col), str(other_col)],
                 )
 
                 # windup latent states (if your windup is too long, this will error)
-                model.fit(response, u = forcing)
+                model.fit(response, u=forcing)
                 # training data score
-                immediate_impact_strength.loc[dep_col,other_col] = model.score(response, u = forcing) 
+                immediate_impact_strength.loc[dep_col, other_col] = model.score(
+                    response, u=forcing
+                )
                 if verbose:
                     model.print(precision=5)
-                    print(model.score(response, u = forcing))
+                    print(model.score(response, u=forcing))
 
         # set the entries in immediate_impact_strength to 0 if they explain less than X% of the variatnce
-        immediate_impact_strength[immediate_impact_strength < 1/(len(dependent_columns))] = 0.0
+        immediate_impact_strength[
+            immediate_impact_strength < 1 / (len(dependent_columns))
+        ] = 0.0
         print(immediate_impact_strength)
 
         # is system already weakly connected?
         # if not, we'll need to add edges to make it weakly connected
         print("immediate impact already weakly connected?")
-        print(nx.is_weakly_connected(nx.from_pandas_adjacency(immediate_impact_strength,create_using=nx.DiGraph)))
+        print(
+            nx.is_weakly_connected(
+                nx.from_pandas_adjacency(
+                    immediate_impact_strength, create_using=nx.DiGraph
+                )
+            )
+        )
 
         # if graph_type == "Weak-Conn" - find the best weakly connected graph - the undirected graph can be fully traversed
         # this is a weak constraint. it's essentailly saying all the data belong to the same system and none of it can be completely isolated
@@ -2046,305 +3825,436 @@ def infer_causative_topology(system_data, dependent_columns, independent_columns
 
         # if verbose, plot the network after immediate impacts are accounted for
         if verbose:
-            edges = immediate_impact_strength.stack().rename_axis(['source', 'target']).rename('weight').reset_index().query('(source != target) & (weight > 0.0)')
+            edges = (
+                immediate_impact_strength.stack()
+                .rename_axis(["source", "target"])
+                .rename("weight")
+                .reset_index()
+                .query("(source != target) & (weight > 0.0)")
+            )
 
-            G = nx.from_pandas_edgelist(edges, source='source', target='target', edge_attr='weight', create_using=nx.DiGraph)
+            G = nx.from_pandas_edgelist(
+                edges,
+                source="source",
+                target="target",
+                edge_attr="weight",
+                create_using=nx.DiGraph,
+            )
             try:
                 pos = nx.planr_layout(G)
-            except:
+            except Exception:
                 pos = nx.kamada_kawai_layout(G)
-            
+
             nx.draw_networkx_nodes(G, pos, node_size=100)
-            nx.draw_networkx_labels(G, pos, font_size=10, font_family='sans-serif')
+            nx.draw_networkx_labels(G, pos, font_size=10, font_family="sans-serif")
             edges = G.edges()
-            weights = [G[u][v]['weight'] for u, v in edges]
+            weights = [G[u][v]["weight"] for u, v in edges]
             nx.draw_networkx_edges(G, pos, edgelist=edges, width=weights)
-            plt.axis('off')
+            plt.axis("off")
             plt.show(block=False)
             plt.pause(10)
-            plt.close('all')
-   
-    
-        # then, test every pair of variables for a causal relationship using delay_io_train. record the r2 score achieved with a siso model
-        delayed_impact_strength = pd.DataFrame(index=system_data.columns,columns=system_data.columns).fillna(0.0)
-        # this is read the same way as immediate_impact_strength
-    
-        for dep_col in dependent_columns: # for each column which is not forcing
+            plt.close("all")
 
-            for other_col in system_data.columns: # for every other variable (including forcing)
+        # then, test every pair of variables for a causal relationship using delay_io_train. record the r2 score achieved with a siso model
+        delayed_impact_strength = pd.DataFrame(
+            index=system_data.columns, columns=system_data.columns
+        ).fillna(0.0)
+        # this is read the same way as immediate_impact_strength
+
+        for dep_col in dependent_columns:  # for each column which is not forcing
+
+            for (
+                other_col
+            ) in system_data.columns:  # for every other variable (including forcing)
                 if other_col == dep_col:
-                    continue # we're already accounting for autocorrelatoin in every fit
-            
+                    continue  # we're already accounting for autocorrelatoin in every fit
+
                 if verbose:
                     print("fitting ", dep_col, " to ", other_col)
 
-                subset = system_data[[dep_col,other_col]]
+                subset = system_data[[dep_col, other_col]]
                 # max iterations is very low here because we're not trying to create an accurate model, just trying to see what affects what
                 # creating the accurate model is a later task for a different function
                 # it would be wasteful to spend 100 iterations on each pair of variables
                 # up the iterations to 10 or so for production. 1 is jsut for development
-                results = delay_io_train(subset, [dep_col], [other_col], windup_timesteps=0,init_transforms=1, max_transforms=1, max_iter=max_iter, poly_order=1, 
-                                         transform_dependent=False, verbose=False, extra_verbose=False, 
-                                         include_bias=False, include_interaction=False, bibo_stable = False)
+                results = delay_io_train(
+                    subset,
+                    [dep_col],
+                    [other_col],
+                    windup_timesteps=0,
+                    init_transforms=1,
+                    max_transforms=1,
+                    max_iter=max_iter,
+                    poly_order=1,
+                    transform_dependent=False,
+                    verbose=False,
+                    extra_verbose=False,
+                    include_bias=False,
+                    include_interaction=False,
+                    bibo_stable=False,
+                )
 
-                delayed_impact_strength.loc[dep_col,other_col] = results[1]['final_model']['error_metrics']['r2']
-            
+                delayed_impact_strength.loc[dep_col, other_col] = results[1][
+                    "final_model"
+                ]["error_metrics"]["r2"]
+
                 if verbose:
-                    print("R2 score:",  results[1]['final_model']['error_metrics']['r2'])
-    
+                    print("R2 score:", results[1]["final_model"]["error_metrics"]["r2"])
+
         # iteratively add edges from delayed_impact_strength until the total graph is weakly connected
-        causative_topo = pd.DataFrame(index=dependent_columns,columns=system_data.columns).fillna('n')
+        causative_topo = pd.DataFrame(
+            index=dependent_columns, columns=system_data.columns
+        ).fillna("n")
         # wherever there is a nonzero entry in immediate_impact_strength, put an "i" in causative_topo
         causative_topo[immediate_impact_strength > 0] = "i"
 
         total_graph = immediate_impact_strength.copy(deep=True)
         weakest_row = 0
-    
-        while not nx.is_weakly_connected(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph)) and weakest_row < 0.5:
+
+        while (
+            not nx.is_weakly_connected(
+                nx.from_pandas_adjacency(total_graph, create_using=nx.DiGraph)
+            )
+            and weakest_row < 0.5
+        ):
             # find the edge with the highest r2 score
             max_r2 = delayed_impact_strength.max().max()
-            max_r2_row = delayed_impact_strength.max(axis='columns').idxmax()
-            max_r2_col = delayed_impact_strength.max(axis='index').idxmax()
+            max_r2_row = delayed_impact_strength.max(axis="columns").idxmax()
+            max_r2_col = delayed_impact_strength.max(axis="index").idxmax()
             print("\n")
             print("max_r2_row", max_r2_row)
             print("max_r2_col", max_r2_col)
             print("max_r2", max_r2)
             print("already exists path from row to col?")
-            print(nx.has_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
-            if nx.has_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col):
+            print(
+                nx.has_path(
+                    nx.from_pandas_adjacency(total_graph, create_using=nx.DiGraph),
+                    max_r2_row,
+                    max_r2_col,
+                )
+            )
+            if nx.has_path(
+                nx.from_pandas_adjacency(total_graph, create_using=nx.DiGraph),
+                max_r2_row,
+                max_r2_col,
+            ):
                 print("shortest path from row to col")
-                print(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
+                print(
+                    nx.shortest_path(
+                        nx.from_pandas_adjacency(total_graph, create_using=nx.DiGraph),
+                        max_r2_row,
+                        max_r2_col,
+                    )
+                )
                 print("shortest path length from row to col")
-                print(len(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col)))
-                shortest_path = len(nx.shortest_path(nx.from_pandas_adjacency(total_graph,create_using=nx.DiGraph),max_r2_row,max_r2_col))
+                print(
+                    len(
+                        nx.shortest_path(
+                            nx.from_pandas_adjacency(
+                                total_graph, create_using=nx.DiGraph
+                            ),
+                            max_r2_row,
+                            max_r2_col,
+                        )
+                    )
+                )
+                shortest_path = len(
+                    nx.shortest_path(
+                        nx.from_pandas_adjacency(total_graph, create_using=nx.DiGraph),
+                        max_r2_row,
+                        max_r2_col,
+                    )
+                )
             else:
-                shortest_path = 0 # no path exists, so the shortest path is 0
+                shortest_path = 0  # no path exists, so the shortest path is 0
 
             # add that edge to the total graph if it's r2 score is more than twice the corresponding entry in immediate_impact_strength
             # and there is not already a path from the row to the column in the total graph
             # constraint 1 is to not include representation of delay when it's not necessary, because it's expensive
-            # constarint 2 is to not "leapfrog" intervening states when there is some chain of instantaneously related states that allow that causality to flow 
-            if (max_r2 > 2*immediate_impact_strength.loc[max_r2_row,max_r2_col] 
-            and (shortest_path < 3 ) ):
-                total_graph.loc[max_r2_row,max_r2_col] = max_r2
-                causative_topo.loc[max_r2_row,max_r2_col] = "d"
+            # constarint 2 is to not "leapfrog" intervening states when there is some chain of instantaneously related states that allow that causality to flow
+            if max_r2 > 2 * immediate_impact_strength.loc[max_r2_row, max_r2_col] and (
+                shortest_path < 3
+            ):
+                total_graph.loc[max_r2_row, max_r2_col] = max_r2
+                causative_topo.loc[max_r2_row, max_r2_col] = "d"
             # remove that edge from delayed_impact_strength
-            delayed_impact_strength.loc[max_r2_row,max_r2_col] = 0.0
+            delayed_impact_strength.loc[max_r2_row, max_r2_col] = 0.0
 
             # make weakest_row the sum of the row of total_graph with the lowest sum
-            weakest_row = total_graph.loc[dependent_columns,:].sum(axis='columns').min()
-        
+            weakest_row = (
+                total_graph.loc[dependent_columns, :].sum(axis="columns").min()
+            )
+
             print("total graph")
             print(total_graph)
             print("delayed impact strength")
             print(delayed_impact_strength)
             print("\n")
-    
+
         print("total graph is now weakly connected")
         if verbose:
             print(total_graph)
             print("causative topo")
             print(causative_topo)
-            edges = total_graph.stack().rename_axis(['source', 'target']).rename('weight').reset_index().query('(source != target) & (weight > 0.0)')
+            edges = (
+                total_graph.stack()
+                .rename_axis(["source", "target"])
+                .rename("weight")
+                .reset_index()
+                .query("(source != target) & (weight > 0.0)")
+            )
 
-            G = nx.from_pandas_edgelist(edges, source='source', target='target', edge_attr='weight', create_using=nx.DiGraph)
+            G = nx.from_pandas_edgelist(
+                edges,
+                source="source",
+                target="target",
+                edge_attr="weight",
+                create_using=nx.DiGraph,
+            )
             try:
                 pos = nx.planr_layout(G)
-            except:
+            except Exception:
                 pos = nx.kamada_kawai_layout(G)
-            
             nx.draw_networkx_nodes(G, pos, node_size=100)
-            nx.draw_networkx_labels(G, pos, font_size=10, font_family='sans-serif')
+            nx.draw_networkx_labels(G, pos, font_size=10, font_family="sans-serif")
             edges = G.edges()
-            weights = [G[u][v]['weight'] for u, v in edges]
+            weights = [G[u][v]["weight"] for u, v in edges]
             nx.draw_networkx_edges(G, pos, edgelist=edges, width=weights)
-            plt.axis('off')
+            plt.axis("off")
             plt.show(block=False)
             plt.pause(10)
-            plt.close('all')
-    
+            plt.close("all")
+
     # return an adjacency matrix with "i" for immediate, "d" for delayed, and "n" for no causal relationship
     # use "d" if there is strong immediate and delayed causation. immediate causation is always cheap to include, so it'll be in any delayed causation model
 
     return causative_topo, total_graph
 
-    
 
 def topo_from_pystorms(pystorms_scenario):
 
+    # pyswmm 2.x prevents multiple simultaneous simulations in the same process
+    # via a class-level flag.  Reset it so we can open our own simulation even if
+    # the caller's pystorms scenario already has one open internally.
+    try:
+        from pyswmm.simulation import _sim_state_instance
+
+        _sim_state_instance.sim_is_instantiated = False
+    except ImportError:
+        pass
+
     # if any are 3-tuples, chop them down to 2-tuples
-    pystorms_scenario.config['states'] = [t[:-1] if len(t) == 3 else t for t in pystorms_scenario.config['states']]
+    pystorms_scenario.config["states"] = [
+        t[:-1] if len(t) == 3 else t for t in pystorms_scenario.config["states"]
+    ]
 
-    A = pd.DataFrame(index = pystorms_scenario.config['states'],
-                     columns = pystorms_scenario.config['states'])
-    B = pd.DataFrame(index = pystorms_scenario.config['states'],
-                     columns = pystorms_scenario.config['action_space'])
+    A = pd.DataFrame(
+        index=pystorms_scenario.config["states"],
+        columns=pystorms_scenario.config["states"],
+    )
+    B = pd.DataFrame(
+        index=pystorms_scenario.config["states"],
+        columns=pystorms_scenario.config["action_space"],
+    )
 
-    #print("A")
-    #print(A)
-    #print("B")
-    #print(B)
-
+    # print("A")
+    # print(A)
+    # print("B")
+    # print(B)
 
     # use pyswmm to iterate through the network
-    with pyswmm.Simulation(pystorms_scenario.config['swmm_input']) as sim:
+    with pyswmm.Simulation(pystorms_scenario.config["swmm_input"]) as sim:
         # start at each subcatchment and iterate down to the outfall
         # this should work even in the case of multiple outfalls
         # this should capture all the causation, because ultimately everything is precip driven
-        
+
         # so i can view these while debugging
         Subcatchments = pyswmm.Subcatchments(sim)
         Nodes = pyswmm.Nodes(sim)
-        Links = pyswmm.Links(sim)
+        pyswmm.Links(sim)
 
         for subcatch in pyswmm.Subcatchments(sim):
-            #print(subcatch.subcatchmentid)
+            # print(subcatch.subcatchmentid)
             # create a string that records the path we travel to get to the outfall
             path_of_travel = list()
             # can i grab the rain gage id?
-            path_of_travel.append((subcatch.subcatchmentid,"Subcatchment"))
-            current_id = subcatch.connection # grab the id of the next object downstream
-            
-            
-            try: # if the downstream connection is a subcatchment
+            path_of_travel.append((subcatch.subcatchmentid, "Subcatchment"))
+            current_id = (
+                subcatch.connection
+            )  # grab the id of the next object downstream
+
+            try:  # if the downstream connection is a subcatchment
                 current = Subcatchments[current_id]
                 current_id = current.subcatchmentid
                 subcatch = Subcatchments[current_id]
-                current_id = subcatch.connection # grab the id of the next object downstream
-                path_of_travel.append((current_id,'Subcatchment'))
-            except Exception as e:
-                #print("downstream connection was not another subcatchment")
-                #print(e)
+                current_id = (
+                    subcatch.connection
+                )  # grab the id of the next object downstream
+                path_of_travel.append((current_id, "Subcatchment"))
+            except Exception:
+                # print("downstream connection was not another subcatchment")
+                # print(e)
                 pass
-            
+
             # other option is that downstream connection is a node
             # in which case we'll start iterating down through nodes and links to the outfall
             current = Nodes[current_id]
-            path_of_travel.append((current_id,'Node'))
+            path_of_travel.append((current_id, "Node"))
             while not current.is_outfall():
-                #print(path_of_travel)
+                # print(path_of_travel)
                 # if the current object is a node, iterate through the links to find the downstream object
                 if current_id in pyswmm.Nodes(sim):
                     for link in pyswmm.Links(sim):
-                        #print(link.linkid)
+                        # print(link.linkid)
                         if link.inlet_node == current_id:
-                            path_of_travel.append((link.linkid,"Link"))
+                            path_of_travel.append((link.linkid, "Link"))
                             current_id = link.outlet_node
-                            path_of_travel.append((current_id,"Node"))
+                            path_of_travel.append((current_id, "Node"))
                             break
                     else:
-                        print("current element is a sink (no link draining). verify this is correct")
+                        print(
+                            "current element is a sink (no link draining). verify this is correct"
+                        )
                         print(current_id)
                         break
                 # if the current object is a link, grab the downstream node
                 elif current_id in pyswmm.Links(sim):
-                    path_of_travel.append((link.linkid,"Link"))
+                    path_of_travel.append((link.linkid, "Link"))
                     current_id = current.outlet_node
-                    path_of_travel.append((current_id,"Node"))
-                
+                    path_of_travel.append((current_id, "Node"))
 
                 current = Nodes[current_id]
 
-            #print("path of travel")
-            #print(path_of_travel)
+            # print("path of travel")
+            # print(path_of_travel)
             # cut all the entries in path_of_travel that are not observable states or actions
             original_path_of_travel = path_of_travel.copy()
-            
+
             for step in original_path_of_travel:
                 step_is_state = False
                 step_is_control_input = False
-                for state in pystorms_scenario.config['states']:
-                    if step[0] == state[0]: # same id
-                        if ((step[1] == "Node" and "N" in state[1]) 
-                        or (step[1] == "Node" and 'flooding' in state[1]) 
-                        or (step[1] == "Node" and 'inflow' in state[1])
-                        or (step[1] == "Link" and "L" in state[1]) 
-                        or (step[1] == "Link" and 'flow' in state[1])): # types match
+                for state in pystorms_scenario.config["states"]:
+                    if step[0] == state[0]:  # same id
+                        if (
+                            (step[1] == "Node" and "N" in state[1])
+                            or (step[1] == "Node" and "flooding" in state[1])
+                            or (step[1] == "Node" and "inflow" in state[1])
+                            or (step[1] == "Link" and "L" in state[1])
+                            or (step[1] == "Link" and "flow" in state[1])
+                        ):  # types match
                             step_is_state = True
-                for control_input in pystorms_scenario.config['action_space']:
+                for control_input in pystorms_scenario.config["action_space"]:
                     if step[0] == control_input:
                         step_is_control_input = True
                 if not step_is_state and not step_is_control_input:
-                    path_of_travel.remove(step) # this will change the index, hence the "while"
-            '''        
+                    path_of_travel.remove(
+                        step
+                    )  # this will change the index, hence the "while"
+            """
             print("full path of travel")
             print(original_path_of_travel)
             print("observable path of travel")
             print(path_of_travel)
-            '''
+            """
             # iterate through the path of travel and rename the steps to align with the columns and indices of A and B
             for step in path_of_travel:
-                for state in pystorms_scenario.config['states']:
-                    if step[0] == state[0]: # same id
-                        if ((step[1] == "Node" and "N" in state[1]) 
-                        or (step[1] == "Node" and 'flooding' in state[1]) 
-                        or (step[1] == "Node" and 'inflow' in state[1])
-                        or (step[1] == "Link" and "L" in state[1]) 
-                        or (step[1] == "Link" and 'flow' in state[1])): # types match    
+                for state in pystorms_scenario.config["states"]:
+                    if step[0] == state[0]:  # same id
+                        if (
+                            (step[1] == "Node" and "N" in state[1])
+                            or (step[1] == "Node" and "flooding" in state[1])
+                            or (step[1] == "Node" and "inflow" in state[1])
+                            or (step[1] == "Link" and "L" in state[1])
+                            or (step[1] == "Link" and "flow" in state[1])
+                        ):  # types match
                             path_of_travel[path_of_travel.index(step)] = state
 
-                for control_input in pystorms_scenario.config['action_space']:
+                for control_input in pystorms_scenario.config["action_space"]:
                     if step[0] == control_input:
                         path_of_travel[path_of_travel.index(step)] = control_input
-                        
-            #print("observable path of travel")
-            #print(path_of_travel)
+
+            # print("observable path of travel")
+            # print(path_of_travel)
 
             # now, use this path of travel to update the A and B matrices
-            #print("updating A and B matrices")
-            
+            # print("updating A and B matrices")
+
             # only use "i" if the entries have the same id. otherwise characterize everything as delayed, "d"
             # because our path of travel only includes the observable states and the action space, we just need to look immediately up and downstream
             # only looking upstream would simplify things and be sufficient for many scenarios, but it would miss backwater effects
-            for step in path_of_travel: # all of these are either observable states or actions
-                if path_of_travel.index(step) == 0: # first entry, previous step not meaningful
-                    prev_step = False
-                else:    
-                    prev_step = path_of_travel[path_of_travel.index(step)-1]
-                if path_of_travel.index(step) == len(path_of_travel)-1: # last entry, next step not meaningful)
-                    next_step = False
+            for (
+                step
+            ) in path_of_travel:  # all of these are either observable states or actions
+                if (
+                    path_of_travel.index(step) == 0
+                ):  # first entry, previous step not meaningful
+                    prev_step = None
                 else:
-                    next_step = path_of_travel[path_of_travel.index(step)+1]
+                    prev_step = path_of_travel[path_of_travel.index(step) - 1]
+                if (
+                    path_of_travel.index(step) == len(path_of_travel) - 1
+                ):  # last entry, next step not meaningful)
+                    next_step = None
+                else:
+                    next_step = path_of_travel[path_of_travel.index(step) + 1]
 
-                if step in pystorms_scenario.config['action_space']: 
-                    continue # we're not learning models for the control inputs, so skip them
+                if step in pystorms_scenario.config["action_space"]:
+                    continue  # we're not learning models for the control inputs, so skip them
 
-                if prev_step and prev_step in pystorms_scenario.config['states']:
-                   
-                    if re.search(r'\d+', ''.join(prev_step)).group() == re.search(r'\d+', ''.join(step)).group(): # same integer id
-                        A.loc[[step],[prev_step]] = 'i'
+                if prev_step and prev_step in pystorms_scenario.config["states"]:
+
+                    if (
+                        re.search(r"\d+", "".join(prev_step)).group()
+                        == re.search(r"\d+", "".join(step)).group()
+                    ):  # same integer id
+                        A.loc[[step], [prev_step]] = "i"
                     else:
-                        A.loc[[step],[prev_step]] = 'd'
-                elif prev_step and prev_step in pystorms_scenario.config['action_space']:
-                    
-                    if re.search(r'\d+', ''.join(prev_step)).group() == re.search(r'\d+', ''.join(step)).group(): # same integer id
-                        B.loc[[step],[prev_step]] = 'i'
+                        A.loc[[step], [prev_step]] = "d"
+                elif (
+                    prev_step and prev_step in pystorms_scenario.config["action_space"]
+                ):
+
+                    if (
+                        re.search(r"\d+", "".join(prev_step)).group()
+                        == re.search(r"\d+", "".join(step)).group()
+                    ):  # same integer id
+                        B.loc[[step], [prev_step]] = "i"
                     else:
-                        B.loc[[step],[prev_step]] = 'd'
-                if next_step and next_step[0] in pystorms_scenario.config['states'] or next_step in pystorms_scenario.config['states']:
+                        B.loc[[step], [prev_step]] = "d"
+                if (
+                    next_step
+                    and next_step[0] in pystorms_scenario.config["states"]
+                    or next_step in pystorms_scenario.config["states"]
+                ):
                     # this only handles integer ids, but some models have letter ids or alphanumeric ids (pystorms scenario delta)
-                    if re.search(r'\d+', ''.join(next_step)).group() == re.search(r'\d+', ''.join(step)).group(): 
-                        A.loc[[step],[next_step]] = 'i'
+                    if (
+                        re.search(r"\d+", "".join(next_step)).group()
+                        == re.search(r"\d+", "".join(step)).group()
+                    ):
+                        A.loc[[step], [next_step]] = "i"
                     else:
-                        A.loc[[step],[next_step]] = 'd'
-                elif next_step and next_step[0] in pystorms_scenario.config['action_space'] or next_step in pystorms_scenario.config['action_space']:
-                    
-                    if re.search(r'\d+', ''.join(next_step)).group() == re.search(r'\d+', ''.join(step)).group():
-                        B.loc[[step],[next_step]] = 'i'
+                        A.loc[[step], [next_step]] = "d"
+                elif (
+                    next_step
+                    and next_step[0] in pystorms_scenario.config["action_space"]
+                    or next_step in pystorms_scenario.config["action_space"]
+                ):
+
+                    if (
+                        re.search(r"\d+", "".join(next_step)).group()
+                        == re.search(r"\d+", "".join(step)).group()
+                    ):
+                        B.loc[[step], [next_step]] = "i"
                     else:
-                        B.loc[[step],[next_step]] = 'd'
-            
-                            
+                        B.loc[[step], [next_step]] = "d"
 
-
-
-            '''
+            """
             for step in path_of_travel:
                 for state in pystorms_scenario.config['states']:
                     last_step = False
                     if step[0] == state[0]: # same id
-                        if ((step[1] == "Node" and "N" in state[1]) 
-                        or (step[1] == "Node" and 'flooding' in state[1]) 
+                        if ((step[1] == "Node" and "N" in state[1])
+                        or (step[1] == "Node" and 'flooding' in state[1])
                         or (step[1] == "Node" and 'inflow' in state[1])): # node type
                             # we've found a step in the path of travel which is an observable state
                             # are there any other observable states or controllabe assets in the path of travel?
@@ -2359,12 +4269,12 @@ def topo_from_pystorms(pystorms_scenario):
                                 # we'll include states that come after the examined state in case of feedback such as backwater effects
                                 for other_state in pystorms_scenario.config['states']:
                                     if other_step[0] == other_state[0]: # same id
-                                        if ((other_step[1] == "Node" and "N" in other_state[1]) 
-                                            or (other_step[1] == "Node" and 'flooding' in other_state[1]) 
+                                        if ((other_step[1] == "Node" and "N" in other_state[1])
+                                            or (other_step[1] == "Node" and 'flooding' in other_state[1])
                                             or (other_step[1] == "Node" and 'inflow' in other_state[1])): # node type
                                             A.loc[[state],[other_state]] = 'd'
                                             #print(A)
-                                        elif ((other_step[1] == "Link" and "L" in other_state[1]) 
+                                        elif ((other_step[1] == "Link" and "L" in other_state[1])
                                             or (other_step[1] == "Link" and 'flow' in other_state[1])):
                                             A.loc[[state],[other_state]] = 'd'
                                             #print(A)
@@ -2374,9 +4284,9 @@ def topo_from_pystorms(pystorms_scenario):
                                         #print(B)
                                 if last_step: # just look at the next little bit downstream for backwater effects
                                     break
-                                    
-                                
-                        elif ((step[1] == "Link" and "L" in state[1]) 
+
+
+                        elif ((step[1] == "Link" and "L" in state[1])
                                 or (step[1] == "Link" and 'flow' in state[1])):
                             for other_step in path_of_travel:
                                 if path_of_travel.index(step) - path_of_travel.index(other_step) > 1: # other step is not immediately upstream
@@ -2386,12 +4296,12 @@ def topo_from_pystorms(pystorms_scenario):
                                     continue # this is the same step, so skip it
                                 for other_state in pystorms_scenario.config['states']:
                                     if other_step[0] == other_state[0]: # same id
-                                        if ((other_step[1] == "Node" and "N" in other_state[1]) 
-                                            or (other_step[1] == "Node" and 'flooding' in other_state[1]) 
+                                        if ((other_step[1] == "Node" and "N" in other_state[1])
+                                            or (other_step[1] == "Node" and 'flooding' in other_state[1])
                                             or (other_step[1] == "Node" and 'inflow' in other_state[1])): # node type
                                             A.loc[[state],[other_state]] = 'd'
                                             #print(A)
-                                        elif ((other_step[1] == "Link" and "L" in other_state[1]) 
+                                        elif ((other_step[1] == "Link" and "L" in other_state[1])
                                             or (other_step[1] == "Link" and 'flow' in other_state[1])):
                                             A.loc[[state],[other_state]] = 'd'
                                             #print(A)
@@ -2404,22 +4314,22 @@ def topo_from_pystorms(pystorms_scenario):
                     if step[0] == action[0] or step[0] == action:
                         print(step)
                         print(action)
-                   '''     
+                   """
 
-            #print(A)
-            #print(B)
-        
+            # print(A)
+            # print(B)
+
     # add "i's" on the diagonal of A (instantaneous autocorrelatoin)
     for idx in A.index:
-        A.loc[[idx],[idx]] = 'i'
+        A.loc[[idx], [idx]] = "i"
     # fill the na's in A and B with 'n'
-    A.fillna('n',inplace=True)
-    B.fillna('n',inplace=True)
-    
-    # concatenate the A and B matrices column-wise and return that result
-    causative_topology = pd.concat([A,B],axis=1)
+    A.fillna("n", inplace=True)
+    B.fillna("n", inplace=True)
 
-    #print(causative_topology)
+    # concatenate the A and B matrices column-wise and return that result
+    causative_topology = pd.concat([A, B], axis=1)
+
+    # print(causative_topology)
 
     return causative_topology
 
@@ -2429,180 +4339,198 @@ def topo_from_pystorms(pystorms_scenario):
 def subway_map_from_pystorms(pystorms_scenario):
     # remove any duplicates in the state or action space of the config
     # this is an error within pystorms
-    pystorms_scenario.config['states'] = list(dict.fromkeys(pystorms_scenario.config['states']))
-    pystorms_scenario.config['action_space'] = list(dict.fromkeys(pystorms_scenario.config['action_space']))
+    pystorms_scenario.config["states"] = list(
+        dict.fromkeys(pystorms_scenario.config["states"])
+    )
+    pystorms_scenario.config["action_space"] = list(
+        dict.fromkeys(pystorms_scenario.config["action_space"])
+    )
 
     # make the index the concatentation of the states and action space
-    index = list(list(pystorms_scenario.config['states']) + list(pystorms_scenario.config['action_space']))
-   
+    index = list(
+        list(pystorms_scenario.config["states"])
+        + list(pystorms_scenario.config["action_space"])
+    )
 
+    adjacency = pd.DataFrame(index=index, columns=index).fillna(0)
 
-    adjacency = pd.DataFrame(index = index , columns = index ).fillna(0)
-    
-    
     # use pyswmm to iterate through the network
-    with pyswmm.Simulation(pystorms_scenario.config['swmm_input']) as sim:
+    with pyswmm.Simulation(pystorms_scenario.config["swmm_input"]) as sim:
         # start at each subcatchment and iterate down to the outfall
         # this should work even in the case of multiple outfalls
         # this should capture all the causation, because ultimately everything is precip driven
-        
+
         # so i can view these while debugging
         Subcatchments = pyswmm.Subcatchments(sim)
         Nodes = pyswmm.Nodes(sim)
-        Links = pyswmm.Links(sim)
+        pyswmm.Links(sim)
 
         for subcatch in pyswmm.Subcatchments(sim):
-            #print(adjacency)
-            #print(subcatch.subcatchmentid)
+            # print(adjacency)
+            # print(subcatch.subcatchmentid)
             # create a string that records the path we travel to get to the outfall
             path_of_travel = list()
             # can i grab the rain gage id?
-            path_of_travel.append((subcatch.subcatchmentid,"Subcatchment"))
-            current_id = subcatch.connection # grab the id of the next object downstream
-            
-            
-            try: # if the downstream connection is a subcatchment
+            path_of_travel.append((subcatch.subcatchmentid, "Subcatchment"))
+            current_id = (
+                subcatch.connection
+            )  # grab the id of the next object downstream
+
+            try:  # if the downstream connection is a subcatchment
                 current = Subcatchments[current_id]
                 current_id = current.subcatchmentid
                 subcatch = Subcatchments[current_id]
-                current_id = subcatch.connection # grab the id of the next object downstream
-                path_of_travel.append((current_id,'Subcatchment'))
-            except Exception as e:
-                #print("downstream connection was not another subcatchment")
-                #print(e)
+                current_id = (
+                    subcatch.connection
+                )  # grab the id of the next object downstream
+                path_of_travel.append((current_id, "Subcatchment"))
+            except Exception:
+                # print("downstream connection was not another subcatchment")
+                # print(e)
                 pass
-            
+
             # other option is that downstream connection is a node
             # in which case we'll start iterating down through nodes and links to the outfall
             current = Nodes[current_id]
-            path_of_travel.append((current_id,'Node'))
+            path_of_travel.append((current_id, "Node"))
             while not current.is_outfall():
-                #print(path_of_travel)
+                # print(path_of_travel)
                 # if the current object is a node, iterate through the links to find the downstream object
                 if current_id in pyswmm.Nodes(sim):
                     for link in pyswmm.Links(sim):
-                        #print(link.linkid)
+                        # print(link.linkid)
                         if link.inlet_node == current_id:
-                            path_of_travel.append((link.linkid,"Link"))
+                            path_of_travel.append((link.linkid, "Link"))
                             current_id = link.outlet_node
-                            path_of_travel.append((current_id,"Node"))
+                            path_of_travel.append((current_id, "Node"))
                             break
                     else:
-                        print("current element is a sink (no link draining). verify this is correct")
+                        print(
+                            "current element is a sink (no link draining). verify this is correct"
+                        )
                         print(current_id)
                         break
                 # if the current object is a link, grab the downstream node
                 elif current_id in pyswmm.Links(sim):
-                    path_of_travel.append((link.linkid,"Link"))
+                    path_of_travel.append((link.linkid, "Link"))
                     current_id = current.outlet_node
-                    path_of_travel.append((current_id,"Node"))
-                
+                    path_of_travel.append((current_id, "Node"))
 
                 current = Nodes[current_id]
 
-            #print("path of travel")
-            #print(path_of_travel)
+            # print("path of travel")
+            # print(path_of_travel)
             # cut all the entries in path_of_travel that are not observable states or actions
             original_path_of_travel = path_of_travel.copy()
-            
+
             for step in original_path_of_travel:
                 step_is_state = False
                 step_is_control_input = False
-                for state in pystorms_scenario.config['states']:
-                    if step[0] == state[0]: # same id
-                        if ((step[1] == "Node" and "N" in state[1]) 
-                        or (step[1] == "Node" and 'flooding' in state[1]) 
-                        or (step[1] == "Node" and 'inflow' in state[1])
-                        or (step[1] == "Link" and "L" in state[1]) 
-                        or (step[1] == "Link" and 'flow' in state[1])): # types match
+                for state in pystorms_scenario.config["states"]:
+                    if step[0] == state[0]:  # same id
+                        if (
+                            (step[1] == "Node" and "N" in state[1])
+                            or (step[1] == "Node" and "flooding" in state[1])
+                            or (step[1] == "Node" and "inflow" in state[1])
+                            or (step[1] == "Link" and "L" in state[1])
+                            or (step[1] == "Link" and "flow" in state[1])
+                        ):  # types match
                             step_is_state = True
-                for control_input in pystorms_scenario.config['action_space']:
+                for control_input in pystorms_scenario.config["action_space"]:
                     if step[0] == control_input:
                         step_is_control_input = True
                 if not step_is_state and not step_is_control_input:
-                    path_of_travel.remove(step) # this will change the index, hence the "while"
-                   
-            #print("full path of travel")
-            #print(original_path_of_travel)
-            #print("observable path of travel")
-            #print(path_of_travel)
-           
-            
+                    path_of_travel.remove(
+                        step
+                    )  # this will change the index, hence the "while"
+
+            # print("full path of travel")
+            # print(original_path_of_travel)
+            # print("observable path of travel")
+            # print(path_of_travel)
+
             # iterate through the path of travel and rename the steps to align with the columns of the adjacency
             for step in path_of_travel:
-                for state in pystorms_scenario.config['states']:
-                    if step[0] == state[0]: # same id
-                        if ((step[1] == "Node" and "N" in state[1]) 
-                        or (step[1] == "Node" and 'flooding' in state[1]) 
-                        or (step[1] == "Node" and 'inflow' in state[1])
-                        or (step[1] == "Link" and "L" in state[1]) 
-                        or (step[1] == "Link" and 'flow' in state[1])): # types match    
+                for state in pystorms_scenario.config["states"]:
+                    if step[0] == state[0]:  # same id
+                        if (
+                            (step[1] == "Node" and "N" in state[1])
+                            or (step[1] == "Node" and "flooding" in state[1])
+                            or (step[1] == "Node" and "inflow" in state[1])
+                            or (step[1] == "Link" and "L" in state[1])
+                            or (step[1] == "Link" and "flow" in state[1])
+                        ):  # types match
                             path_of_travel[path_of_travel.index(step)] = state
 
-                for control_input in pystorms_scenario.config['action_space']:
+                for control_input in pystorms_scenario.config["action_space"]:
                     if step[0] == control_input:
                         path_of_travel[path_of_travel.index(step)] = control_input
 
-                       
-            #print("observable path of travel")
-            #print(path_of_travel)
+            # print("observable path of travel")
+            # print(path_of_travel)
 
             # now, use this path of travel to update the adjacency
-            
+
             # only use "i" if the entries have the same id. otherwise characterize everything as delayed, "d"
             # because our path of travel only includes the observable states and the action space, we just need to look immediately up and downstream
             # only looking upstream would simplify things and be sufficient for many scenarios, but it would miss backwater effects
-            for step in path_of_travel: # all of these are either observable states or actions
-                if path_of_travel.index(step) == 0: # first entry, previous step not meaningful
-                    prev_step = False
-                else:    
-                    prev_step = path_of_travel[path_of_travel.index(step)-1]
-                if path_of_travel.index(step) == len(path_of_travel)-1: # last entry, next step not meaningful
-                    next_step = False
+            for (
+                step
+            ) in path_of_travel:  # all of these are either observable states or actions
+                if (
+                    path_of_travel.index(step) == 0
+                ):  # first entry, previous step not meaningful
+                    prev_step = None
                 else:
-                    next_step = path_of_travel[path_of_travel.index(step)+1]
+                    prev_step = path_of_travel[path_of_travel.index(step) - 1]
+                if (
+                    path_of_travel.index(step) == len(path_of_travel) - 1
+                ):  # last entry, next step not meaningful
+                    next_step = None
+                else:
+                    next_step = path_of_travel[path_of_travel.index(step) + 1]
 
                 # formatted as from row to column
                 if prev_step:
-                    adjacency.loc[[prev_step],[step]] = 1
+                    adjacency.loc[[prev_step], [step]] = 1
                 if next_step:
-                    adjacency.loc[[step],[next_step]] = 1
+                    adjacency.loc[[step], [next_step]] = 1
 
-    graph = nx.from_pandas_adjacency(adjacency,create_using=nx.DiGraph)
+    graph = nx.from_pandas_adjacency(adjacency, create_using=nx.DiGraph)
     if not nx.is_directed_acyclic_graph(graph):
         print("graph is not a DAG")
-        plt.figure(figsize=(20,10))
+        plt.figure(figsize=(20, 10))
         pos = nx.planar_layout(graph)
         nx.draw_networkx_nodes(graph, pos, node_size=500)
         nx.draw_networkx_labels(graph, pos, font_size=12)
-        nx.draw_networkx_edges(graph, pos, arrows=True,arrowsize=30,style='solid',alpha=1.0)
+        nx.draw_networkx_edges(
+            graph, pos, arrows=True, arrowsize=30, style="solid", alpha=1.0
+        )
         plt.show()
-        
+
     # we're now gauranteed to have a directed acycilce graph, so get the topological generations and use that as the subset key
     gens = nx.topological_generations(graph)
     gen_idx = 1
     for generation in gens:
-        #print(generation)
+        # print(generation)
         for node in graph.nodes:
             if node in generation:
-                graph.nodes[node]['generation'] = gen_idx
+                graph.nodes[node]["generation"] = gen_idx
         gen_idx += 1
-    
+
     # but to draw without overlaps, we need to partition by the root node, not the generation
     # give each node a key corresponding to its most distant ancestor
     # then, we can use that key to partition the nodes and draw them in separate columns
     for node in graph.nodes:
-        #print(node)
-        #print(nx.ancestors(graph,node))
-        ancestors = nx.ancestors(graph,node)
+        # print(node)
+        # print(nx.ancestors(graph,node))
+        ancestors = nx.ancestors(graph, node)
         most_distant_ancestor = node
         for ancestor in ancestors:
-            distance = nx.shortest_path_length(graph,ancestor,node)
-            if distance > nx.shortest_path_length(graph,most_distant_ancestor,node):
+            distance = nx.shortest_path_length(graph, ancestor, node)
+            if distance > nx.shortest_path_length(graph, most_distant_ancestor, node):
                 most_distant_ancestor = ancestor
-        graph.nodes[node]['root'] = most_distant_ancestor
-        #print(most_distant_ancestor)
-        
-            
-    return {'adjacency':adjacency,'index':index,'graph':graph}
-                     
+        graph.nodes[node]["root"] = most_distant_ancestor
+        # print(most_distant_ancestor)
+
+    return {"adjacency": adjacency, "index": index, "graph": graph}
