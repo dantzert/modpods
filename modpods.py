@@ -1,53 +1,3 @@
-import pandas as pd
-import numpy as np
-import pysindy as ps
-import scipy.stats as stats
-from scipy import signal
-import matplotlib.pyplot as plt
-import control as control
-import networkx as nx
-import sys
-try:
-    import pyswmm # not a requirement for any other function
-except ImportError:
-    pyswmm = None
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Matern
-from scipy.optimize import minimize
-
-# Bayesian optimization helper functions
-def _expected_improvement(X, X_sample, Y_sample, gpr, xi=0.01):
-    """Expected Improvement acquisition function for Bayesian optimization."""
-    mu, sigma = gpr.predict(X, return_std=True)
-    mu = mu.reshape(-1, 1)
-    sigma = sigma.reshape(-1, 1)
-    
-    mu_sample_opt = np.max(Y_sample)
-    
-    with np.errstate(divide='warn'):
-        imp = mu - mu_sample_opt - xi
-        Z = imp / sigma
-        ei = imp * stats.norm.cdf(Z) + sigma * stats.norm.pdf(Z)
-        ei[sigma == 0.0] = 0.0
-    
-    return ei
-
-def _propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=10):
-    """Propose next sampling point by optimizing acquisition function."""
-    dim = X_sample.shape[1]
-    min_val = 1
-    min_x = None
-    
-    def min_obj(X):
-        return -acquisition(X.reshape(-1, dim), X_sample, Y_sample, gpr).flatten()
-    
-    for x0 in np.random.uniform(bounds[:, 0], bounds[:, 1], size=(n_restarts, dim)):
-        res = minimize(min_obj, x0=x0, bounds=bounds, method='L-BFGS-B')
-        if res.fun < min_val:
-            min_val = res.fun
-            min_x = res.x
-            
-    return min_x.reshape(-1, 1)
 import re
 import warnings
 from typing import Any
@@ -58,14 +8,57 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import pysindy as ps
-import pyswmm  # not a requirement for any other function
 import scipy.stats as stats
 from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
+from scipy.optimize import minimize
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import Matern
+
+try:
+    import pyswmm  # not a requirement for any other function
+except ImportError:
+    pyswmm = None
 
 # Suppress the specific AxesWarning from pysindy after import
 warnings.filterwarnings(
     "ignore", message=".*axes labeled for array with.*", module="pysindy"
 )
+
+
+# Bayesian optimization helper functions
+def _expected_improvement(X, X_sample, Y_sample, gpr, xi=0.01):
+    """Expected Improvement acquisition function for Bayesian optimization."""
+    mu, sigma = gpr.predict(X, return_std=True)
+    mu = mu.reshape(-1, 1)
+    sigma = sigma.reshape(-1, 1)
+
+    mu_sample_opt = np.max(Y_sample)
+
+    with np.errstate(divide="warn"):
+        imp = mu - mu_sample_opt - xi
+        Z = imp / sigma
+        ei = imp * stats.norm.cdf(Z) + sigma * stats.norm.pdf(Z)
+        ei[sigma == 0.0] = 0.0
+
+    return ei
+
+
+def _propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=10):
+    """Propose next sampling point by optimizing acquisition function."""
+    dim = X_sample.shape[1]
+    min_val = 1
+    min_x = None
+
+    def min_obj(X):
+        return -acquisition(X.reshape(-1, dim), X_sample, Y_sample, gpr).flatten()
+
+    for x0 in np.random.uniform(bounds[:, 0], bounds[:, 1], size=(n_restarts, dim)):
+        res = minimize(min_obj, x0=x0, bounds=bounds, method="L-BFGS-B")
+        if res.fun < min_val:
+            min_val = res.fun
+            min_x = res.x
+
+    return min_x.reshape(-1, 1)
 
 
 # delay model builds differential equations relating the dependent variables to transformations of all the variables
@@ -91,13 +84,26 @@ warnings.filterwarnings(
 # that is, forcing and the response to that forcing cannot occur at the same timestep
 # it may be necessary for the user to shift the forcing data back to make the system causal (especially for time aggregated data like daily rainfall-runoff)
 # forcing_coef_constraints is a dictionary of column name and then a 1, 0, or -1 depending on whether the coefficients of that variable should be positive, unconstrained, or negative
-def delay_io_train(system_data, dependent_columns, independent_columns, 
-                   windup_timesteps=0,init_transforms=1, max_transforms=4, 
-                   max_iter=250, poly_order=3, transform_dependent=False, 
-                   verbose=False, extra_verbose=False, include_bias=False, 
-                   include_interaction=False, bibo_stable = False,
-                   transform_only = None, forcing_coef_constraints=None,
-                   early_stopping_threshold = 0.005, optimization_method="compass_search"):
+def delay_io_train(
+    system_data,
+    dependent_columns,
+    independent_columns,
+    windup_timesteps=0,
+    init_transforms=1,
+    max_transforms=4,
+    max_iter=250,
+    poly_order=3,
+    transform_dependent=False,
+    verbose=False,
+    extra_verbose=False,
+    include_bias=False,
+    include_interaction=False,
+    bibo_stable=False,
+    transform_only=None,
+    forcing_coef_constraints=None,
+    early_stopping_threshold=0.005,
+    optimization_method="compass_search",
+):
     forcing = system_data[independent_columns].copy(deep=True)
 
     orig_forcing_columns = forcing.columns
@@ -193,7 +199,7 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
         if optimization_method == "bayesian":
             if verbose:
                 print(f"Using Bayesian optimization for {num_transforms} transforms...")
-            
+
             # Determine which columns to transform
             if transform_dependent:
                 transform_columns = system_data.columns.tolist()
@@ -201,39 +207,58 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                 transform_columns = transform_only
             else:
                 transform_columns = independent_columns
-            
+
             # Bayesian optimization for this number of transforms
-            n_params = len(transform_columns) * num_transforms * 3
-            bounds = []
+            bounds_list: list[list[float]] = []
             for transform in range(1, num_transforms + 1):
                 for col in transform_columns:
-                    bounds.append([1.0, 50.0])    # shape_factors bounds
-                    bounds.append([0.1, 5.0])     # scale_factors bounds  
-                    bounds.append([0.0, 20.0])    # loc_factors bounds
-            bounds = np.array(bounds)
-            
+                    bounds_list.append([1.0, 50.0])  # shape_factors bounds
+                    bounds_list.append([0.1, 5.0])  # scale_factors bounds
+                    bounds_list.append([0.0, 20.0])  # loc_factors bounds
+            bounds = np.array(bounds_list)
+
             def objective_function(params_vector):
                 try:
                     # Convert vector to DataFrames
-                    shape_factors_opt = pd.DataFrame(columns=transform_columns, index=range(1, num_transforms + 1))
-                    scale_factors_opt = pd.DataFrame(columns=transform_columns, index=range(1, num_transforms + 1))
-                    loc_factors_opt = pd.DataFrame(columns=transform_columns, index=range(1, num_transforms + 1))
-                    
+                    shape_factors_opt = pd.DataFrame(
+                        columns=transform_columns, index=range(1, num_transforms + 1)
+                    )
+                    scale_factors_opt = pd.DataFrame(
+                        columns=transform_columns, index=range(1, num_transforms + 1)
+                    )
+                    loc_factors_opt = pd.DataFrame(
+                        columns=transform_columns, index=range(1, num_transforms + 1)
+                    )
+
                     idx = 0
                     for transform in range(1, num_transforms + 1):
                         for col in transform_columns:
                             shape_factors_opt.loc[transform, col] = params_vector[idx]
-                            scale_factors_opt.loc[transform, col] = params_vector[idx + 1]
+                            scale_factors_opt.loc[transform, col] = params_vector[
+                                idx + 1
+                            ]
                             loc_factors_opt.loc[transform, col] = params_vector[idx + 2]
                             idx += 3
-                    
-                    result = SINDY_delays_MI(shape_factors_opt, scale_factors_opt, loc_factors_opt,
-                                           system_data.index, forcing, response, False, 
-                                           poly_order, include_bias, include_interaction,
-                                           windup_timesteps, bibo_stable, transform_dependent,
-                                           transform_only, forcing_coef_constraints)
-                    
-                    r2 = result['error_metrics']['r2']
+
+                    result = SINDY_delays_MI(
+                        shape_factors_opt,
+                        scale_factors_opt,
+                        loc_factors_opt,
+                        system_data.index,
+                        forcing,
+                        response,
+                        False,
+                        poly_order,
+                        include_bias,
+                        include_interaction,
+                        windup_timesteps,
+                        bibo_stable,
+                        transform_dependent,
+                        transform_only,
+                        forcing_coef_constraints,
+                    )
+
+                    r2 = result["error_metrics"]["r2"]
                     if verbose:
                         print(f"  R² = {r2:.6f}")
                     return r2
@@ -241,56 +266,65 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                     if verbose:
                         print(f"  Evaluation failed: {e}")
                     return -1.0
-            
+
             # Bayesian optimization
             n_initial = min(10, max(5, max_iter // 4))
-            X_sample = []
-            Y_sample = []
-            
+            X_sample_list: list[Any] = []
+            Y_sample_list: list[Any] = []
+
             # Generate initial random samples
             for i in range(n_initial):
                 x = np.random.uniform(bounds[:, 0], bounds[:, 1])
                 y = objective_function(x)
-                X_sample.append(x)
-                Y_sample.append(y)
+                X_sample_list.append(x)
+                Y_sample_list.append(y)
                 if verbose:
                     print(f"  Initial sample {i+1}/{n_initial}: R² = {y:.6f}")
-            
-            X_sample = np.array(X_sample)
-            Y_sample = np.array(Y_sample).reshape(-1, 1)
-            
+
+            X_sample: np.ndarray = np.array(X_sample_list)
+            Y_sample: np.ndarray = np.array(Y_sample_list).reshape(-1, 1)
+
             # Main Bayesian optimization loop
             best_r2 = np.max(Y_sample)
-            best_params = X_sample[np.argmax(Y_sample)]
-            
+            best_params: np.ndarray = X_sample[np.argmax(Y_sample)]
+
             # Gaussian Process setup
             kernel = Matern(length_scale=1.0, nu=2.5)
-            gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-6, normalize_y=True, 
-                                         n_restarts_optimizer=5, random_state=42)
-            
+            gpr = GaussianProcessRegressor(
+                kernel=kernel,
+                alpha=1e-6,
+                normalize_y=True,
+                n_restarts_optimizer=5,
+                random_state=42,
+            )
+
             for iteration in range(max_iter - n_initial):
                 # Fit GP and find next point
                 gpr.fit(X_sample, Y_sample.ravel())
-                next_x = _propose_location(_expected_improvement, X_sample, Y_sample, gpr, bounds)
+                next_x = _propose_location(
+                    _expected_improvement, X_sample, Y_sample, gpr, bounds
+                )
                 next_x = next_x.flatten()
-                
+
                 # Evaluate objective
                 next_y = objective_function(next_x)
-                
+
                 if verbose:
-                    print(f"  BO iteration {iteration+1}/{max_iter-n_initial}: R² = {next_y:.6f}")
-                
+                    print(
+                        f"  BO iteration {iteration+1}/{max_iter-n_initial}: R² = {next_y:.6f}"
+                    )
+
                 # Update samples
                 X_sample = np.append(X_sample, [next_x], axis=0)
                 Y_sample = np.append(Y_sample, next_y)
-                
+
                 # Update best
                 if next_y > best_r2:
                     best_r2 = next_y
                     best_params = next_x
                     if verbose:
                         print(f"    New best R² = {best_r2:.6f}")
-            
+
             # Convert best parameters back to DataFrames
             idx = 0
             for transform in range(1, num_transforms + 1):
@@ -299,21 +333,49 @@ def delay_io_train(system_data, dependent_columns, independent_columns,
                     scale_factors.loc[transform, col] = best_params[idx + 1]
                     loc_factors.loc[transform, col] = best_params[idx + 2]
                     idx += 3
-            
+
             # Use the optimized parameters for final evaluation
-            prev_model = SINDY_delays_MI(shape_factors, scale_factors, loc_factors, system_data.index, 
-                                       forcing, response, extra_verbose, poly_order, include_bias, 
-                                       include_interaction, windup_timesteps, bibo_stable, transform_dependent=transform_dependent,
-                                       transform_only=transform_only, forcing_coef_constraints=forcing_coef_constraints)
-            
+            prev_model = SINDY_delays_MI(
+                shape_factors,
+                scale_factors,
+                loc_factors,
+                system_data.index,
+                forcing,
+                response,
+                extra_verbose,
+                poly_order,
+                include_bias,
+                include_interaction,
+                windup_timesteps,
+                bibo_stable,
+                transform_dependent=transform_dependent,
+                transform_only=transform_only,
+                forcing_coef_constraints=forcing_coef_constraints,
+            )
+
         else:  # Default compass search optimization
             if verbose:
-                print(f"Using compass search optimization for {num_transforms} transforms...")
-            
-            prev_model = SINDY_delays_MI(shape_factors, scale_factors, loc_factors, system_data.index, 
-                                         forcing, response,extra_verbose, poly_order , include_bias, 
-                                         include_interaction,windup_timesteps,bibo_stable,transform_dependent=transform_dependent,
-                                         transform_only=transform_only,forcing_coef_constraints=forcing_coef_constraints)
+                print(
+                    f"Using compass search optimization for {num_transforms} transforms..."
+                )
+
+            prev_model = SINDY_delays_MI(
+                shape_factors,
+                scale_factors,
+                loc_factors,
+                system_data.index,
+                forcing,
+                response,
+                extra_verbose,
+                poly_order,
+                include_bias,
+                include_interaction,
+                windup_timesteps,
+                bibo_stable,
+                transform_dependent=transform_dependent,
+                transform_only=transform_only,
+                forcing_coef_constraints=forcing_coef_constraints,
+            )
 
         print("\nInitial model:\n")
         try:
