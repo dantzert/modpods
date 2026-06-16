@@ -1,10 +1,19 @@
 [tool.black]
 line-length = 88
 target-version = ["py310", "py311", "py312"]
+exclude = "modpods_backup\\.py"
 
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+exclude = [
+    "modpods_backup.py",
+    "*.TMP",
+    "*.h11~",
+    "*.qeb~",
+    "*.wa0~",
+    ".vs",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
@@ -15,6 +24,10 @@ ignore_missing_imports = true
 no_strict_optional = true
 warn_return_any = true
 check_untyped_defs = true
+explicit_package_bases = true
+exclude = [
+    "modpods_backup\\.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

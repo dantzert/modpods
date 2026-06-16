@@ -1,2 +1,8 @@
 *.pyc
+*.TMP
+*.h11~
+*.qeb~
+*.wa0~
+__pycache__/
+.vs/
 *.code-workspace

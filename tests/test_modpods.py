@@ -239,6 +239,127 @@ def test_delay_io_predict_returns_expected_shape(
 
 
 # ---------------------------------------------------------------------------
+# Optimization method comparison tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def compass_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
+    """Train a model using the default compass-search optimizer."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=20,
+            poly_order=1,
+            verbose=False,
+            optimization_method="compass_search",
+        )
+    return cast(dict[Any, Any], model)
+
+
+@pytest.fixture(scope="module")
+def bayesian_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
+    """Train a model using Bayesian optimization."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=20,
+            poly_order=1,
+            verbose=False,
+            optimization_method="bayesian",
+        )
+    return cast(dict[Any, Any], model)
+
+
+def test_compass_search_returns_valid_model(
+    compass_model: dict[Any, Any],
+) -> None:
+    """Compass-search optimizer must return a well-formed model dict."""
+    assert isinstance(compass_model, dict)
+    assert 1 in compass_model
+    assert "final_model" in compass_model[1]
+    assert "error_metrics" in compass_model[1]["final_model"]
+    r2 = float(compass_model[1]["final_model"]["error_metrics"]["r2"])
+    assert r2 > -1.0, f"Compass R² {r2:.4f} is unreasonably low"
+
+
+def test_bayesian_returns_valid_model(
+    bayesian_model: dict[Any, Any],
+) -> None:
+    """Bayesian optimizer must return a well-formed model dict."""
+    assert isinstance(bayesian_model, dict)
+    assert 1 in bayesian_model
+    assert "final_model" in bayesian_model[1]
+    assert "error_metrics" in bayesian_model[1]["final_model"]
+    r2 = float(bayesian_model[1]["final_model"]["error_metrics"]["r2"])
+    assert r2 > -1.0, f"Bayesian R² {r2:.4f} is unreasonably low"
+
+
+def test_both_methods_produce_comparable_r2(
+    compass_model: dict[Any, Any],
+    bayesian_model: dict[Any, Any],
+) -> None:
+    """Both optimization methods should achieve similar R² on the same data.
+
+    The difference in R² should be within a reasonable margin, confirming
+    that both methods solve the same underlying optimization problem.
+    """
+    r2_compass = float(compass_model[1]["final_model"]["error_metrics"]["r2"])
+    r2_bayesian = float(bayesian_model[1]["final_model"]["error_metrics"]["r2"])
+    # Both should be positive (reasonable fit)
+    assert r2_compass > 0.0, f"Compass R² {r2_compass:.4f} is non-positive"
+    assert r2_bayesian > 0.0, f"Bayesian R² {r2_bayesian:.4f} is non-positive"
+    # Neither method should be dramatically worse than the other
+    assert abs(r2_compass - r2_bayesian) < 0.5, (
+        f"Methods diverge too much: compass={r2_compass:.4f}, "
+        f"bayesian={r2_bayesian:.4f}"
+    )
+
+
+def test_compass_and_bayesian_predictions_agree(
+    compass_model: dict[Any, Any],
+    bayesian_model: dict[Any, Any],
+    simple_lti_data: pd.DataFrame,
+) -> None:
+    """Predictions from compass and Bayesian models should broadly agree."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pred_compass = modpods.delay_io_predict(
+            compass_model, simple_lti_data, num_transforms=1
+        )
+        pred_bayesian = modpods.delay_io_predict(
+            bayesian_model, simple_lti_data, num_transforms=1
+        )
+    assert "prediction" in pred_compass
+    assert "prediction" in pred_bayesian
+    p_c = pred_compass["prediction"].ravel()
+    p_b = pred_bayesian["prediction"].ravel()
+    assert p_c.shape == p_b.shape, "Prediction shapes differ between methods"
+    # Both predictions must be finite (no NaN or Inf)
+    assert np.all(np.isfinite(p_c)), "Compass predictions contain NaN/Inf"
+    assert np.all(np.isfinite(p_b)), "Bayesian predictions contain NaN/Inf"
+    # Correlation of predictions should be high (both are fitting the same signal)
+    # Guard against constant predictions (std == 0) which yield undefined correlation
+    if p_c.std() > 0 and p_b.std() > 0:
+        corr = float(np.corrcoef(p_c, p_b)[0, 1])
+        assert (
+            corr > 0.5
+        ), f"Compass and Bayesian predictions are poorly correlated: {corr:.4f}"
+
+
+# ---------------------------------------------------------------------------
 # infer_causative_topology tests  (from test_topo_inference.py)
 # ---------------------------------------------------------------------------
 
