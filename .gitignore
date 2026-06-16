@@ -5,3 +5,4 @@
 *.wa0~
 __pycache__/
 .vs/
+*.code-workspace
