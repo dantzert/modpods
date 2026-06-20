@@ -154,30 +154,33 @@ def test_transform_inputs_correctness() -> None:
     np.random.seed(42)
     n = 100
     index = pd.date_range("2000-01-01", periods=n, freq="1h")
-    
+
     # Create forcing data
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
-    
+
     # Create parameter dataframes
     shape_factors = pd.DataFrame({"u": [2.0]}, index=[1])
     scale_factors = pd.DataFrame({"u": [1.0]}, index=[1])
     loc_factors = pd.DataFrame({"u": [0.0]}, index=[1])
-    
+
     # Transform
-    result = modpods.transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing)
-    
+    result = modpods.transform_inputs(
+        shape_factors, scale_factors, loc_factors, index, forcing
+    )
+
     # Check output
     assert "u_tr_1" in result.columns
     assert len(result) == n
     assert not result.isnull().values.any()
-    
+
     # Verify against direct convolution
     from scipy import signal, stats
+
     forcing_values = forcing["u"].to_numpy()
     shape_time = np.arange(0, n, 1)
     gamma_kernel = stats.gamma.pdf(shape_time, 2.0, scale=1.0, loc=0.0)
     expected = signal.fftconvolve(forcing_values, gamma_kernel, mode="full")[:n]
-    
+
     np.testing.assert_allclose(result["u_tr_1"].values, expected, rtol=1e-10)
 
 
@@ -186,24 +189,27 @@ def test_transform_inputs_with_cache() -> None:
     np.random.seed(42)
     n = 1000
     index = pd.date_range("2000-01-01", periods=n, freq="1h")
-    
+
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
     shape_factors = pd.DataFrame({"u": [2.0]}, index=[1])
     scale_factors = pd.DataFrame({"u": [1.0]}, index=[1])
     loc_factors = pd.DataFrame({"u": [0.0]}, index=[1])
-    
+
     # First call (cache miss)
     cache = modpods.TransformCache()
-    result1 = modpods.transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing, cache=cache)
-    stats1 = cache.stats()
-    
+    result1 = modpods.transform_inputs(
+        shape_factors, scale_factors, loc_factors, index, forcing, cache=cache
+    )
+
     # Second call with same params (cache hit)
-    result2 = modpods.transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing, cache=cache)
+    result2 = modpods.transform_inputs(
+        shape_factors, scale_factors, loc_factors, index, forcing, cache=cache
+    )
     stats2 = cache.stats()
-    
+
     # Results must be identical
     np.testing.assert_allclose(result1["u_tr_1"].values, result2["u_tr_1"].values)
-    
+
     # Cache should have 1 hit, 1 miss
     assert stats2["hits"] == 1
     assert stats2["misses"] == 1
@@ -213,25 +219,29 @@ def test_transform_inputs_with_cache() -> None:
 def test_transform_inputs_performance() -> None:
     """transform_inputs must be fast (vectorized FFT convolution)."""
     import time
-    
+
     np.random.seed(42)
     n = 5000
     index = pd.date_range("2000-01-01", periods=n, freq="1h")
-    
+
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
     shape_factors = pd.DataFrame({"u": [2.0]}, index=[1])
     scale_factors = pd.DataFrame({"u": [1.0]}, index=[1])
     loc_factors = pd.DataFrame({"u": [0.0]}, index=[1])
-    
+
     # Warm up
-    _ = modpods.transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing)
-    
+    _ = modpods.transform_inputs(
+        shape_factors, scale_factors, loc_factors, index, forcing
+    )
+
     # Time it
     start = time.perf_counter()
     for _ in range(5):
-        _ = modpods.transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing)
+        _ = modpods.transform_inputs(
+            shape_factors, scale_factors, loc_factors, index, forcing
+        )
     elapsed = (time.perf_counter() - start) / 5
-    
+
     # Should complete in well under 1 second for 5000 samples
     # (Original loop implementation took ~4 seconds for 5000 samples)
     assert elapsed < 0.1, f"transform_inputs too slow: {elapsed:.3f}s for {n} samples"
@@ -242,30 +252,37 @@ def test_transform_inputs_multiple_transforms() -> None:
     np.random.seed(42)
     n = 200
     index = pd.date_range("2000-01-01", periods=n, freq="1h")
-    
+
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
-    
+
     # Two transforms with different parameters
     shape_factors = pd.DataFrame({"u": [2.0, 3.0]}, index=[1, 2])
     scale_factors = pd.DataFrame({"u": [1.0, 0.5]}, index=[1, 2])
     loc_factors = pd.DataFrame({"u": [0.0, 1.0]}, index=[1, 2])
-    
-    result = modpods.transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing)
-    
+
+    result = modpods.transform_inputs(
+        shape_factors, scale_factors, loc_factors, index, forcing
+    )
+
     assert "u_tr_1" in result.columns
     assert "u_tr_2" in result.columns
     assert len(result) == n
     assert not result.isnull().values.any()
-    
+
     # Verify both transforms
     from scipy import signal, stats
+
     forcing_values = forcing["u"].to_numpy()
-    
-    for transform_idx, (shape, scale, loc) in enumerate([(2.0, 1.0, 0.0), (3.0, 0.5, 1.0)], 1):
+
+    for transform_idx, (shape, scale, loc) in enumerate(
+        [(2.0, 1.0, 0.0), (3.0, 0.5, 1.0)], 1
+    ):
         shape_time = np.arange(0, n, 1)
         gamma_kernel = stats.gamma.pdf(shape_time, shape, scale=scale, loc=loc)
         expected = signal.fftconvolve(forcing_values, gamma_kernel, mode="full")[:n]
-        np.testing.assert_allclose(result[f"u_tr_{transform_idx}"].values, expected, rtol=1e-10)
+        np.testing.assert_allclose(
+            result[f"u_tr_{transform_idx}"].values, expected, rtol=1e-10
+        )
 
 
 def test_transform_inputs_multiple_inputs() -> None:
@@ -273,18 +290,23 @@ def test_transform_inputs_multiple_inputs() -> None:
     np.random.seed(42)
     n = 200
     index = pd.date_range("2000-01-01", periods=n, freq="1h")
-    
-    forcing = pd.DataFrame({
-        "u1": np.cumsum(np.random.randn(n) * 0.1),
-        "u2": np.cumsum(np.random.randn(n) * 0.1),
-    }, index=index)
-    
+
+    forcing = pd.DataFrame(
+        {
+            "u1": np.cumsum(np.random.randn(n) * 0.1),
+            "u2": np.cumsum(np.random.randn(n) * 0.1),
+        },
+        index=index,
+    )
+
     shape_factors = pd.DataFrame({"u1": [2.0], "u2": [3.0]}, index=[1])
     scale_factors = pd.DataFrame({"u1": [1.0], "u2": [0.5]}, index=[1])
     loc_factors = pd.DataFrame({"u1": [0.0], "u2": [1.0]}, index=[1])
-    
-    result = modpods.transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing)
-    
+
+    result = modpods.transform_inputs(
+        shape_factors, scale_factors, loc_factors, index, forcing
+    )
+
     assert "u1_tr_1" in result.columns
     assert "u2_tr_1" in result.columns
     assert len(result) == n
@@ -296,26 +318,29 @@ def test_transform_inputs_cache_quantization() -> None:
     np.random.seed(42)
     n = 100
     index = pd.date_range("2000-01-01", periods=n, freq="1h")
-    
+
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
-    
+
     # Two parameter sets that quantize to the same key (1e-6 quantization)
     shape_factors1 = pd.DataFrame({"u": [2.0000001]}, index=[1])
     scale_factors1 = pd.DataFrame({"u": [1.0000001]}, index=[1])
     loc_factors1 = pd.DataFrame({"u": [0.0000001]}, index=[1])
-    
+
     shape_factors2 = pd.DataFrame({"u": [2.0000002]}, index=[1])
     scale_factors2 = pd.DataFrame({"u": [1.0000002]}, index=[1])
     loc_factors2 = pd.DataFrame({"u": [0.0000002]}, index=[1])
-    
+
     cache = modpods.TransformCache(quantization=1e-6)
-    
-    result1 = modpods.transform_inputs(shape_factors1, scale_factors1, loc_factors1, index, forcing, cache=cache)
-    stats1 = cache.stats()
-    
-    result2 = modpods.transform_inputs(shape_factors2, scale_factors2, loc_factors2, index, forcing, cache=cache)
+
+    result1 = modpods.transform_inputs(
+        shape_factors1, scale_factors1, loc_factors1, index, forcing, cache=cache
+    )
+
+    result2 = modpods.transform_inputs(
+        shape_factors2, scale_factors2, loc_factors2, index, forcing, cache=cache
+    )
     stats2 = cache.stats()
-    
+
     # Should be a cache hit due to quantization
     assert stats2["hits"] == 1
     np.testing.assert_allclose(result1["u_tr_1"].values, result2["u_tr_1"].values)
