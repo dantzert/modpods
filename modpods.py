@@ -1,5 +1,6 @@
 import re
 import warnings
+from collections import OrderedDict
 from typing import Any
 
 import control
@@ -8,6 +9,7 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import pysindy as ps
+import scipy.signal as signal
 import scipy.stats as stats
 from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
 from scipy.optimize import minimize
@@ -61,6 +63,108 @@ def _propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=1
     return min_x.reshape(-1, 1)
 
 
+# =============================================================================
+# Transform Cache - memoizes single-input gamma transforms to avoid recomputation
+# =============================================================================
+
+
+class TransformCache:
+    """LRU cache for gamma-transformed time series.
+
+    Caches results of convolving a forcing series with a gamma PDF kernel.
+    Keys are quantized (input_name, shape, scale, loc) tuples so near-identical
+    parameter sets reuse cached results.
+    """
+
+    def __init__(self, max_entries: int = 2000, quantization: float = 1e-6):
+        self._cache: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+        self.max_entries = max_entries
+        self.quantization = quantization
+        self.hits = 0
+        self.misses = 0
+
+    def _quantize(self, value: float) -> float:
+        """Quantize a float to reduce near-duplicate keys."""
+        if self.quantization <= 0:
+            return value
+        return round(value / self.quantization) * self.quantization
+
+    def _make_key(
+        self, input_name: str, n: int, shape: float, scale: float, loc: float
+    ) -> tuple:
+        """Create a hashable cache key from input name and gamma params."""
+        return (
+            input_name,
+            n,
+            self._quantize(shape),
+            self._quantize(scale),
+            self._quantize(loc),
+        )
+
+    def get(
+        self,
+        input_name: str,
+        forcing_values: np.ndarray,
+        shape: float,
+        scale: float,
+        loc: float,
+    ) -> np.ndarray:
+        """Get cached transform or compute and cache it.
+
+        Returns a COPY of the cached array to prevent mutation issues.
+        """
+        n = len(forcing_values)
+        key = self._make_key(input_name, n, shape, scale, loc)
+
+        if key in self._cache:
+            self.hits += 1
+            # Move to end (most recently used)
+            self._cache.move_to_end(key)
+            return self._cache[key].copy()
+
+        # Cache miss - compute the transform using FFT convolution
+        self.misses += 1
+        shape_time = np.arange(0, n, 1)
+        gamma_kernel = stats.gamma.pdf(shape_time, shape, scale=scale, loc=loc)
+        result = signal.fftconvolve(forcing_values, gamma_kernel, mode="full")[:n]
+
+        # Store in cache
+        self._cache[key] = result
+
+        # Evict oldest if over capacity
+        if len(self._cache) > self.max_entries:
+            self._cache.popitem(last=False)
+
+        return result.copy()  # type: ignore[no-any-return]
+
+    def clear(self):
+        """Clear the cache and reset counters."""
+        self._cache.clear()
+        self.hits = 0
+        self.misses = 0
+
+    def stats(self) -> dict:
+        """Return cache statistics."""
+        total = self.hits + self.misses
+        hit_rate = self.hits / total if total > 0 else 0.0
+        return {
+            "hits": self.hits,
+            "misses": self.misses,
+            "total": total,
+            "hit_rate": hit_rate,
+            "size": len(self._cache),
+            "max_entries": self.max_entries,
+        }
+
+    def __repr__(self):
+        s = self.stats()
+        return f"TransformCache(hits={s['hits']}, misses={s['misses']}, hit_rate={s['hit_rate']:.2%}, size={s['size']})"
+
+
+# Global cache instance used throughout the module
+_transform_cache = TransformCache(max_entries=2000, quantization=1e-6)
+
+
 # delay model builds differential equations relating the dependent variables to transformations of all the variables
 # if there are no independent variables, then dependent_columns should be a list of all the columns in the dataframe
 # and independent_columns should be an empty list
@@ -110,6 +214,9 @@ def delay_io_train(
     response = system_data[dependent_columns].copy(deep=True)
 
     results = dict()  # to store the optimized models for each number of transformations
+    prev_model = (
+        None  # will hold the initial model for the current number of transforms
+    )
 
     if transform_dependent:
         shape_factors = pd.DataFrame(
@@ -256,6 +363,7 @@ def delay_io_train(
                         transform_dependent,
                         transform_only,
                         forcing_coef_constraints,
+                        transform_cache=_transform_cache,
                     )
 
                     r2 = result["error_metrics"]["r2"]
@@ -351,6 +459,7 @@ def delay_io_train(
                 transform_dependent=transform_dependent,
                 transform_only=transform_only,
                 forcing_coef_constraints=forcing_coef_constraints,
+                transform_cache=_transform_cache,
             )
 
         else:  # Default compass search optimization
@@ -359,6 +468,7 @@ def delay_io_train(
                     f"Using compass search optimization for {num_transforms} transforms..."
                 )
 
+            # Compute initial model regardless of verbosity
             prev_model = SINDY_delays_MI(
                 shape_factors,
                 scale_factors,
@@ -375,6 +485,7 @@ def delay_io_train(
                 transform_dependent=transform_dependent,
                 transform_only=transform_only,
                 forcing_coef_constraints=forcing_coef_constraints,
+                transform_cache=_transform_cache,
             )
 
         print("\nInitial model:\n")
@@ -449,6 +560,7 @@ def delay_io_train(
                     transform_dependent=transform_dependent,
                     transform_only=transform_only,
                     forcing_coef_constraints=forcing_coef_constraints,
+                    transform_cache=_transform_cache,
                 )
 
             later_locs = loc_factors.copy(deep=True)
@@ -472,6 +584,7 @@ def delay_io_train(
                 transform_dependent=transform_dependent,
                 transform_only=transform_only,
                 forcing_coef_constraints=forcing_coef_constraints,
+                transform_cache=_transform_cache,
             )
 
             shape_up = shape_factors.copy(deep=True)
@@ -495,6 +608,7 @@ def delay_io_train(
                 transform_dependent=transform_dependent,
                 transform_only=transform_only,
                 forcing_coef_constraints=forcing_coef_constraints,
+                transform_cache=_transform_cache,
             )
 
             shape_down = shape_factors.copy(deep=True)
@@ -523,6 +637,7 @@ def delay_io_train(
                     transform_dependent=transform_dependent,
                     transform_only=transform_only,
                     forcing_coef_constraints=forcing_coef_constraints,
+                    transform_cache=_transform_cache,
                 )
 
             scale_up = scale_factors.copy(deep=True)
@@ -546,6 +661,7 @@ def delay_io_train(
                 transform_dependent=transform_dependent,
                 transform_only=transform_only,
                 forcing_coef_constraints=forcing_coef_constraints,
+                transform_cache=_transform_cache,
             )
 
             scale_down = scale_factors.copy(deep=True)
@@ -569,6 +685,7 @@ def delay_io_train(
                 transform_dependent=transform_dependent,
                 transform_only=transform_only,
                 forcing_coef_constraints=forcing_coef_constraints,
+                transform_cache=_transform_cache,
             )
 
             # rounder
@@ -598,6 +715,7 @@ def delay_io_train(
                 transform_dependent=transform_dependent,
                 transform_only=transform_only,
                 forcing_coef_constraints=forcing_coef_constraints,
+                transform_cache=_transform_cache,
             )
 
             # sharper
@@ -632,6 +750,7 @@ def delay_io_train(
                     transform_dependent=transform_dependent,
                     transform_only=transform_only,
                     forcing_coef_constraints=forcing_coef_constraints,
+                    transform_cache=_transform_cache,
                 )
 
             scores = [
@@ -765,6 +884,7 @@ def delay_io_train(
             transform_dependent=transform_dependent,
             transform_only=transform_only,
             forcing_coef_constraints=forcing_coef_constraints,
+            transform_cache=_transform_cache,
         )
         print("\nFinal model:\n")
         try:
@@ -788,6 +908,7 @@ def delay_io_train(
             "windup_timesteps": windup_timesteps,
             "dependent_columns": dependent_columns,
             "independent_columns": independent_columns,
+            "transform_cache": _transform_cache,
         }
 
         # check if the benefit from adding the last transformation is less than the early stopping threshold
@@ -823,6 +944,7 @@ def SINDY_delays_MI(
     transform_dependent=False,
     transform_only=None,
     forcing_coef_constraints=None,
+    transform_cache=None,
 ):
     if transform_only is not None:
         transformed_forcing = transform_inputs(
@@ -831,6 +953,7 @@ def SINDY_delays_MI(
             loc_factors,
             index,
             forcing.loc[:, transform_only],
+            cache=transform_cache,
         )
         untransformed_forcing = forcing.drop(columns=transform_only)
         # combine forcing and transformed forcing column-wise
@@ -839,7 +962,12 @@ def SINDY_delays_MI(
         )
     else:
         forcing = transform_inputs(
-            shape_factors, scale_factors, loc_factors, index, forcing
+            shape_factors,
+            scale_factors,
+            loc_factors,
+            index,
+            forcing,
+            cache=transform_cache,
         )
 
     feature_names = response.columns.tolist() + forcing.columns.tolist()
@@ -1350,58 +1478,58 @@ def SINDY_delays_MI(
     # return [r2, model, mae, rmse, index, simulated , response , forcing]
 
 
-def transform_inputs(shape_factors, scale_factors, loc_factors, index, forcing):
+def transform_inputs(
+    shape_factors, scale_factors, loc_factors, index, forcing, *, cache=None
+):
+    """Vectorized implementation of transform_inputs for greater speed.
+
+    Applies gamma PDF transformations to forcing inputs using FFT-based convolution
+    instead of element-wise iteration. Optional LRU cache avoids recomputation for
+    near-identical parameters during optimization.
+
+    Args:
+        shape_factors: DataFrame of gamma shape parameters
+        scale_factors: DataFrame of gamma scale parameters
+        loc_factors: DataFrame of gamma location parameters
+        index: Time index
+        forcing: DataFrame of forcing inputs
+        cache: Optional TransformCache instance for memoization (default None)
+    """
     # original forcing columns -> columns of forcing that don't have _tr_ in their name
     orig_forcing_columns = [col for col in forcing.columns if "_tr_" not in col]
-    # print("original forcing columns = ", orig_forcing_columns)
-    # how many rows of shape_factors do not contain NaNs?
-    num_transforms = shape_factors.count().iloc[0]
-    # print("num_transforms = ", num_transforms)
-    # print("forcing at beginning of transform inputs")
-    # print(forcing)
-    shape_time = np.arange(0, len(index), 1)
-    input_values_cache = {
-        col: np.array(forcing[col].values, dtype=float) for col in orig_forcing_columns
-    }
-    for input in orig_forcing_columns:  # which input are we talking about?
-        for transform_idx in range(
-            1, num_transforms + 1
-        ):  # which transformation of that input are we talking about?
-            col_name = str(str(input) + "_tr_" + str(transform_idx))
-            # if the column doesn't exist, create it
-            if col_name not in forcing.columns:
-                forcing.loc[:, col_name] = 0.0
-            # now, fill it with zeros (need to reset between different transformation shape factors)
-            # accumulate into a numpy array first (compatible with pandas Copy-on-Write semantics)
-            col_data = np.zeros(len(index))
-            for idx in range(0, len(index)):  # timestep
-                if (
-                    abs(input_values_cache[input][idx]) > 10**-6
-                ):  # when nonzero forcing occurs
-                    if idx == int(0):
-                        col_data[idx:] += input_values_cache[input][
-                            idx
-                        ] * stats.gamma.pdf(
-                            shape_time,
-                            shape_factors[input][transform_idx],
-                            scale=scale_factors[input][transform_idx],
-                            loc=loc_factors[input][transform_idx],
-                        )
-                    else:
-                        col_data[idx:] += input_values_cache[input][
-                            idx
-                        ] * stats.gamma.pdf(
-                            shape_time[:-idx],
-                            shape_factors[input][transform_idx],
-                            scale=scale_factors[input][transform_idx],
-                            loc=loc_factors[input][transform_idx],
-                        )
-            forcing.loc[:, col_name] = col_data
 
-    # print("forcing at end of transform inputs")
-    # print(forcing)
+    # how many rows of shape_factors do not contain NaNs?
+    num_transforms = int(shape_factors.count().iloc[0])
+
+    n = len(index)
+
+    for input_col in orig_forcing_columns:
+        forcing_values = forcing[input_col].to_numpy(dtype=float)
+
+        for transform_idx in range(1, num_transforms + 1):
+            col_name = f"{input_col}_tr_{transform_idx}"
+
+            # Get gamma parameters
+            shape = float(shape_factors[input_col][transform_idx])
+            scale = float(scale_factors[input_col][transform_idx])
+            loc = float(loc_factors[input_col][transform_idx])
+
+            if cache is not None:
+                # Use cached transform
+                result = cache.get(input_col, forcing_values, shape, scale, loc)
+            else:
+                # Compute directly using FFT convolution (faster than np.convolve for large arrays)
+                shape_time = np.arange(0, n, 1)
+                gamma_kernel = stats.gamma.pdf(shape_time, shape, scale=scale, loc=loc)
+                result = signal.fftconvolve(forcing_values, gamma_kernel, mode="full")[
+                    :n
+                ]
+
+            forcing.loc[:, col_name] = result
+
     # assert there are no NaNs in the forcing
-    assert not forcing.isnull().values.any()
+    if forcing.isnull().values.any():
+        raise ValueError("Transform inputs produced NaN values")
     return forcing
 
 
@@ -1426,12 +1554,15 @@ def delay_io_predict(
         deep=True
     )
 
+    # Use cache from model if available, otherwise create a new one
+    transform_cache = delay_io_model[num_transforms].get("transform_cache", None)
     transformed_forcing = transform_inputs(
         shape_factors=delay_io_model[num_transforms]["shape_factors"],
         scale_factors=delay_io_model[num_transforms]["scale_factors"],
         loc_factors=delay_io_model[num_transforms]["loc_factors"],
         index=system_data.index,
         forcing=forcing,
+        cache=transform_cache,
     )
     try:
         prediction = delay_io_model[num_transforms]["final_model"]["model"].simulate(
@@ -2448,6 +2579,9 @@ def find_topology(
         axis="columns",
     )
 
+    # Create a shared cache for all transform_inputs calls in this function
+    _topology_cache = TransformCache()
+
     # Store results for each column pair
     best_params = pd.DataFrame(
         index=dependent_columns, columns=system_data.columns, dtype=object
@@ -2511,6 +2645,7 @@ def find_topology(
                         loc_factors,
                         system_data.index,
                         forcing_orig,
+                        cache=_topology_cache,
                     )
                     transformed_inputs = pd.concat(
                         (transformed_inputs, transformed[[forcing_col + "_tr_1"]]),
@@ -2598,6 +2733,7 @@ def find_topology(
                 loc_factors,
                 system_data.index,
                 forcing_orig,
+                cache=_topology_cache,
             )
             np.array(transformed[forcing_col + "_tr_1"].values)
             feature_names = [dep_col, forcing_col]
@@ -2683,6 +2819,7 @@ def find_topology(
                         loc_factors_1,
                         system_data.index,
                         system_data[[forcing_col]],
+                        cache=_topology_cache,
                     )
                     shape_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
                     shape_factors_2.loc[1, sel_input] = best_params.loc[
@@ -2702,6 +2839,7 @@ def find_topology(
                         loc_factors_2,
                         system_data.index,
                         system_data[[sel_input]],
+                        cache=_topology_cache,
                     )
                     together = pd.DataFrame(index=system_data.index)
                     together[forcing_col] = transformed_1[str(forcing_col + "_tr_1")]
@@ -2800,6 +2938,7 @@ def find_topology(
                     loc_factors,
                     system_data.index,
                     forcing_orig,
+                    cache=_topology_cache,
                 )
                 transformed_inputs = pd.concat(
                     (transformed_inputs, transformed[[input_var + "_tr_1"]]),
@@ -2874,6 +3013,7 @@ def find_topology(
                 loc_factors,
                 system_data.index,
                 forcing_orig,
+                cache=_topology_cache,
             )
             transformed_inputs = pd.concat(
                 (transformed_inputs, transformed[[input_var + "_tr_1"]]), axis="columns"

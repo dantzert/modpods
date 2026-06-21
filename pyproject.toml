@@ -1,7 +1,7 @@
 [tool.black]
 line-length = 88
 target-version = ["py310", "py311", "py312"]
-exclude = "modpods_backup\\.py"
+exclude = "\\.venv|modpods_backup\\.py"
 
 [tool.ruff]
 line-length = 88
@@ -13,6 +13,7 @@ exclude = [
     "*.qeb~",
     "*.wa0~",
     ".vs",
+    ".venv",
 ]
 
 [tool.ruff.lint]
@@ -27,6 +28,7 @@ check_untyped_defs = true
 explicit_package_bases = true
 exclude = [
     "modpods_backup\\.py",
+    ".venv",
 ]
 
 [tool.pytest.ini_options]
