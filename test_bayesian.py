@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 
 import modpods
-import modpods_bayesian
 
 # Create a simple test case
 np.random.seed(42)
@@ -24,53 +23,46 @@ output_signal = (
 test_data = pd.DataFrame({"input": input_signal, "output": output_signal})
 
 # Test with minimal parameters
-print("Testing Bayesian optimization with minimal example...")
+print("Testing all optimization methods with minimal example...")
 try:
-    # Test compass search first (original function)
-    print("\n=== Testing Original Compass Search ===")
-    model_compass = modpods.delay_io_train(
-        test_data,
-        ["output"],
-        ["input"],
-        windup_timesteps=10,
-        init_transforms=1,
-        max_transforms=1,
-        max_iter=5,
-        verbose=True,
-        poly_order=1,
-    )
-    print("Compass search completed successfully!")
-    print(f"R² = {model_compass[1]['final_model']['error_metrics']['r2']:.6f}")
+    methods = [
+        ("Bayesian", "bayesian", 15),
+        ("Differential Evolution", "differential_evolution", 20),
+        ("Dual Annealing", "dual_annealing", 20),
+    ]
 
-    # Test Bayesian optimization
-    print("\n=== Testing Bayesian Optimization ===")
-    model_bayesian = modpods_bayesian.delay_io_train_bayesian(
-        test_data,
-        ["output"],
-        ["input"],
-        windup_timesteps=10,
-        init_transforms=1,
-        max_transforms=1,
-        max_iter=15,
-        verbose=True,
-        poly_order=1,
-    )
-    print("Bayesian optimization completed successfully!")
-    print(f"R² = {model_bayesian[1]['final_model']['error_metrics']['r2']:.6f}")
+    models = {}
+    for name, method, max_iter in methods:
+        print(f"\n=== Testing {name} ===")
+        model = modpods.delay_io_train(
+            test_data,
+            ["output"],
+            ["input"],
+            windup_timesteps=10,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=max_iter,
+            verbose=True,
+            poly_order=1,
+            optimization_method=method,
+        )
+        models[name] = model
+        print(f"{name} completed successfully!")
+        print(f"R² = {model[1]['final_model']['error_metrics']['r2']:.6f}")
 
     print("\n=== Comparison ===")
-    print(
-        f"Compass search R²: {model_compass[1]['final_model']['error_metrics']['r2']:.6f}"
-    )
-    print(
-        f"Bayesian opt R²:   {model_bayesian[1]['final_model']['error_metrics']['r2']:.6f}"
-    )
+    for name, model in models.items():
+        r2 = model[1]['final_model']['error_metrics']['r2']
+        print(f"{name:25s} R²: {r2:.6f}")
 
-    improvement = (
-        model_bayesian[1]["final_model"]["error_metrics"]["r2"]
-        - model_compass[1]["final_model"]["error_metrics"]["r2"]
-    )
-    print(f"Improvement:       {improvement:.6f}")
+    # Compare best vs worst
+    r2_values = {name: model[1]["final_model"]["error_metrics"]["r2"] for name, model in models.items()}
+    best_name = max(r2_values, key=r2_values.get)
+    worst_name = min(r2_values, key=r2_values.get)
+    improvement = r2_values[best_name] - r2_values[worst_name]
+    print(f"Best method: {best_name} (R² = {r2_values[best_name]:.6f})")
+    print(f"Worst method: {worst_name} (R² = {r2_values[worst_name]:.6f})")
+    print(f"Absolute improvement: {improvement:.6f}")
 
 except Exception as e:
     print(f"Error: {e}")

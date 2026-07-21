@@ -22,61 +22,43 @@ output_signal = (
 # Create DataFrame
 test_data = pd.DataFrame({"input": input_signal, "output": output_signal})
 
-# Test integrated Bayesian optimization
-print("Testing integrated Bayesian optimization in delay_io_train...")
+# Test all optimization methods
+print("Testing all optimization methods in delay_io_train...")
 try:
-    # Test compass search first (default)
-    print("\n=== Testing Compass Search ===")
-    model_compass = modpods.delay_io_train(
-        test_data,
-        ["output"],
-        ["input"],
-        windup_timesteps=10,
-        init_transforms=1,
-        max_transforms=1,
-        max_iter=5,
-        verbose=True,
-        poly_order=1,
-        optimization_method="compass_search",
-    )
-    print("Compass search completed successfully!")
-    print(f"R² = {model_compass[1]['final_model']['error_metrics']['r2']:.6f}")
+    methods = [
+        ("Bayesian", "bayesian", 15),
+        ("Differential Evolution", "differential_evolution", 20),
+        ("Dual Annealing", "dual_annealing", 20),
+    ]
 
-    # Test integrated Bayesian optimization
-    print("\n=== Testing Integrated Bayesian Optimization ===")
-    model_bayesian = modpods.delay_io_train(
-        test_data,
-        ["output"],
-        ["input"],
-        windup_timesteps=10,
-        init_transforms=1,
-        max_transforms=1,
-        max_iter=15,
-        verbose=True,
-        poly_order=1,
-        optimization_method="bayesian",
-    )
-    print("Bayesian optimization completed successfully!")
-    print(f"R² = {model_bayesian[1]['final_model']['error_metrics']['r2']:.6f}")
+    models = {}
+    for name, method, max_iter in methods:
+        print(f"\n=== Testing {name} ===")
+        model = modpods.delay_io_train(
+            test_data,
+            ["output"],
+            ["input"],
+            windup_timesteps=10,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=max_iter,
+            verbose=True,
+            poly_order=1,
+            optimization_method=method,
+        )
+        models[name] = model
+        print(f"{name} completed successfully!")
+        print(f"R² = {model[1]['final_model']['error_metrics']['r2']:.6f}")
 
     print("\n=== Comparison ===")
-    print(
-        f"Compass search R²: {model_compass[1]['final_model']['error_metrics']['r2']:.6f}"
-    )
-    print(
-        f"Bayesian opt R²:   {model_bayesian[1]['final_model']['error_metrics']['r2']:.6f}"
-    )
+    for name, model in models.items():
+        print(f"{name:25s} R²: {model[1]['final_model']['error_metrics']['r2']:.6f}")
 
-    improvement = (
-        model_bayesian[1]["final_model"]["error_metrics"]["r2"]
-        - model_compass[1]["final_model"]["error_metrics"]["r2"]
-    )
-    print(f"Improvement:       {improvement:.6f}")
-
-    print("\n=== SUCCESS: Bayesian optimization integrated successfully! ===")
+    print("\n=== SUCCESS: All optimization methods integrated successfully! ===")
 
 except Exception as e:
     print(f"Error: {e}")
     import traceback
+    traceback.print_exc()
 
     traceback.print_exc()
