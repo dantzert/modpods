@@ -15,10 +15,12 @@ from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR
 from scipy.optimize import minimize
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern
+
 # Suppress the specific AxesWarning from pysindy after import
 warnings.filterwarnings(
     "ignore", message=".*axes labeled for array with.*", module="pysindy"
 )
+
 
 # Bayesian optimization helper functions
 def _expected_improvement(X, X_sample, Y_sample, gpr, xi=0.01):
@@ -3537,13 +3539,14 @@ def infer_causative_topology(
 # === Topology inference helper functions ===
 # These implement the SINDy-based topology inference
 
+
 def _compute_distances(sensor_locations, columns):
     """Compute Euclidean distances between all pairs of sensors.
-    
+
     Args:
         sensor_locations: dict mapping column names to {"lat": float, "lon": float}
         columns: list of column names to compute distances for
-        
+
     Returns:
         pd.DataFrame with distances, index and columns are sensor names
     """
@@ -3556,44 +3559,55 @@ def _compute_distances(sensor_locations, columns):
                 lat1, lon1 = sensor_locations[c1]["lat"], sensor_locations[c1]["lon"]
                 lat2, lon2 = sensor_locations[c2]["lat"], sensor_locations[c2]["lon"]
                 # Euclidean distance
-                distances.loc[c1, c2] = np.sqrt((lat1 - lat2)**2 + (lon1 - lon2)**2)
+                distances.loc[c1, c2] = np.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2)
             else:
                 # If location not available, set to infinity (will be evaluated last)
                 distances.loc[c1, c2] = np.inf
     return distances
 
+
 def _get_n_nearest_neighbors(dep_col, distances, n, exclude_cols=None):
     """Get the n nearest neighbors for a dependent column.
-    
+
     Args:
         dep_col: the dependent column to find neighbors for
         distances: DataFrame of distances between sensors
         n: number of neighbors to return
         exclude_cols: columns to exclude from consideration (e.g., independent columns)
-        
+
     Returns:
         list of column names of the n nearest neighbors
     """
     if exclude_cols is None:
         exclude_cols = []
-    
+
     # Get distances from dep_col to all other columns
     dists = distances.loc[dep_col].copy()
-    
+
     # Exclude self and any specified columns
-    dists = dists.drop(labels=[dep_col] + [c for c in exclude_cols if c in dists.index], errors='ignore')
-    
+    dists = dists.drop(
+        labels=[dep_col] + [c for c in exclude_cols if c in dists.index],
+        errors="ignore",
+    )
+
     # Sort by distance and return the n nearest
     sorted_dists = dists.sort_values()
     return list(sorted_dists.head(n).index)
 
-def find_topology_no_geo(system_data, dependent_columns, 
-                  independent_columns, max_iterations=250,
-                  graph_type='Weak-Conn', verbose=False,
-                  sensor_locations=None, init_neighbors=3):
+
+def find_topology_no_geo(
+    system_data,
+    dependent_columns,
+    independent_columns,
+    max_iterations=250,
+    graph_type="Weak-Conn",
+    verbose=False,
+    sensor_locations=None,
+    init_neighbors=3,
+):
     """
     Infer network topology from time series data using SINDy-based optimization.
-    
+
     Args:
         system_data: pd.DataFrame with time series data, columns are variables
         dependent_columns: list of column names that are dependent variables
@@ -3606,11 +3620,11 @@ def find_topology_no_geo(system_data, dependent_columns,
             nearby sensors as potential forcings. Format: {"station_A": {"lat": 41.5, "lon": -74.5}, ...}
         init_neighbors: initial number of nearest neighbors to evaluate when sensor_locations
             is provided (default: 3). Ignored if sensor_locations is None.
-            
+
     Returns:
         dict with keys: "edges", "best_params", "r2_values", "lead_lag"
     """
-    
+
     # If sensor_locations provided, use the geo-filtering implementation
     if sensor_locations is not None:
         return _find_topology_with_geo(
@@ -3621,16 +3635,16 @@ def find_topology_no_geo(system_data, dependent_columns,
             max_iterations=max_iterations,
             graph_type=graph_type,
             verbose=verbose,
-            init_neighbors=init_neighbors
+            init_neighbors=init_neighbors,
         )
-    
+
     # only print 3 places past the decimal for floats. don't use scientific notation. if less than 0.001, print as <0.001
-    pd.options.display.float_format = '{:.3f}'.format
-    
+    pd.options.display.float_format = "{:.3f}".format
+
     # Helper function to find the lag with strongest cross-correlation
     def cross_correlation_lag(x, y, max_lag):
         """Find the lag with strongest cross-correlation between x and y.
-        
+
         Returns:
             best_lag: Positive lag means x leads y (x happens before y)
                       Negative lag means y leads x (y happens before x)
@@ -3640,10 +3654,10 @@ def find_topology_no_geo(system_data, dependent_columns,
         for lag in range(-max_lag, max_lag + 1):
             if lag < 0:
                 xs = x.iloc[-lag:]
-                ys = y.iloc[:len(xs)]
+                ys = y.iloc[: len(xs)]
             elif lag > 0:
                 ys = y.iloc[lag:]
-                xs = x.iloc[:len(ys)]
+                xs = x.iloc[: len(ys)]
             else:
                 xs, ys = x, y
             if len(xs) < 5 or xs.std() == 0 or ys.std() == 0:
@@ -3657,38 +3671,61 @@ def find_topology_no_geo(system_data, dependent_columns,
 
     # drop columns from system_data which aren't in dependent_columns or independent_columns
     # this ensures we only analyze the variables of interest
-    system_data = pd.concat((system_data[independent_columns], system_data[dependent_columns]), axis='columns')  
-
+    system_data = pd.concat(
+        (system_data[independent_columns], system_data[dependent_columns]),
+        axis="columns",
+    )
 
     # Store results for each column pair
-    best_params = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=object)
-    best_correlations = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
-    best_p_values = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
-    best_scores = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
-    r2_values = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
-    lead_lag = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
-    edges = pd.DataFrame(index=system_data.columns, columns=system_data.columns, dtype=int,data=0) # from column, to row. causation, not flow.
+    best_params = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=object
+    )
+    best_correlations = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=float
+    )
+    best_p_values = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=float
+    )
+    best_scores = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=float
+    )
+    r2_values = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=float
+    )
+    lead_lag = pd.DataFrame(
+        index=dependent_columns, columns=system_data.columns, dtype=float
+    )
+    edges = pd.DataFrame(
+        index=system_data.columns, columns=system_data.columns, dtype=int, data=0
+    )  # from column, to row. causation, not flow.
 
     for dep_col in dependent_columns:
         response = np.array(system_data[dep_col].values)
 
         # First, compute autocorrelation-only R² (no external forcing)
         # This tells us how much of the dynamics can be explained by the state alone
-        #print(f"\nComputing autocorrelation R² for {dep_col}")
+        # print(f"\nComputing autocorrelation R² for {dep_col}")
         model = ps.SINDy(
-                differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
-                feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
-                optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
-                ) 
+            differentiation_method=ps.FiniteDifference(order=10, drop_endpoints=True),
+            feature_library=ps.PolynomialLibrary(
+                degree=2, include_bias=False, include_interaction=False
+            ),
+            optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+        )
         # Fit with no control input (u=None), just the state
-        fit = model.fit(x = system_data.loc[:,dep_col], t = np.arange(0,len(system_data.index),1),
-                        feature_names=[dep_col])
-        auto_r2 = fit.score(x = system_data.loc[:,dep_col], t = np.arange(0,len(system_data.index),1))
+        fit = model.fit(
+            x=system_data.loc[:, dep_col],
+            t=np.arange(0, len(system_data.index), 1),
+            feature_names=[dep_col],
+        )
+        auto_r2 = fit.score(
+            x=system_data.loc[:, dep_col], t=np.arange(0, len(system_data.index), 1)
+        )
         r2_values.loc[dep_col, dep_col] = auto_r2
-        #print(f"  Autocorrelation R² for {dep_col}: {auto_r2:.4f}")
-        #try:
+        # print(f"  Autocorrelation R² for {dep_col}: {auto_r2:.4f}")
+        # try:
         #    model.print()
-        #except Exception as e:
+        # except Exception as e:
         #    print(e)
 
         for forcing_col in system_data.columns:
@@ -3702,20 +3739,26 @@ def find_topology_no_geo(system_data, dependent_columns,
                 system_data[forcing_col], system_data[dep_col], max_lag_check
             )
             if early_lag < -5:
-                print(f"\nSkipping {forcing_col} -> {dep_col}: forcing lags response (lag={early_lag})")
+                print(
+                    f"\nSkipping {forcing_col} -> {dep_col}: forcing lags response (lag={early_lag})"
+                )
                 lead_lag.loc[dep_col, forcing_col] = early_lag
                 r2_values.loc[dep_col, forcing_col] = 0.0
-                best_params.loc[dep_col, forcing_col] = (2.0, 2.0, 0.0)  # default params
+                best_params.loc[dep_col, forcing_col] = (
+                    2.0,
+                    2.0,
+                    0.0,
+                )  # default params
                 continue
             # END EXPERIMENTAL
 
             print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
             forcing_orig = system_data[[forcing_col]].copy(deep=True)
-            
+
             # Objective function to minimize (negative because we want to maximize correlation - p_value)
             def objective(params):
                 shape, scale, loc = params
-                
+
                 # Create transformation parameter DataFrames
                 shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
                 shape_factors.loc[1, forcing_col] = shape
@@ -3723,14 +3766,14 @@ def find_topology_no_geo(system_data, dependent_columns,
                 scale_factors.loc[1, forcing_col] = scale
                 loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
                 loc_factors.loc[1, forcing_col] = loc
-                
+
                 try:
                     # build the candidate input set
-                    #selected_inputs = list(edges.loc[output_variable, edges.loc[output_variable,:] == 1].index)
-                    #candidate_inputs = selected_inputs + [forcing_variable]
+                    # selected_inputs = list(edges.loc[output_variable, edges.loc[output_variable,:] == 1].index)
+                    # candidate_inputs = selected_inputs + [forcing_variable]
                     # build the transformed timeseries for these candidate inputs using the best transformation parameters found earlier
                     transformed_inputs = pd.DataFrame(index=system_data.index)
-                    '''
+                    """
                     for input_var in candidate_inputs:
                         shape, scale, loc = best_params.loc[output_variable, input_var]
                         shape_factors = pd.DataFrame(columns=[input_var], index=[1])
@@ -3743,27 +3786,47 @@ def find_topology_no_geo(system_data, dependent_columns,
                         transformed = transform_inputs(shape_factors, scale_factors, loc_factors, 
                                                         system_data.index, forcing_orig)
                         transformed_inputs = pd.concat((transformed_inputs, transformed[[input_var + "_tr_1"]]), axis='columns')
-                    '''
+                    """
                     # SINDY way
-                    transformed = transform_inputs(shape_factors, scale_factors, loc_factors,
-                                                    system_data.index, forcing_orig)
-                    transformed_inputs = pd.concat((transformed_inputs, transformed[[forcing_col + "_tr_1"]]), axis='columns')
+                    transformed = transform_inputs(
+                        shape_factors,
+                        scale_factors,
+                        loc_factors,
+                        system_data.index,
+                        forcing_orig,
+                    )
+                    transformed_inputs = pd.concat(
+                        (transformed_inputs, transformed[[forcing_col + "_tr_1"]]),
+                        axis="columns",
+                    )
                     # build a sindy model with these inputs
-                    #feature_names = [output_variable] + candidate_inputs
+                    # feature_names = [output_variable] + candidate_inputs
                     feature_names = [dep_col, str(forcing_col + "_tr_1")]
                     model = ps.SINDy(
-                            differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
-                            feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
-                            optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
-                            ) 
-                    #fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
+                        differentiation_method=ps.FiniteDifference(
+                            order=10, drop_endpoints=True
+                        ),
+                        feature_library=ps.PolynomialLibrary(
+                            degree=2, include_bias=False, include_interaction=False
+                        ),
+                        optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+                    )
+                    # fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
                     #        feature_names = feature_names)
-                    fit = model.fit(x = system_data.loc[:,dep_col] ,u = transformed_inputs, t = np.arange(0,len(system_data.index),1) , 
-                                feature_names=feature_names)
-                    r2 = fit.score(x = system_data.loc[:,dep_col] ,u = transformed_inputs, t = np.arange(0,len(system_data.index),1))
-                    #model.print(precision=5)
+                    fit = model.fit(
+                        x=system_data.loc[:, dep_col],
+                        u=transformed_inputs,
+                        t=np.arange(0, len(system_data.index), 1),
+                        feature_names=feature_names,
+                    )
+                    r2 = fit.score(
+                        x=system_data.loc[:, dep_col],
+                        u=transformed_inputs,
+                        t=np.arange(0, len(system_data.index), 1),
+                    )
+                    # model.print(precision=5)
 
-                    '''
+                    """
                     # polynomial regression way (might be faster than sindy, doesn't consider autocorrelation)
                     forcing = np.array(transformed[forcing_col + "_tr_1"].values)
                     
@@ -3774,8 +3837,8 @@ def find_topology_no_geo(system_data, dependent_columns,
 
                     # r^2 likely makes more sense as our criterion.
                     r2 = sklearn.metrics.r2_score(np.gradient(response), np.polyval(coeffs, forcing))
-                    '''
-           
+                    """
+
                     return -r2  # Negative because minimize
                 except Exception as e:
                     # if e contains any letters or numbers, print it for debugging
@@ -3784,27 +3847,32 @@ def find_topology_no_geo(system_data, dependent_columns,
                             print(f"Exception in objective function: {e}")
 
                     return 1e10  # Large penalty for invalid parameters
-            
+
             # Initial guess and bounds
             x0 = [2.0, 2.0, 0.0]
             bounds = [(1.0, 300.0), (1e-5, 300.0), (0, 300.0)]  # shape, scale, loc
-            
+
             # Optimize
-            #result = minimize(objective, x0, method='Nelder-Mead', 
+            # result = minimize(objective, x0, method='Nelder-Mead',
             #                    options={'maxiter': 5, 'disp': verbose})
             # optimize using a method that supports bounds
-            result = minimize(objective, x0, method='Nelder-Mead', bounds=bounds,
-                                options={'maxiter': max_iterations, 'disp': verbose, 'fatol':1e-4})
+            result = minimize(
+                objective,
+                x0,
+                method="Nelder-Mead",
+                bounds=bounds,
+                options={"maxiter": max_iterations, "disp": verbose, "fatol": 1e-4},
+            )
             # can use 'fatol' keyword argument to set convergence tolerance if speedup is desired.
             # I'm worried about losing accuracy with that though.
 
-            #result = minimize(objective, x0, method='trust-constr', bounds=bounds,
+            # result = minimize(objective, x0, method='trust-constr', bounds=bounds,
             #                    options={'maxiter': max_iterations, 'disp': verbose})
             # L-BFGS-B did not get nearly as good of results as Nelder-Mead in testing. maybe there are local minima in the objective.
-            # trust-constr was also worse than nelder-mead. 
+            # trust-constr was also worse than nelder-mead.
             # Store best results
             best_shape, best_scale, best_loc = result.x
-            
+
             # Compute final correlation and p_value with best parameters
             shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
             shape_factors.loc[1, forcing_col] = best_shape
@@ -3812,27 +3880,44 @@ def find_topology_no_geo(system_data, dependent_columns,
             scale_factors.loc[1, forcing_col] = best_scale
             loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
             loc_factors.loc[1, forcing_col] = best_loc
-            
-            transformed = transform_inputs(shape_factors, scale_factors, loc_factors,
-                                            system_data.index, forcing_orig)
+
+            transformed = transform_inputs(
+                shape_factors,
+                scale_factors,
+                loc_factors,
+                system_data.index,
+                forcing_orig,
+            )
             forcing = np.array(transformed[forcing_col + "_tr_1"].values)
             feature_names = [dep_col, forcing_col]
             model = ps.SINDy(
-                    differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
-                    feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
-                    optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
-                    ) 
-            fit = model.fit(x = system_data.loc[:,dep_col] ,t = np.arange(0,len(system_data.index),1) , u = transformed,
-                    feature_names = feature_names)
+                differentiation_method=ps.FiniteDifference(
+                    order=10, drop_endpoints=True
+                ),
+                feature_library=ps.PolynomialLibrary(
+                    degree=2, include_bias=False, include_interaction=False
+                ),
+                optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+            )
+            fit = model.fit(
+                x=system_data.loc[:, dep_col],
+                t=np.arange(0, len(system_data.index), 1),
+                u=transformed,
+                feature_names=feature_names,
+            )
             # evaluate the r2 score
-            r2 = fit.score(x = system_data.loc[:,dep_col] ,t = np.arange(0,len(system_data.index),1), u = transformed)
+            r2 = fit.score(
+                x=system_data.loc[:, dep_col],
+                t=np.arange(0, len(system_data.index), 1),
+                u=transformed,
+            )
             try:
                 model.print()
             except Exception as e:
                 print(e)
 
             r2_values.loc[dep_col, forcing_col] = r2
-            
+
             # Compute cross-correlation lag between forcing and response
             # Use max_lag of 1/4 of the data length, capped at 100
             max_lag = min(len(system_data) // 4, 100)
@@ -3840,13 +3925,14 @@ def find_topology_no_geo(system_data, dependent_columns,
                 system_data[forcing_col], system_data[dep_col], max_lag
             )
             lead_lag.loc[dep_col, forcing_col] = best_lag
-            
+
             print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
-            print(f"  BEST: shape={best_shape:.2f}, scale={best_scale:.2f}, loc={best_loc:.2f}")
+            print(
+                f"  BEST: shape={best_shape:.2f}, scale={best_scale:.2f}, loc={best_loc:.2f}"
+            )
             print(f"  Cross-correlation: lag={best_lag}, corr={best_xcorr:.4f}")
             # save the best parameters
             best_params.loc[dep_col, forcing_col] = (best_shape, best_scale, best_loc)
-
 
             print("R2 Values:")
             print(r2_values)
@@ -3863,12 +3949,12 @@ def find_topology_no_geo(system_data, dependent_columns,
     # r2_values = r2_values.mask(lead_lag < 0, 0)
     # print("Masked R2 Values (only forcing leads response):")
     # print(r2_values)
-    
+
     # OPTION B: Early skip is done above in the SISO loop - r2_values already has 0s for skipped pairs
-    
+
     # first identify the maximum r^2 value in each row. we know these will be included in the final topology
     # with an exception: if we form a cycle with these initial edges, remove the lowest r^2 edge in the cycle
-    #for dep_col in dependent_columns:
+    # for dep_col in dependent_columns:
     #    forcing_col = r2_values.loc[dep_col,:].idxmax()
     #    edges.loc[dep_col,forcing_col] = 1
     #    current_best_r2[dep_col] = r2_values.loc[dep_col,forcing_col]
@@ -3882,9 +3968,12 @@ def find_topology_no_geo(system_data, dependent_columns,
         forcing_col = idx[1]
         r2 = r2_values.loc[dep_col, forcing_col]
         # is this the maximum in its row and column? (strongest connection for giver and receiver)
-        if r2 == r2_values.loc[dep_col,:].max() and r2 == r2_values.loc[:,forcing_col].max():
-            edges.loc[dep_col,forcing_col] = 1
-            current_best_r2[dep_col] = r2_values.loc[dep_col,forcing_col]
+        if (
+            r2 == r2_values.loc[dep_col, :].max()
+            and r2 == r2_values.loc[:, forcing_col].max()
+        ):
+            edges.loc[dep_col, forcing_col] = 1
+            current_best_r2[dep_col] = r2_values.loc[dep_col, forcing_col]
             print(f"Initial edge added: {forcing_col} -> {dep_col} with r^2 = {r2:.4f}")
 
     # check for cycles and remove them iteratively
@@ -3892,19 +3981,21 @@ def find_topology_no_geo(system_data, dependent_columns,
     while True:
         try:
             # find_cycle returns a list of edges forming ONE cycle: [(u, v, dir), (v, w, dir), ...]
-            cycle_edges = list(nx.find_cycle(G, orientation='original'))
+            cycle_edges = list(nx.find_cycle(G, orientation="original"))
             if len(cycle_edges) == 0:
                 break
-                
-            print(f"Found cycle with {len(cycle_edges)} edges. Removing lowest r^2 edge.")
+
+            print(
+                f"Found cycle with {len(cycle_edges)} edges. Removing lowest r^2 edge."
+            )
             print(f"Cycle edges: {[(e[0], e[1]) for e in cycle_edges]}")
-            
+
             # find the edge with the lowest r^2 in the cycle
-            min_r2 = float('inf')
+            min_r2 = float("inf")
             edge_to_remove = None
             for edge in cycle_edges:
                 from_node = edge[0]  # source node
-                to_node = edge[1]    # target node
+                to_node = edge[1]  # target node
                 # In our adjacency matrix, edges.loc[row, col] = 1 means col -> row
                 # So we need r2_values.loc[to_node, from_node] for edge from_node -> to_node
                 r2 = r2_values.loc[to_node, from_node]
@@ -3912,15 +4003,17 @@ def find_topology_no_geo(system_data, dependent_columns,
                 if r2 < min_r2:
                     min_r2 = r2
                     edge_to_remove = (from_node, to_node)
-            
+
             # remove this edge from our edges DataFrame
             # edges.loc[row, col] = 1 means col -> row, so to remove from_node -> to_node:
             edges.loc[edge_to_remove[1], edge_to_remove[0]] = 0
-            print(f"  Removed edge {edge_to_remove[0]} -> {edge_to_remove[1]} with r^2 = {min_r2:.4f}")
-            
+            print(
+                f"  Removed edge {edge_to_remove[0]} -> {edge_to_remove[1]} with r^2 = {min_r2:.4f}"
+            )
+
             # rebuild the graph for next iteration
             G = nx.from_pandas_adjacency(edges, create_using=nx.DiGraph)
-            
+
         except nx.NetworkXNoCycle:
             # No cycle found, we're done
             print("No cycles detected in initial edges.")
@@ -3929,60 +4022,88 @@ def find_topology_no_geo(system_data, dependent_columns,
             print(f"Error during cycle detection: {e}")
             break
 
-
     # Helper function to update correlation-weighted R² scores for a single output variable
     def update_corr_weighted_r2(dep_col):
         """Update corr_wted_r2 for all potential inputs to dep_col based on current edges."""
-        selected_inputs = list(edges.loc[dep_col, edges.loc[dep_col,:] == 1].index)
+        selected_inputs = list(edges.loc[dep_col, edges.loc[dep_col, :] == 1].index)
         for forcing_col in system_data.columns:
             if forcing_col in selected_inputs or forcing_col == dep_col:
                 continue  # skip already selected inputs / autocorrelation
-            
+
             if len(selected_inputs) > 0:
                 correlations = []
                 for sel_input in selected_inputs:
                     # compute correlation between transformed versions of forcing_col and sel_input
                     shape_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
-                    shape_factors_1.loc[1, forcing_col] = best_params.loc[dep_col, forcing_col][0]
+                    shape_factors_1.loc[1, forcing_col] = best_params.loc[
+                        dep_col, forcing_col
+                    ][0]
                     scale_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
-                    scale_factors_1.loc[1, forcing_col] = best_params.loc[dep_col, forcing_col][1]
+                    scale_factors_1.loc[1, forcing_col] = best_params.loc[
+                        dep_col, forcing_col
+                    ][1]
                     loc_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
-                    loc_factors_1.loc[1, forcing_col] = best_params.loc[dep_col, forcing_col][2]
-                    transformed_1 = transform_inputs(shape_factors_1, scale_factors_1, loc_factors_1,
-                                                    system_data.index, system_data[[forcing_col]])
-                    
+                    loc_factors_1.loc[1, forcing_col] = best_params.loc[
+                        dep_col, forcing_col
+                    ][2]
+                    transformed_1 = transform_inputs(
+                        shape_factors_1,
+                        scale_factors_1,
+                        loc_factors_1,
+                        system_data.index,
+                        system_data[[forcing_col]],
+                    )
+
                     shape_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
-                    shape_factors_2.loc[1, sel_input] = best_params.loc[dep_col, sel_input][0]
+                    shape_factors_2.loc[1, sel_input] = best_params.loc[
+                        dep_col, sel_input
+                    ][0]
                     scale_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
-                    scale_factors_2.loc[1, sel_input] = best_params.loc[dep_col, sel_input][1]
+                    scale_factors_2.loc[1, sel_input] = best_params.loc[
+                        dep_col, sel_input
+                    ][1]
                     loc_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
-                    loc_factors_2.loc[1, sel_input] = best_params.loc[dep_col, sel_input][2]
-                    transformed_2 = transform_inputs(shape_factors_2, scale_factors_2, loc_factors_2,
-                                                    system_data.index, system_data[[sel_input]])
-                    
+                    loc_factors_2.loc[1, sel_input] = best_params.loc[
+                        dep_col, sel_input
+                    ][2]
+                    transformed_2 = transform_inputs(
+                        shape_factors_2,
+                        scale_factors_2,
+                        loc_factors_2,
+                        system_data.index,
+                        system_data[[sel_input]],
+                    )
+
                     together = pd.DataFrame(index=system_data.index)
                     together[forcing_col] = transformed_1[str(forcing_col + "_tr_1")]
                     together[sel_input] = transformed_2[str(sel_input + "_tr_1")]
-                    
+
                     # Check for zero variance before computing correlation
-                    if together[forcing_col].std() == 0 or together[sel_input].std() == 0:
+                    if (
+                        together[forcing_col].std() == 0
+                        or together[sel_input].std() == 0
+                    ):
                         corr = 2.0  # constant variable, exclude it
                     else:
-                        corr = np.corrcoef(together[forcing_col], together[sel_input])[0,1]
+                        corr = np.corrcoef(together[forcing_col], together[sel_input])[
+                            0, 1
+                        ]
                         if np.isnan(corr):
                             corr = 0.0
                     correlations.append(abs(corr))
                 max_corr = np.max(correlations)
             else:
                 max_corr = 0.0
-            
-            corr_wted_r2.loc[dep_col, forcing_col] = r2_values.loc[dep_col, forcing_col] *1 # ((1 - max_corr)) # was **10
+
+            corr_wted_r2.loc[dep_col, forcing_col] = (
+                r2_values.loc[dep_col, forcing_col] * 1
+            )  # ((1 - max_corr)) # was **10
 
     # Initialize correlation-weighted R² scores
     corr_wted_r2 = r2_values.copy(deep=True)
     for dep_col in dependent_columns:
         update_corr_weighted_r2(dep_col)
-    
+
     sorted_r2 = r2_values.stack().sort_values(ascending=False)
     if verbose:
         print("Sorted R2 values:")
@@ -3990,58 +4111,76 @@ def find_topology_no_geo(system_data, dependent_columns,
 
     # Use a while loop so we can re-sort after each edge addition
     # This ensures we always pick the best remaining candidate after correlation weights are updated
-    evaluated_pairs = set()  # Track pairs we've already evaluated to avoid infinite loops
-    
+    evaluated_pairs = (
+        set()
+    )  # Track pairs we've already evaluated to avoid infinite loops
+
     while True:
         sorted_corr_wted_r2 = corr_wted_r2.stack().sort_values(ascending=False)
         # Find the best candidate we haven't evaluated yet
         idx = None
         for candidate_idx in sorted_corr_wted_r2.index:
-            if candidate_idx not in evaluated_pairs and edges.loc[candidate_idx[0], candidate_idx[1]] != 1:
+            if (
+                candidate_idx not in evaluated_pairs
+                and edges.loc[candidate_idx[0], candidate_idx[1]] != 1
+            ):
                 idx = candidate_idx
                 break
-        
+
         if idx is None:
             print("No more candidate edges to evaluate.")
             break
-        
+
         evaluated_pairs.add(idx)
         output_variable = idx[0]
         forcing_variable = idx[1]
-        r2 = r2_values.loc[output_variable,forcing_variable]
-        
-        non_rain_edges = edges.loc[~edges.index.str.contains("rain"), ~edges.columns.str.contains("rain")]
-        
+        r2 = r2_values.loc[output_variable, forcing_variable]
+
+        non_rain_edges = edges.loc[
+            ~edges.index.str.contains("rain"), ~edges.columns.str.contains("rain")
+        ]
+
         # would adding this edge reduce the number of components in the graph? (not considering rain)
         non_rain_edges_if_added = non_rain_edges.copy(deep=True)
-        non_rain_edges_if_added.loc[output_variable,forcing_variable] = 1
+        non_rain_edges_if_added.loc[output_variable, forcing_variable] = 1
 
-        n_components_now = nx.number_weakly_connected_components(nx.from_pandas_adjacency(non_rain_edges,create_using=nx.DiGraph))
+        n_components_now = nx.number_weakly_connected_components(
+            nx.from_pandas_adjacency(non_rain_edges, create_using=nx.DiGraph)
+        )
         if n_components_now == 1:
             print("graph is weakly connected.")
             # done
             break
 
-        n_components = nx.number_weakly_connected_components(nx.from_pandas_adjacency(non_rain_edges_if_added,create_using=nx.DiGraph))
-        if "rain" not in forcing_variable.lower(): # always allow rain edges
+        n_components = nx.number_weakly_connected_components(
+            nx.from_pandas_adjacency(non_rain_edges_if_added, create_using=nx.DiGraph)
+        )
+        if "rain" not in forcing_variable.lower():  # always allow rain edges
             if n_components >= n_components_now:
-                print(f"Skipping addition of {forcing_variable} -> {output_variable} as it does not improve connectivity")
-                continue # skip this addition as it doesn't improve connectivity
+                print(
+                    f"Skipping addition of {forcing_variable} -> {output_variable} as it does not improve connectivity"
+                )
+                continue  # skip this addition as it doesn't improve connectivity
 
-        print(f"Evaluating edge {forcing_variable} -> {output_variable} with r2 = {r2:.4f}")
+        print(
+            f"Evaluating edge {forcing_variable} -> {output_variable} with r2 = {r2:.4f}"
+        )
         print("current best r2 values:")
         print(current_best_r2)
         # build the candidate input set
-        selected_inputs = list(edges.loc[output_variable, edges.loc[output_variable,:] == 1].index)
+        selected_inputs = list(
+            edges.loc[output_variable, edges.loc[output_variable, :] == 1].index
+        )
         candidate_inputs = selected_inputs + [forcing_variable]
+
         # optimize the transformations for all candidate inputs together, using siso best params as initial guesses
         def joint_objective(params, debug=False):
             # params is a flat list of shape, scale, loc for each candidate input
             transformed_inputs = pd.DataFrame(index=system_data.index)
             for i, input_var in enumerate(candidate_inputs):
-                shape = params[i*3]
-                scale = params[i*3 + 1]
-                loc = params[i*3 + 2]
+                shape = params[i * 3]
+                scale = params[i * 3 + 1]
+                loc = params[i * 3 + 2]
                 shape_factors = pd.DataFrame(columns=[input_var], index=[1])
                 shape_factors.loc[1, input_var] = shape
                 scale_factors = pd.DataFrame(columns=[input_var], index=[1])
@@ -4049,28 +4188,49 @@ def find_topology_no_geo(system_data, dependent_columns,
                 loc_factors = pd.DataFrame(columns=[input_var], index=[1])
                 loc_factors.loc[1, input_var] = loc
                 forcing_orig = system_data[[input_var]].copy()
-                transformed = transform_inputs(shape_factors, scale_factors, loc_factors, 
-                                                system_data.index, forcing_orig)
+                transformed = transform_inputs(
+                    shape_factors,
+                    scale_factors,
+                    loc_factors,
+                    system_data.index,
+                    forcing_orig,
+                )
                 # Include BOTH original and transformed columns, consistent with SISO phase
-                transformed_inputs = pd.concat((transformed_inputs, transformed), axis='columns')
+                transformed_inputs = pd.concat(
+                    (transformed_inputs, transformed), axis="columns"
+                )
             # build and fit the sindy model
             feature_names = [output_variable] + list(transformed_inputs.columns)
             model = ps.SINDy(
-                    differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
-                    feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
-                    optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
-                    ) 
-            fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
-                feature_names = feature_names)
-            r2 = fit.score(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1), u = transformed_inputs)
+                differentiation_method=ps.FiniteDifference(
+                    order=10, drop_endpoints=True
+                ),
+                feature_library=ps.PolynomialLibrary(
+                    degree=2, include_bias=False, include_interaction=False
+                ),
+                optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+            )
+            fit = model.fit(
+                x=system_data.loc[:, output_variable],
+                t=np.arange(0, len(system_data.index), 1),
+                u=transformed_inputs,
+                feature_names=feature_names,
+            )
+            r2 = fit.score(
+                x=system_data.loc[:, output_variable],
+                t=np.arange(0, len(system_data.index), 1),
+                u=transformed_inputs,
+            )
             if debug:
-                print(f"    DEBUG joint_objective: inputs={list(transformed_inputs.columns)}, r2={r2:.4f}")
+                print(
+                    f"    DEBUG joint_objective: inputs={list(transformed_inputs.columns)}, r2={r2:.4f}"
+                )
                 try:
                     model.print()
                 except:
                     pass
             return -r2  # Negative because minimize
-        
+
         # initial guesses from SISO optimization
         x0 = []
         for input_var in candidate_inputs:
@@ -4078,7 +4238,9 @@ def find_topology_no_geo(system_data, dependent_columns,
             x0.extend([shape, scale, loc])
         bounds = []
         for input_var in candidate_inputs:
-            bounds.extend([(1.0, 300.0), (1e-5, 300.0), (0.0, 300.0)])  # shape, scale, loc
+            bounds.extend(
+                [(1.0, 300.0), (1e-5, 300.0), (0.0, 300.0)]
+            )  # shape, scale, loc
 
         # First, compute baseline R² using SISO-optimized params (x0)
         # This ensures we never do worse than the initial guess
@@ -4087,32 +4249,39 @@ def find_topology_no_geo(system_data, dependent_columns,
 
         # optimize
         multivariable_iterations = max_iterations * len(candidate_inputs)
-        result = minimize(joint_objective, x0, method='Nelder-Mead', bounds=bounds,
-                    options={'maxiter': multivariable_iterations, 'disp': verbose})
-        #result = minimize(joint_objective, x0, method='L-BFGS-B', bounds=bounds,
+        result = minimize(
+            joint_objective,
+            x0,
+            method="Nelder-Mead",
+            bounds=bounds,
+            options={"maxiter": multivariable_iterations, "disp": verbose},
+        )
+        # result = minimize(joint_objective, x0, method='L-BFGS-B', bounds=bounds,
         #            options={'maxiter': multivariable_iterations, 'disp': verbose})
         optimized_r2 = -result.fun
-        
+
         # Use optimized params only if they improve on baseline, otherwise keep SISO params
         if optimized_r2 >= baseline_r2:
             optimized_params = result.x
             print(f"  Optimizer improved R² to {optimized_r2:.4f}")
         else:
             optimized_params = x0
-            print(f"  Optimizer found worse R² ({optimized_r2:.4f}), keeping SISO params (R² = {baseline_r2:.4f})")
-        
+            print(
+                f"  Optimizer found worse R² ({optimized_r2:.4f}), keeping SISO params (R² = {baseline_r2:.4f})"
+            )
+
         # extract best params
         for i, input_var in enumerate(candidate_inputs):
-            shape = optimized_params[i*3]
-            scale = optimized_params[i*3 + 1]
-            loc = optimized_params[i*3 + 2]
+            shape = optimized_params[i * 3]
+            scale = optimized_params[i * 3 + 1]
+            loc = optimized_params[i * 3 + 2]
             best_params.loc[output_variable, input_var] = (shape, scale, loc)
         # compute final r2 with optimized params
         transformed_inputs = pd.DataFrame(index=system_data.index)
         for i, input_var in enumerate(candidate_inputs):
-            shape = optimized_params[i*3]
-            scale = optimized_params[i*3 + 1]
-            loc = optimized_params[i*3 + 2]
+            shape = optimized_params[i * 3]
+            scale = optimized_params[i * 3 + 1]
+            loc = optimized_params[i * 3 + 2]
             shape_factors = pd.DataFrame(columns=[input_var], index=[1])
             shape_factors.loc[1, input_var] = shape
             scale_factors = pd.DataFrame(columns=[input_var], index=[1])
@@ -4120,29 +4289,51 @@ def find_topology_no_geo(system_data, dependent_columns,
             loc_factors = pd.DataFrame(columns=[input_var], index=[1])
             loc_factors.loc[1, input_var] = loc
             forcing_orig = system_data[[input_var]].copy()
-            transformed = transform_inputs(shape_factors, scale_factors, loc_factors, 
-                                            system_data.index, forcing_orig)
+            transformed = transform_inputs(
+                shape_factors,
+                scale_factors,
+                loc_factors,
+                system_data.index,
+                forcing_orig,
+            )
             # Include BOTH original and transformed columns, consistent with SISO phase
-            transformed_inputs = pd.concat((transformed_inputs, transformed), axis='columns')
+            transformed_inputs = pd.concat(
+                (transformed_inputs, transformed), axis="columns"
+            )
         feature_names = [output_variable] + list(transformed_inputs.columns)
         model = ps.SINDy(
-                differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
-                feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
-                optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
-                )
-        fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
-            feature_names = feature_names)
-        r2 = fit.score(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1), u = transformed_inputs)
+            differentiation_method=ps.FiniteDifference(order=10, drop_endpoints=True),
+            feature_library=ps.PolynomialLibrary(
+                degree=2, include_bias=False, include_interaction=False
+            ),
+            optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+        )
+        fit = model.fit(
+            x=system_data.loc[:, output_variable],
+            t=np.arange(0, len(system_data.index), 1),
+            u=transformed_inputs,
+            feature_names=feature_names,
+        )
+        r2 = fit.score(
+            x=system_data.loc[:, output_variable],
+            t=np.arange(0, len(system_data.index), 1),
+            u=transformed_inputs,
+        )
 
-
-        print(f"Testing inputs {candidate_inputs} for output {output_variable} -> r2 = {r2:.4f}")
-        if r2 > current_best_r2[output_variable] + 0.01: # only keep it if it improves the r2 by at least 1%
+        print(
+            f"Testing inputs {candidate_inputs} for output {output_variable} -> r2 = {r2:.4f}"
+        )
+        if (
+            r2 > current_best_r2[output_variable] + 0.01
+        ):  # only keep it if it improves the r2 by at least 1%
             # add a conditional here for reducing the number of components in the graph. if it doesn't connect things that were previously unconnected, we don't want it.
             selected_inputs = candidate_inputs
             current_best_r2[output_variable] = r2
-            print(f"  Accepted new input {forcing_variable}, updated r2 = {current_best_r2[output_variable]:.4f}")
-            edges.loc[output_variable,forcing_variable] = 1
-            
+            print(
+                f"  Accepted new input {forcing_variable}, updated r2 = {current_best_r2[output_variable]:.4f}"
+            )
+            edges.loc[output_variable, forcing_variable] = 1
+
             # Update correlation-weighted R² for this output since we added a new input
             # The while loop will re-sort at the next iteration
             update_corr_weighted_r2(output_variable)
@@ -4156,8 +4347,12 @@ def find_topology_no_geo(system_data, dependent_columns,
     # that arrangement makes comparing the effect of potential inputs on each output easier.
     # but for output, it's more intuitive to have from -> to convention, so we transpose before returning.
 
-    return {"edges": edges, "best_params": best_params, "r2_values": r2_values, "lead_lag": lead_lag}
-
+    return {
+        "edges": edges,
+        "best_params": best_params,
+        "r2_values": r2_values,
+        "lead_lag": lead_lag,
+    }
 
 
 # this function takes in the system data,
@@ -4266,6 +4461,8 @@ def infer_causative_topology(
                 ]
 
     return causative_topo, total_graph
+
+
 def find_topology(
     system_data,
     dependent_columns,
