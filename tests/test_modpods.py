@@ -560,16 +560,13 @@ def test_all_methods_produce_comparable_r2(
     assert r2_da > 0.0, f"DA R² {r2_da:.4f} is non-positive"
     # No method should be dramatically worse than the others
     assert abs(r2_bayesian - r2_de) < 0.5, (
-        f"Methods diverge too much: bayesian={r2_bayesian:.4f}, "
-        f"de={r2_de:.4f}"
+        f"Methods diverge too much: bayesian={r2_bayesian:.4f}, " f"de={r2_de:.4f}"
     )
     assert abs(r2_bayesian - r2_da) < 0.5, (
-        f"Methods diverge too much: bayesian={r2_bayesian:.4f}, "
-        f"da={r2_da:.4f}"
+        f"Methods diverge too much: bayesian={r2_bayesian:.4f}, " f"da={r2_da:.4f}"
     )
     assert abs(r2_de - r2_da) < 0.5, (
-        f"Methods diverge too much: de={r2_de:.4f}, "
-        f"da={r2_da:.4f}"
+        f"Methods diverge too much: de={r2_de:.4f}, " f"da={r2_da:.4f}"
     )
 
 
@@ -585,12 +582,8 @@ def test_all_methods_predictions_agree(
         pred_bayesian = modpods.delay_io_predict(
             bayesian_model, simple_lti_data, num_transforms=1
         )
-        pred_de = modpods.delay_io_predict(
-            de_model, simple_lti_data, num_transforms=1
-        )
-        pred_da = modpods.delay_io_predict(
-            da_model, simple_lti_data, num_transforms=1
-        )
+        pred_de = modpods.delay_io_predict(de_model, simple_lti_data, num_transforms=1)
+        pred_da = modpods.delay_io_predict(da_model, simple_lti_data, num_transforms=1)
     assert "prediction" in pred_bayesian
     assert "prediction" in pred_de
     assert "prediction" in pred_da
@@ -745,77 +738,7 @@ def test_lti_system_gen_returns_state_space(
     assert response.outputs.shape[0] == 3, "expected 3 outputs (x2, x8, x9)"
 
 
-# ---------------------------------------------------------------------------
-# topo_from_pystorms tests  (from test_topo_from_swmm.py and
-#                             test_lti_control_of_swmm.py) — SLOW
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-def test_topo_from_pystorms_zeta_returns_dataframe() -> None:
-    """topo_from_pystorms on the zeta scenario must return a non-empty DataFrame
-    whose index and columns correspond to the scenario's state variables."""
-    pystorms = pytest.importorskip("pystorms")
-    env = pystorms.scenarios.zeta()
-    topo = modpods.topo_from_pystorms(env)
-
-    assert isinstance(topo, pd.DataFrame)
-    assert topo.shape[0] > 0, "topology DataFrame must have at least one row"
-    # All cells should be 'n', 'i', or 'd'
-    valid_values = {"n", "i", "d"}
-    for val in topo.values.flat:
-        assert val in valid_values, f"unexpected cell value '{val}' in topology"
-
-
-@pytest.mark.slow
-def test_topo_from_pystorms_zeta_has_self_connections() -> None:
-    """topo_from_pystorms (zeta) must mark each state as influencing itself ('i')."""
-    pystorms = pytest.importorskip("pystorms")
-    env = pystorms.scenarios.zeta()
-    topo = modpods.topo_from_pystorms(env)
-
-    for state in topo.index:
-        if state in topo.columns:
-            # Use .at[] to avoid pandas MultiIndex interpretation of tuple keys
-            assert (
-                topo.at[state, state] == "i"
-            ), f"state {state!r} should have self-connection 'i'"
-
-
-@pytest.mark.slow
-def test_topo_from_pystorms_gamma_after_characterization() -> None:
-    """After running a characterization simulation of the gamma scenario,
-    topo_from_pystorms must successfully infer the network topology."""
-    pystorms = pytest.importorskip("pystorms")
-    np.random.seed(42)
-
-    # Run characterization simulation (randomly opens/closes valves)
-    env = pystorms.scenarios.gamma()
-    done = False
-    step = 0
-    actions_characterize = np.ones(4)
-    while not done:
-        if step % 1000 == 0:
-            actions_characterize = np.ones(4) * 0.3
-            actions_characterize[np.random.randint(0, 4)] = np.random.rand()
-        done = env.step(np.concatenate((actions_characterize, np.ones(7)), axis=0))
-        step += 1
-
-    # Restrict state/action space to the first 4 controlled basins
-    dependent_columns = env.config["states"][4:8]
-    independent_columns = [
-        c for c in env.config["action_space"] if c not in dependent_columns
-    ]
-    env.config["states"] = dependent_columns
-    env.config["action_space"] = independent_columns
-
-    topo = modpods.topo_from_pystorms(env)
-
-    assert isinstance(topo, pd.DataFrame)
-    assert topo.shape[0] > 0
-
-
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------# ---------------------------------------------------------------------------
 # CAMELS rainfall-runoff tests  (from test.py) — SLOW (uses data file)
 # ---------------------------------------------------------------------------
 

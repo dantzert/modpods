@@ -7,12 +7,13 @@ The actual test data should be obtained by running this script separately and co
 only the small metadata files, not the large CSV.
 """
 
-import requests
 import datetime
-import sys
-import pandas as pd
-import matplotlib.pyplot as plt
 import os
+import sys
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import requests
 
 # USGS sites for Delaware River basin
 sites = [
@@ -26,7 +27,7 @@ sites = [
     "01437500",  # Neversink at Godeffroy
     "01438500",  # Delaware at Montague
     "01440200",  # Delaware at Water Gap
-    "01463500"   # Delaware at Trenton
+    "01463500",  # Delaware at Trenton
 ]
 
 BASE_URL = "https://waterservices.usgs.gov/nwis/iv/"
@@ -42,35 +43,41 @@ records = []
 
 for site in sites:
     print(f"Fetching {site}...")
-    
+
     params = {
         "format": "json",
         "sites": site,
         "startDT": start.isoformat(),
         "endDT": end.isoformat(),
         "parameterCd": "00065",  # gage height
-        "siteStatus": "all"
+        "siteStatus": "all",
     }
-    
+
     try:
         r = requests.get(BASE_URL, params=params, timeout=30)
         r.raise_for_status()
         data = r.json()
-        
+
         try:
             ts = data["value"]["timeSeries"][0]["values"][0]["value"]
         except (KeyError, IndexError):
             print(f"  No data for {site}.")
             continue
-            
+
         for row in ts:
             # Keep full timestamp for instantaneous values
-            records.append({
-                "datetime": row["dateTime"],
-                "site": site,
-                "gage_ht_ft": float(row["value"]) if row.get("value") not in (None, "") else float('nan')
-            })
-            
+            records.append(
+                {
+                    "datetime": row["dateTime"],
+                    "site": site,
+                    "gage_ht_ft": (
+                        float(row["value"])
+                        if row.get("value") not in (None, "")
+                        else float("nan")
+                    ),
+                }
+            )
+
     except Exception as e:
         print(f"  Error fetching {site}: {e}")
         continue
@@ -90,7 +97,9 @@ df = df.dropna(subset=["datetime"])  # Remove rows where datetime couldn't be pa
 
 # Create timezone-aware timestamp bounds for filtering (inclusive)
 start_ts = pd.to_datetime(start).tz_localize("UTC")
-end_ts = (pd.to_datetime(end) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)).tz_localize("UTC")
+end_ts = (
+    pd.to_datetime(end) + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
+).tz_localize("UTC")
 df = df[(df["datetime"] >= start_ts) & (df["datetime"] <= end_ts)]
 
 # Pivot wide: rows=datetimes, columns=sites
@@ -101,7 +110,7 @@ df_pivot = df_pivot.sort_index()
 
 # Linearly interpolate missing values less than 6 hours (6 data points at 1-hr intervals)
 # Raise an error if internal gaps bigger than 6 hours
-df_pivot = df_pivot.interpolate(method='time', limit=6)
+df_pivot = df_pivot.interpolate(method="time", limit=6)
 
 print(f"\nData shape: {df_pivot.shape}")
 print(f"Date range: {df_pivot.index.min()} to {df_pivot.index.max()}")
@@ -120,7 +129,9 @@ print(f"\nSaved data to: {output_path}")
 df_pivot_normalized = df_pivot - df_pivot.min()
 df_pivot_normalized = df_pivot_normalized.divide(df_pivot_normalized.max())
 df_pivot_normalized.plot(figsize=(14, 8))
-plt.title("USGS Instantaneous Gage Height for Selected Sites - Last 3 Months (Normalized)")
+plt.title(
+    "USGS Instantaneous Gage Height for Selected Sites - Last 3 Months (Normalized)"
+)
 plt.xlabel("Datetime")
 plt.ylabel("Normalized Gage Height")
 plt.legend(title="Site")
@@ -134,5 +145,7 @@ plt.show()
 
 print("\nTo use this data in tests:")
 print("1. Run this script to generate the CSV file")
-print("2. The test will load: './testing_data/usgs_delaware/usgs_gage_ht_3months_iv.csv'")
+print(
+    "2. The test will load: './testing_data/usgs_delaware/usgs_gage_ht_3months_iv.csv'"
+)
 print("3. Only commit the script and small metadata files, not the large CSV")

@@ -12,20 +12,13 @@ import pysindy as ps
 import scipy.signal as signal
 import scipy.stats as stats
 from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
-from scipy.optimize import minimize, differential_evolution, dual_annealing
+from scipy.optimize import minimize
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern
-
-try:
-    import pyswmm  # not a requirement for any other function
-except ImportError:
-    pyswmm = None
-
 # Suppress the specific AxesWarning from pysindy after import
 warnings.filterwarnings(
     "ignore", message=".*axes labeled for array with.*", module="pysindy"
 )
-
 
 # Bayesian optimization helper functions
 def _expected_improvement(X, X_sample, Y_sample, gpr, xi=0.01):
@@ -200,11 +193,11 @@ def _run_scipy_optimizer(
 ) -> np.ndarray:
     """
     Dispatch to scipy.optimize methods for global optimization.
-    
+
     Supports any scipy.optimize method that accepts (objective, bounds, **kwargs).
-    Common methods: 'differential_evolution', 'dual_annealing', 'simulated_annealing', 
+    Common methods: 'differential_evolution', 'dual_annealing', 'simulated_annealing',
     'basinhopping', 'shgo', 'direct', 'brute'.
-    
+
     Args:
         optimization_method: Name of scipy.optimize method to use
         objective_function: Callable that takes parameter vector and returns scalar to minimize
@@ -212,46 +205,46 @@ def _run_scipy_optimizer(
         max_iter: Maximum iterations (used as default for methods that support it)
         verbose: Whether to print progress
         optimizer_kwargs: Additional keyword arguments passed to the optimizer
-        
+
     Returns:
         Best parameter vector found
     """
     import scipy.optimize as opt
-    
+
     # Default parameters for each method
     method_defaults = {
-        'differential_evolution': {
-            'maxiter': max_iter,
-            'popsize': 15,
-            'mutation': (0.5, 1.5),
-            'recombination': 0.7,
-            'seed': 42,
-            'updating': 'deferred',
+        "differential_evolution": {
+            "maxiter": max_iter,
+            "popsize": 15,
+            "mutation": (0.5, 1.5),
+            "recombination": 0.7,
+            "seed": 42,
+            "updating": "deferred",
         },
-        'dual_annealing': {
-            'maxiter': max_iter * 4,  # DA needs more iterations for good exploration
-            'seed': 42,
-            'no_local_search': False,
+        "dual_annealing": {
+            "maxiter": max_iter * 4,  # DA needs more iterations for good exploration
+            "seed": 42,
+            "no_local_search": False,
         },
-        'simulated_annealing': {
-            'maxiter': max_iter * 4,
-            'seed': 42,
+        "simulated_annealing": {
+            "maxiter": max_iter * 4,
+            "seed": 42,
         },
-        'direct': {
-            'maxiter': max_iter,
-            'eps': 1e-4,
+        "direct": {
+            "maxiter": max_iter,
+            "eps": 1e-4,
         },
-        'brute': {
-            'Ns': 20,
+        "brute": {
+            "Ns": 20,
         },
     }
-    
+
     # Get defaults for this method, or empty dict if unknown
     defaults = method_defaults.get(optimization_method, {})
-    
+
     # Merge defaults with user-provided kwargs (user kwargs take precedence)
     params = {**defaults, **optimizer_kwargs}
-    
+
     # Get the optimizer function
     optimizer = getattr(opt, optimization_method, None)
     if optimizer is None:
@@ -260,17 +253,19 @@ def _run_scipy_optimizer(
             f"Supported scipy.optimize methods: {list(method_defaults.keys())}, "
             f"or 'bayesian' for built-in Bayesian optimization."
         )
-    
+
     if verbose:
         print(f"  Running scipy.optimize.{optimization_method} with params: {params}")
-    
+
     # Run the optimizer
     result = optimizer(objective_function, bounds, **params)
-    
+
     if verbose:
-        print(f"  Optimization complete. Success: {result.success}, Message: {result.message}")
+        print(
+            f"  Optimization complete. Success: {result.success}, Message: {result.message}"
+        )
         print(f"  Best value: {-result.fun:.6f} (R²)")
-    
+
     return result.x
 
 
@@ -553,10 +548,12 @@ def delay_io_train(
             )
 
         else:
-            # Use scipy.optimize for all other methods (differential_evolution, dual_annealing, 
+            # Use scipy.optimize for all other methods (differential_evolution, dual_annealing,
             # basinhopping, shgo, direct, etc.)
             if verbose:
-                print(f"Using {optimization_method} optimization for {num_transforms} transforms...")
+                print(
+                    f"Using {optimization_method} optimization for {num_transforms} transforms..."
+                )
 
             # Determine which columns to transform
             if transform_dependent:
@@ -571,7 +568,7 @@ def delay_io_train(
             for transform in range(1, num_transforms + 1):
                 for col in transform_columns:
                     bounds_list.append([1.0, 50.0])  # shape_factors bounds
-                    bounds_list.append([0.1, 5.0])   # scale_factors bounds
+                    bounds_list.append([0.1, 5.0])  # scale_factors bounds
                     bounds_list.append([0.0, 20.0])  # loc_factors bounds
             bounds = np.array(bounds_list)
 
@@ -592,7 +589,9 @@ def delay_io_train(
                     for transform in range(1, num_transforms + 1):
                         for col in transform_columns:
                             shape_factors_opt.loc[transform, col] = params_vector[idx]
-                            scale_factors_opt.loc[transform, col] = params_vector[idx + 1]
+                            scale_factors_opt.loc[transform, col] = params_vector[
+                                idx + 1
+                            ]
                             loc_factors_opt.loc[transform, col] = params_vector[idx + 2]
                             idx += 3
 
@@ -2808,17 +2807,18 @@ def find_topology(
 ):
     """
     DEPRECATED: This function has been replaced by the improved SINDy-based
-    topology inference in hd_modpods.topology.find_topology.
-    
+    topology inference via the local SINDy-based implementation.
+
     Please use infer_causative_topology(method='sindy') or directly import
-    from hd_modpods.topology import find_topology.
+    use infer_causative_topology().
     """
     import warnings
+
     warnings.warn(
         "find_topology() is deprecated. Use infer_causative_topology(method='sindy') "
-        "or import find_topology from hd_modpods.topology instead.",
+        "or use infer_causative_topology() instead.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     # Delegate to the new implementation
     return infer_causative_topology(
@@ -3534,6 +3534,632 @@ def infer_causative_topology(
     # return {'best_params': best_params, 'correlations': best_correlations, 'p_values': best_p_values, 'scores': best_scores}
 
 
+# === Topology inference helper functions ===
+# These implement the SINDy-based topology inference
+
+def _compute_distances(sensor_locations, columns):
+    """Compute Euclidean distances between all pairs of sensors.
+    
+    Args:
+        sensor_locations: dict mapping column names to {"lat": float, "lon": float}
+        columns: list of column names to compute distances for
+        
+    Returns:
+        pd.DataFrame with distances, index and columns are sensor names
+    """
+    distances = pd.DataFrame(index=columns, columns=columns, dtype=float)
+    for c1 in columns:
+        for c2 in columns:
+            if c1 == c2:
+                distances.loc[c1, c2] = 0.0
+            elif c1 in sensor_locations and c2 in sensor_locations:
+                lat1, lon1 = sensor_locations[c1]["lat"], sensor_locations[c1]["lon"]
+                lat2, lon2 = sensor_locations[c2]["lat"], sensor_locations[c2]["lon"]
+                # Euclidean distance
+                distances.loc[c1, c2] = np.sqrt((lat1 - lat2)**2 + (lon1 - lon2)**2)
+            else:
+                # If location not available, set to infinity (will be evaluated last)
+                distances.loc[c1, c2] = np.inf
+    return distances
+
+def _get_n_nearest_neighbors(dep_col, distances, n, exclude_cols=None):
+    """Get the n nearest neighbors for a dependent column.
+    
+    Args:
+        dep_col: the dependent column to find neighbors for
+        distances: DataFrame of distances between sensors
+        n: number of neighbors to return
+        exclude_cols: columns to exclude from consideration (e.g., independent columns)
+        
+    Returns:
+        list of column names of the n nearest neighbors
+    """
+    if exclude_cols is None:
+        exclude_cols = []
+    
+    # Get distances from dep_col to all other columns
+    dists = distances.loc[dep_col].copy()
+    
+    # Exclude self and any specified columns
+    dists = dists.drop(labels=[dep_col] + [c for c in exclude_cols if c in dists.index], errors='ignore')
+    
+    # Sort by distance and return the n nearest
+    sorted_dists = dists.sort_values()
+    return list(sorted_dists.head(n).index)
+
+def find_topology_no_geo(system_data, dependent_columns, 
+                  independent_columns, max_iterations=250,
+                  graph_type='Weak-Conn', verbose=False,
+                  sensor_locations=None, init_neighbors=3):
+    """
+    Infer network topology from time series data using SINDy-based optimization.
+    
+    Args:
+        system_data: pd.DataFrame with time series data, columns are variables
+        dependent_columns: list of column names that are dependent variables
+        independent_columns: list of column names that are independent/forcing variables
+        max_iterations: maximum iterations for optimization
+        graph_type: type of graph connectivity requirement ('Weak-Conn')
+        verbose: whether to print detailed output
+        sensor_locations: optional dict mapping column names to {"lat": float, "lon": float}.
+            If provided, uses geographic filtering to reduce computation by only evaluating
+            nearby sensors as potential forcings. Format: {"station_A": {"lat": 41.5, "lon": -74.5}, ...}
+        init_neighbors: initial number of nearest neighbors to evaluate when sensor_locations
+            is provided (default: 3). Ignored if sensor_locations is None.
+            
+    Returns:
+        dict with keys: "edges", "best_params", "r2_values", "lead_lag"
+    """
+    
+    # If sensor_locations provided, use the geo-filtering implementation
+    if sensor_locations is not None:
+        return _find_topology_with_geo(
+            system_data=system_data,
+            dependent_columns=dependent_columns,
+            independent_columns=independent_columns,
+            sensor_locations=sensor_locations,
+            max_iterations=max_iterations,
+            graph_type=graph_type,
+            verbose=verbose,
+            init_neighbors=init_neighbors
+        )
+    
+    # only print 3 places past the decimal for floats. don't use scientific notation. if less than 0.001, print as <0.001
+    pd.options.display.float_format = '{:.3f}'.format
+    
+    # Helper function to find the lag with strongest cross-correlation
+    def cross_correlation_lag(x, y, max_lag):
+        """Find the lag with strongest cross-correlation between x and y.
+        
+        Returns:
+            best_lag: Positive lag means x leads y (x happens before y)
+                      Negative lag means y leads x (y happens before x)
+            best_corr: The correlation coefficient at best_lag
+        """
+        best_lag, best_corr = 0, -2
+        for lag in range(-max_lag, max_lag + 1):
+            if lag < 0:
+                xs = x.iloc[-lag:]
+                ys = y.iloc[:len(xs)]
+            elif lag > 0:
+                ys = y.iloc[lag:]
+                xs = x.iloc[:len(ys)]
+            else:
+                xs, ys = x, y
+            if len(xs) < 5 or xs.std() == 0 or ys.std() == 0:
+                continue
+            c = np.corrcoef(xs, ys)[0, 1]
+            if np.isnan(c):
+                continue
+            if c > best_corr:
+                best_corr, best_lag = c, lag
+        return best_lag, best_corr
+
+    # drop columns from system_data which aren't in dependent_columns or independent_columns
+    # this ensures we only analyze the variables of interest
+    system_data = pd.concat((system_data[independent_columns], system_data[dependent_columns]), axis='columns')  
+
+
+    # Store results for each column pair
+    best_params = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=object)
+    best_correlations = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
+    best_p_values = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
+    best_scores = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
+    r2_values = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
+    lead_lag = pd.DataFrame(index=dependent_columns, columns=system_data.columns, dtype=float)
+    edges = pd.DataFrame(index=system_data.columns, columns=system_data.columns, dtype=int,data=0) # from column, to row. causation, not flow.
+
+    for dep_col in dependent_columns:
+        response = np.array(system_data[dep_col].values)
+
+        # First, compute autocorrelation-only R² (no external forcing)
+        # This tells us how much of the dynamics can be explained by the state alone
+        #print(f"\nComputing autocorrelation R² for {dep_col}")
+        model = ps.SINDy(
+                differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
+                feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
+                optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
+                ) 
+        # Fit with no control input (u=None), just the state
+        fit = model.fit(x = system_data.loc[:,dep_col], t = np.arange(0,len(system_data.index),1),
+                        feature_names=[dep_col])
+        auto_r2 = fit.score(x = system_data.loc[:,dep_col], t = np.arange(0,len(system_data.index),1))
+        r2_values.loc[dep_col, dep_col] = auto_r2
+        #print(f"  Autocorrelation R² for {dep_col}: {auto_r2:.4f}")
+        #try:
+        #    model.print()
+        #except Exception as e:
+        #    print(e)
+
+        for forcing_col in system_data.columns:
+            if forcing_col == dep_col:
+                continue  # already computed autocorrelation above
+
+            # EXPERIMENTAL: Check lead/lag before expensive SISO optimization
+            # Skip if forcing doesn't lead response (comment out to disable this check)
+            max_lag_check = min(len(system_data) // 4, 100)
+            early_lag, early_xcorr = cross_correlation_lag(
+                system_data[forcing_col], system_data[dep_col], max_lag_check
+            )
+            if early_lag < -5:
+                print(f"\nSkipping {forcing_col} -> {dep_col}: forcing lags response (lag={early_lag})")
+                lead_lag.loc[dep_col, forcing_col] = early_lag
+                r2_values.loc[dep_col, forcing_col] = 0.0
+                best_params.loc[dep_col, forcing_col] = (2.0, 2.0, 0.0)  # default params
+                continue
+            # END EXPERIMENTAL
+
+            print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
+            forcing_orig = system_data[[forcing_col]].copy(deep=True)
+            
+            # Objective function to minimize (negative because we want to maximize correlation - p_value)
+            def objective(params):
+                shape, scale, loc = params
+                
+                # Create transformation parameter DataFrames
+                shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                shape_factors.loc[1, forcing_col] = shape
+                scale_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                scale_factors.loc[1, forcing_col] = scale
+                loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+                loc_factors.loc[1, forcing_col] = loc
+                
+                try:
+                    # build the candidate input set
+                    #selected_inputs = list(edges.loc[output_variable, edges.loc[output_variable,:] == 1].index)
+                    #candidate_inputs = selected_inputs + [forcing_variable]
+                    # build the transformed timeseries for these candidate inputs using the best transformation parameters found earlier
+                    transformed_inputs = pd.DataFrame(index=system_data.index)
+                    '''
+                    for input_var in candidate_inputs:
+                        shape, scale, loc = best_params.loc[output_variable, input_var]
+                        shape_factors = pd.DataFrame(columns=[input_var], index=[1])
+                        shape_factors.loc[1, input_var] = shape
+                        scale_factors = pd.DataFrame(columns=[input_var], index=[1])
+                        scale_factors.loc[1, input_var] = scale
+                        loc_factors = pd.DataFrame(columns=[input_var], index=[1])
+                        loc_factors.loc[1, input_var] = loc
+                        forcing_orig = system_data[[input_var]].copy()
+                        transformed = transform_inputs(shape_factors, scale_factors, loc_factors, 
+                                                        system_data.index, forcing_orig)
+                        transformed_inputs = pd.concat((transformed_inputs, transformed[[input_var + "_tr_1"]]), axis='columns')
+                    '''
+                    # SINDY way
+                    transformed = transform_inputs(shape_factors, scale_factors, loc_factors,
+                                                    system_data.index, forcing_orig)
+                    transformed_inputs = pd.concat((transformed_inputs, transformed[[forcing_col + "_tr_1"]]), axis='columns')
+                    # build a sindy model with these inputs
+                    #feature_names = [output_variable] + candidate_inputs
+                    feature_names = [dep_col, str(forcing_col + "_tr_1")]
+                    model = ps.SINDy(
+                            differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
+                            feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
+                            optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
+                            ) 
+                    #fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
+                    #        feature_names = feature_names)
+                    fit = model.fit(x = system_data.loc[:,dep_col] ,u = transformed_inputs, t = np.arange(0,len(system_data.index),1) , 
+                                feature_names=feature_names)
+                    r2 = fit.score(x = system_data.loc[:,dep_col] ,u = transformed_inputs, t = np.arange(0,len(system_data.index),1))
+                    #model.print(precision=5)
+
+                    '''
+                    # polynomial regression way (might be faster than sindy, doesn't consider autocorrelation)
+                    forcing = np.array(transformed[forcing_col + "_tr_1"].values)
+                    
+
+                    # fourth order polynomial regression between transformed forcing and derivative of response
+                    coeffs = np.polyfit(forcing, np.gradient(response), 4)
+                    r_value_poly = np.corrcoef(np.polyval(coeffs, forcing), np.gradient(response))[0, 1]
+
+                    # r^2 likely makes more sense as our criterion.
+                    r2 = sklearn.metrics.r2_score(np.gradient(response), np.polyval(coeffs, forcing))
+                    '''
+           
+                    return -r2  # Negative because minimize
+                except Exception as e:
+                    # if e contains any letters or numbers, print it for debugging
+                    if any(c.isalnum() for c in str(e)):
+                        if verbose:
+                            print(f"Exception in objective function: {e}")
+
+                    return 1e10  # Large penalty for invalid parameters
+            
+            # Initial guess and bounds
+            x0 = [2.0, 2.0, 0.0]
+            bounds = [(1.0, 300.0), (1e-5, 300.0), (0, 300.0)]  # shape, scale, loc
+            
+            # Optimize
+            #result = minimize(objective, x0, method='Nelder-Mead', 
+            #                    options={'maxiter': 5, 'disp': verbose})
+            # optimize using a method that supports bounds
+            result = minimize(objective, x0, method='Nelder-Mead', bounds=bounds,
+                                options={'maxiter': max_iterations, 'disp': verbose, 'fatol':1e-4})
+            # can use 'fatol' keyword argument to set convergence tolerance if speedup is desired.
+            # I'm worried about losing accuracy with that though.
+
+            #result = minimize(objective, x0, method='trust-constr', bounds=bounds,
+            #                    options={'maxiter': max_iterations, 'disp': verbose})
+            # L-BFGS-B did not get nearly as good of results as Nelder-Mead in testing. maybe there are local minima in the objective.
+            # trust-constr was also worse than nelder-mead. 
+            # Store best results
+            best_shape, best_scale, best_loc = result.x
+            
+            # Compute final correlation and p_value with best parameters
+            shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            shape_factors.loc[1, forcing_col] = best_shape
+            scale_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            scale_factors.loc[1, forcing_col] = best_scale
+            loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
+            loc_factors.loc[1, forcing_col] = best_loc
+            
+            transformed = transform_inputs(shape_factors, scale_factors, loc_factors,
+                                            system_data.index, forcing_orig)
+            forcing = np.array(transformed[forcing_col + "_tr_1"].values)
+            feature_names = [dep_col, forcing_col]
+            model = ps.SINDy(
+                    differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
+                    feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
+                    optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
+                    ) 
+            fit = model.fit(x = system_data.loc[:,dep_col] ,t = np.arange(0,len(system_data.index),1) , u = transformed,
+                    feature_names = feature_names)
+            # evaluate the r2 score
+            r2 = fit.score(x = system_data.loc[:,dep_col] ,t = np.arange(0,len(system_data.index),1), u = transformed)
+            try:
+                model.print()
+            except Exception as e:
+                print(e)
+
+            r2_values.loc[dep_col, forcing_col] = r2
+            
+            # Compute cross-correlation lag between forcing and response
+            # Use max_lag of 1/4 of the data length, capped at 100
+            max_lag = min(len(system_data) // 4, 100)
+            best_lag, best_xcorr = cross_correlation_lag(
+                system_data[forcing_col], system_data[dep_col], max_lag
+            )
+            lead_lag.loc[dep_col, forcing_col] = best_lag
+            
+            print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
+            print(f"  BEST: shape={best_shape:.2f}, scale={best_scale:.2f}, loc={best_loc:.2f}")
+            print(f"  Cross-correlation: lag={best_lag}, corr={best_xcorr:.4f}")
+            # save the best parameters
+            best_params.loc[dep_col, forcing_col] = (best_shape, best_scale, best_loc)
+
+
+            print("R2 Values:")
+            print(r2_values)
+            print("\n")
+
+    print("Final SISO R2 Values:")
+    print(r2_values)
+    current_best_r2 = pd.Series(index=dependent_columns, dtype=float, data=0.0)
+    print("Lead/Lag Matrix: (positive lag means forcing leads response)")
+    print(lead_lag)
+
+    # OPTION A: Mask r2 values by nonnegative lead/lag (forcing must lead response)
+    # This is applied AFTER SISO optimization - use this if not skipping early
+    # r2_values = r2_values.mask(lead_lag < 0, 0)
+    # print("Masked R2 Values (only forcing leads response):")
+    # print(r2_values)
+    
+    # OPTION B: Early skip is done above in the SISO loop - r2_values already has 0s for skipped pairs
+    
+    # first identify the maximum r^2 value in each row. we know these will be included in the final topology
+    # with an exception: if we form a cycle with these initial edges, remove the lowest r^2 edge in the cycle
+    #for dep_col in dependent_columns:
+    #    forcing_col = r2_values.loc[dep_col,:].idxmax()
+    #    edges.loc[dep_col,forcing_col] = 1
+    #    current_best_r2[dep_col] = r2_values.loc[dep_col,forcing_col]
+
+    # try a different method of picking initial edges
+    # find the n_columns edges in r2_values with the highest r^2 values
+    # if they are the maximum in their row and column, include them
+    sorted_r2 = r2_values.stack().sort_values(ascending=False)
+    for idx in sorted_r2.index:
+        dep_col = idx[0]
+        forcing_col = idx[1]
+        r2 = r2_values.loc[dep_col, forcing_col]
+        # is this the maximum in its row and column? (strongest connection for giver and receiver)
+        if r2 == r2_values.loc[dep_col,:].max() and r2 == r2_values.loc[:,forcing_col].max():
+            edges.loc[dep_col,forcing_col] = 1
+            current_best_r2[dep_col] = r2_values.loc[dep_col,forcing_col]
+            print(f"Initial edge added: {forcing_col} -> {dep_col} with r^2 = {r2:.4f}")
+
+    # check for cycles and remove them iteratively
+    G = nx.from_pandas_adjacency(edges, create_using=nx.DiGraph)
+    while True:
+        try:
+            # find_cycle returns a list of edges forming ONE cycle: [(u, v, dir), (v, w, dir), ...]
+            cycle_edges = list(nx.find_cycle(G, orientation='original'))
+            if len(cycle_edges) == 0:
+                break
+                
+            print(f"Found cycle with {len(cycle_edges)} edges. Removing lowest r^2 edge.")
+            print(f"Cycle edges: {[(e[0], e[1]) for e in cycle_edges]}")
+            
+            # find the edge with the lowest r^2 in the cycle
+            min_r2 = float('inf')
+            edge_to_remove = None
+            for edge in cycle_edges:
+                from_node = edge[0]  # source node
+                to_node = edge[1]    # target node
+                # In our adjacency matrix, edges.loc[row, col] = 1 means col -> row
+                # So we need r2_values.loc[to_node, from_node] for edge from_node -> to_node
+                r2 = r2_values.loc[to_node, from_node]
+                print(f"  Edge {from_node} -> {to_node}: r^2 = {r2:.4f}")
+                if r2 < min_r2:
+                    min_r2 = r2
+                    edge_to_remove = (from_node, to_node)
+            
+            # remove this edge from our edges DataFrame
+            # edges.loc[row, col] = 1 means col -> row, so to remove from_node -> to_node:
+            edges.loc[edge_to_remove[1], edge_to_remove[0]] = 0
+            print(f"  Removed edge {edge_to_remove[0]} -> {edge_to_remove[1]} with r^2 = {min_r2:.4f}")
+            
+            # rebuild the graph for next iteration
+            G = nx.from_pandas_adjacency(edges, create_using=nx.DiGraph)
+            
+        except nx.NetworkXNoCycle:
+            # No cycle found, we're done
+            print("No cycles detected in initial edges.")
+            break
+        except Exception as e:
+            print(f"Error during cycle detection: {e}")
+            break
+
+
+    # Helper function to update correlation-weighted R² scores for a single output variable
+    def update_corr_weighted_r2(dep_col):
+        """Update corr_wted_r2 for all potential inputs to dep_col based on current edges."""
+        selected_inputs = list(edges.loc[dep_col, edges.loc[dep_col,:] == 1].index)
+        for forcing_col in system_data.columns:
+            if forcing_col in selected_inputs or forcing_col == dep_col:
+                continue  # skip already selected inputs / autocorrelation
+            
+            if len(selected_inputs) > 0:
+                correlations = []
+                for sel_input in selected_inputs:
+                    # compute correlation between transformed versions of forcing_col and sel_input
+                    shape_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
+                    shape_factors_1.loc[1, forcing_col] = best_params.loc[dep_col, forcing_col][0]
+                    scale_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
+                    scale_factors_1.loc[1, forcing_col] = best_params.loc[dep_col, forcing_col][1]
+                    loc_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
+                    loc_factors_1.loc[1, forcing_col] = best_params.loc[dep_col, forcing_col][2]
+                    transformed_1 = transform_inputs(shape_factors_1, scale_factors_1, loc_factors_1,
+                                                    system_data.index, system_data[[forcing_col]])
+                    
+                    shape_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
+                    shape_factors_2.loc[1, sel_input] = best_params.loc[dep_col, sel_input][0]
+                    scale_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
+                    scale_factors_2.loc[1, sel_input] = best_params.loc[dep_col, sel_input][1]
+                    loc_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
+                    loc_factors_2.loc[1, sel_input] = best_params.loc[dep_col, sel_input][2]
+                    transformed_2 = transform_inputs(shape_factors_2, scale_factors_2, loc_factors_2,
+                                                    system_data.index, system_data[[sel_input]])
+                    
+                    together = pd.DataFrame(index=system_data.index)
+                    together[forcing_col] = transformed_1[str(forcing_col + "_tr_1")]
+                    together[sel_input] = transformed_2[str(sel_input + "_tr_1")]
+                    
+                    # Check for zero variance before computing correlation
+                    if together[forcing_col].std() == 0 or together[sel_input].std() == 0:
+                        corr = 2.0  # constant variable, exclude it
+                    else:
+                        corr = np.corrcoef(together[forcing_col], together[sel_input])[0,1]
+                        if np.isnan(corr):
+                            corr = 0.0
+                    correlations.append(abs(corr))
+                max_corr = np.max(correlations)
+            else:
+                max_corr = 0.0
+            
+            corr_wted_r2.loc[dep_col, forcing_col] = r2_values.loc[dep_col, forcing_col] *1 # ((1 - max_corr)) # was **10
+
+    # Initialize correlation-weighted R² scores
+    corr_wted_r2 = r2_values.copy(deep=True)
+    for dep_col in dependent_columns:
+        update_corr_weighted_r2(dep_col)
+    
+    sorted_r2 = r2_values.stack().sort_values(ascending=False)
+    if verbose:
+        print("Sorted R2 values:")
+        print(sorted_r2)
+
+    # Use a while loop so we can re-sort after each edge addition
+    # This ensures we always pick the best remaining candidate after correlation weights are updated
+    evaluated_pairs = set()  # Track pairs we've already evaluated to avoid infinite loops
+    
+    while True:
+        sorted_corr_wted_r2 = corr_wted_r2.stack().sort_values(ascending=False)
+        # Find the best candidate we haven't evaluated yet
+        idx = None
+        for candidate_idx in sorted_corr_wted_r2.index:
+            if candidate_idx not in evaluated_pairs and edges.loc[candidate_idx[0], candidate_idx[1]] != 1:
+                idx = candidate_idx
+                break
+        
+        if idx is None:
+            print("No more candidate edges to evaluate.")
+            break
+        
+        evaluated_pairs.add(idx)
+        output_variable = idx[0]
+        forcing_variable = idx[1]
+        r2 = r2_values.loc[output_variable,forcing_variable]
+        
+        non_rain_edges = edges.loc[~edges.index.str.contains("rain"), ~edges.columns.str.contains("rain")]
+        
+        # would adding this edge reduce the number of components in the graph? (not considering rain)
+        non_rain_edges_if_added = non_rain_edges.copy(deep=True)
+        non_rain_edges_if_added.loc[output_variable,forcing_variable] = 1
+
+        n_components_now = nx.number_weakly_connected_components(nx.from_pandas_adjacency(non_rain_edges,create_using=nx.DiGraph))
+        if n_components_now == 1:
+            print("graph is weakly connected.")
+            # done
+            break
+
+        n_components = nx.number_weakly_connected_components(nx.from_pandas_adjacency(non_rain_edges_if_added,create_using=nx.DiGraph))
+        if "rain" not in forcing_variable.lower(): # always allow rain edges
+            if n_components >= n_components_now:
+                print(f"Skipping addition of {forcing_variable} -> {output_variable} as it does not improve connectivity")
+                continue # skip this addition as it doesn't improve connectivity
+
+        print(f"Evaluating edge {forcing_variable} -> {output_variable} with r2 = {r2:.4f}")
+        print("current best r2 values:")
+        print(current_best_r2)
+        # build the candidate input set
+        selected_inputs = list(edges.loc[output_variable, edges.loc[output_variable,:] == 1].index)
+        candidate_inputs = selected_inputs + [forcing_variable]
+        # optimize the transformations for all candidate inputs together, using siso best params as initial guesses
+        def joint_objective(params, debug=False):
+            # params is a flat list of shape, scale, loc for each candidate input
+            transformed_inputs = pd.DataFrame(index=system_data.index)
+            for i, input_var in enumerate(candidate_inputs):
+                shape = params[i*3]
+                scale = params[i*3 + 1]
+                loc = params[i*3 + 2]
+                shape_factors = pd.DataFrame(columns=[input_var], index=[1])
+                shape_factors.loc[1, input_var] = shape
+                scale_factors = pd.DataFrame(columns=[input_var], index=[1])
+                scale_factors.loc[1, input_var] = scale
+                loc_factors = pd.DataFrame(columns=[input_var], index=[1])
+                loc_factors.loc[1, input_var] = loc
+                forcing_orig = system_data[[input_var]].copy()
+                transformed = transform_inputs(shape_factors, scale_factors, loc_factors, 
+                                                system_data.index, forcing_orig)
+                # Include BOTH original and transformed columns, consistent with SISO phase
+                transformed_inputs = pd.concat((transformed_inputs, transformed), axis='columns')
+            # build and fit the sindy model
+            feature_names = [output_variable] + list(transformed_inputs.columns)
+            model = ps.SINDy(
+                    differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
+                    feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
+                    optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
+                    ) 
+            fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
+                feature_names = feature_names)
+            r2 = fit.score(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1), u = transformed_inputs)
+            if debug:
+                print(f"    DEBUG joint_objective: inputs={list(transformed_inputs.columns)}, r2={r2:.4f}")
+                try:
+                    model.print()
+                except:
+                    pass
+            return -r2  # Negative because minimize
+        
+        # initial guesses from SISO optimization
+        x0 = []
+        for input_var in candidate_inputs:
+            shape, scale, loc = best_params.loc[output_variable, input_var]
+            x0.extend([shape, scale, loc])
+        bounds = []
+        for input_var in candidate_inputs:
+            bounds.extend([(1.0, 300.0), (1e-5, 300.0), (0.0, 300.0)])  # shape, scale, loc
+
+        # First, compute baseline R² using SISO-optimized params (x0)
+        # This ensures we never do worse than the initial guess
+        baseline_r2 = -joint_objective(x0, debug=True)
+        print(f"  Baseline R² with SISO params: {baseline_r2:.4f}")
+
+        # optimize
+        multivariable_iterations = max_iterations * len(candidate_inputs)
+        result = minimize(joint_objective, x0, method='Nelder-Mead', bounds=bounds,
+                    options={'maxiter': multivariable_iterations, 'disp': verbose})
+        #result = minimize(joint_objective, x0, method='L-BFGS-B', bounds=bounds,
+        #            options={'maxiter': multivariable_iterations, 'disp': verbose})
+        optimized_r2 = -result.fun
+        
+        # Use optimized params only if they improve on baseline, otherwise keep SISO params
+        if optimized_r2 >= baseline_r2:
+            optimized_params = result.x
+            print(f"  Optimizer improved R² to {optimized_r2:.4f}")
+        else:
+            optimized_params = x0
+            print(f"  Optimizer found worse R² ({optimized_r2:.4f}), keeping SISO params (R² = {baseline_r2:.4f})")
+        
+        # extract best params
+        for i, input_var in enumerate(candidate_inputs):
+            shape = optimized_params[i*3]
+            scale = optimized_params[i*3 + 1]
+            loc = optimized_params[i*3 + 2]
+            best_params.loc[output_variable, input_var] = (shape, scale, loc)
+        # compute final r2 with optimized params
+        transformed_inputs = pd.DataFrame(index=system_data.index)
+        for i, input_var in enumerate(candidate_inputs):
+            shape = optimized_params[i*3]
+            scale = optimized_params[i*3 + 1]
+            loc = optimized_params[i*3 + 2]
+            shape_factors = pd.DataFrame(columns=[input_var], index=[1])
+            shape_factors.loc[1, input_var] = shape
+            scale_factors = pd.DataFrame(columns=[input_var], index=[1])
+            scale_factors.loc[1, input_var] = scale
+            loc_factors = pd.DataFrame(columns=[input_var], index=[1])
+            loc_factors.loc[1, input_var] = loc
+            forcing_orig = system_data[[input_var]].copy()
+            transformed = transform_inputs(shape_factors, scale_factors, loc_factors, 
+                                            system_data.index, forcing_orig)
+            # Include BOTH original and transformed columns, consistent with SISO phase
+            transformed_inputs = pd.concat((transformed_inputs, transformed), axis='columns')
+        feature_names = [output_variable] + list(transformed_inputs.columns)
+        model = ps.SINDy(
+                differentiation_method= ps.FiniteDifference(order=10,drop_endpoints=True),
+                feature_library=ps.PolynomialLibrary(degree=2,include_bias = False, include_interaction=False), 
+                optimizer=ps.optimizers.STLSQ(threshold=0,alpha=0)
+                )
+        fit = model.fit(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1) , u = transformed_inputs,
+            feature_names = feature_names)
+        r2 = fit.score(x = system_data.loc[:,output_variable] ,t = np.arange(0,len(system_data.index),1), u = transformed_inputs)
+
+
+        print(f"Testing inputs {candidate_inputs} for output {output_variable} -> r2 = {r2:.4f}")
+        if r2 > current_best_r2[output_variable] + 0.01: # only keep it if it improves the r2 by at least 1%
+            # add a conditional here for reducing the number of components in the graph. if it doesn't connect things that were previously unconnected, we don't want it.
+            selected_inputs = candidate_inputs
+            current_best_r2[output_variable] = r2
+            print(f"  Accepted new input {forcing_variable}, updated r2 = {current_best_r2[output_variable]:.4f}")
+            edges.loc[output_variable,forcing_variable] = 1
+            
+            # Update correlation-weighted R² for this output since we added a new input
+            # The while loop will re-sort at the next iteration
+            update_corr_weighted_r2(output_variable)
+
+        else:
+            print(f"  Rejected new input {forcing_variable}, r2 would be {r2:.4f}")
+
+    # transpose edges to have from -> to convention
+    edges = edges.T
+    # earlier in the code we have dependent variables on the rows and independent on columns.
+    # that arrangement makes comparing the effect of potential inputs on each output easier.
+    # but for output, it's more intuitive to have from -> to convention, so we transpose before returning.
+
+    return {"edges": edges, "best_params": best_params, "r2_values": r2_values, "lead_lag": lead_lag}
+
+
+
 # this function takes in the system data,
 # which columns are dependent and which are independent,
 # as well as an optional constraint on the topology of the digraph
@@ -3556,7 +4182,7 @@ def infer_causative_topology(
 ):
     """
     Infer causative topology from time series data using SINDy-based optimization.
-    
+
     Args:
         system_data: pd.DataFrame with time series data
         dependent_columns: list of column names that are dependent variables
@@ -3569,7 +4195,7 @@ def infer_causative_topology(
         derivative: whether to use derivative of response
         sensor_locations: optional dict mapping column names to {"lat": float, "lon": float}
         init_neighbors: initial number of nearest neighbors to evaluate when sensor_locations is provided (default: 3)
-            
+
     Returns:
         dict with keys: "edges", "best_params", "r2_values", "lead_lag"
         - edges: DataFrame adjacency matrix (from -> to convention)
@@ -3578,7 +4204,7 @@ def infer_causative_topology(
         - lead_lag: DataFrame of lead/lag values (positive = forcing leads response)
     """
     import warnings
-    
+
     # Handle deprecated methods
     if method in ("granger", "ccm", "transfer_entropy"):
         warnings.warn(
@@ -3587,11 +4213,11 @@ def infer_causative_topology(
             "topology inference (method='sindy'), which provides significantly better "
             "results. Please use method='sindy' (the new default).",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         # Fall back to new method
         method = "sindy"
-    
+
     if swmm:
         # do the same for dependent_columns and independent_columns
         dependent_columns = [str(col) for col in dependent_columns]
@@ -3600,24 +4226,8 @@ def infer_causative_topology(
         system_data.columns = system_data.columns.astype(str)
 
     # Import and use the new SINDy-based topology inference
-    try:
-        from hd_modpods.topology import find_topology
-    except ImportError:
-        # Fallback: try relative import if hd_modpods is not installed
-        import sys
-        import os
-        hd_modpods_path = os.path.join(os.path.dirname(__file__), '..', 'hd_modpods')
-        if os.path.exists(hd_modpods_path):
-            sys.path.insert(0, hd_modpods_path)
-            from topology import find_topology
-        else:
-            raise ImportError(
-                "Could not import find_topology from hd_modpods.topology. "
-                "Please ensure hd_modpods is installed or available at ../hd_modpods"
-            )
-    
-    # Call the new topology inference method
-    result = find_topology(
+    # (using our local implementation)
+    result = find_topology_no_geo(
         system_data=system_data,
         dependent_columns=dependent_columns,
         independent_columns=independent_columns,
@@ -3627,37 +4237,35 @@ def infer_causative_topology(
         verbose=verbose,
         init_neighbors=init_neighbors,
     )
-    
     # Convert result to match expected return format for backward compatibility
     # The new method returns edges in from->to convention (transposed from old)
     edges = result["edges"]
     best_params = result["best_params"]
     r2_values = result["r2_values"]
     lead_lag = result["lead_lag"]
-    
+
     # For backward compatibility with code expecting (causative_topo, total_graph) tuple
     # causative_topo: 'd' for directed edge, 'n' for no edge
     # total_graph: numeric weights (R² values)
     causative_topo = pd.DataFrame(
         index=dependent_columns, columns=system_data.columns
-    ).fillna('n')
+    ).fillna("n")
     total_graph = pd.DataFrame(
         index=dependent_columns, columns=system_data.columns, dtype=float
     ).fillna(0.0)
-    
+
     # Fill in the edges from the result
     # edges is in from->to convention (row=from, col=to)
     # causative_topo expects row=dependent (to), col=forcing (from)
     for dep_col in dependent_columns:
         for forcing_col in system_data.columns:
             if edges.loc[forcing_col, dep_col] == 1:  # from forcing_col -> to dep_col
-                causative_topo.loc[dep_col, forcing_col] = 'd'
-                total_graph.loc[dep_col, forcing_col] = r2_values.loc[dep_col, forcing_col]
-    
+                causative_topo.loc[dep_col, forcing_col] = "d"
+                total_graph.loc[dep_col, forcing_col] = r2_values.loc[
+                    dep_col, forcing_col
+                ]
+
     return causative_topo, total_graph
-
-
-# Legacy function kept for backward compatibility - DEPRECATED
 def find_topology(
     system_data,
     dependent_columns,
@@ -3668,17 +4276,18 @@ def find_topology(
 ):
     """
     DEPRECATED: This function has been replaced by the improved SINDy-based
-    topology inference in hd_modpods.topology.find_topology.
-    
+    topology inference via the local SINDy-based implementation.
+
     Please use infer_causative_topology(method='sindy') or directly import
-    from hd_modpods.topology import find_topology.
+    use infer_causative_topology().
     """
     import warnings
+
     warnings.warn(
         "find_topology() is deprecated. Use infer_causative_topology(method='sindy') "
-        "or import find_topology from hd_modpods.topology instead.",
+        "or use infer_causative_topology() instead.",
         DeprecationWarning,
-        stacklevel=2
+        stacklevel=2,
     )
     # Delegate to the new implementation
     return infer_causative_topology(
@@ -3689,505 +4298,3 @@ def find_topology(
         verbose=verbose,
         method="sindy",
     )
-
-
-def topo_from_pystorms(pystorms_scenario):
-
-    # pyswmm 2.x prevents multiple simultaneous simulations in the same process
-    # via a class-level flag.  Reset it so we can open our own simulation even if
-    # the caller's pystorms scenario already has one open internally.
-    try:
-        from pyswmm.simulation import _sim_state_instance
-
-        _sim_state_instance.sim_is_instantiated = False
-    except ImportError:
-        pass
-
-    # if any are 3-tuples, chop them down to 2-tuples
-    pystorms_scenario.config["states"] = [
-        t[:-1] if len(t) == 3 else t for t in pystorms_scenario.config["states"]
-    ]
-
-    A = pd.DataFrame(
-        index=pystorms_scenario.config["states"],
-        columns=pystorms_scenario.config["states"],
-    )
-    B = pd.DataFrame(
-        index=pystorms_scenario.config["states"],
-        columns=pystorms_scenario.config["action_space"],
-    )
-
-    # print("A")
-    # print(A)
-    # print("B")
-    # print(B)
-
-    # use pyswmm to iterate through the network
-    with pyswmm.Simulation(pystorms_scenario.config["swmm_input"]) as sim:
-        # start at each subcatchment and iterate down to the outfall
-        # this should work even in the case of multiple outfalls
-        # this should capture all the causation, because ultimately everything is precip driven
-
-        # so i can view these while debugging
-        Subcatchments = pyswmm.Subcatchments(sim)
-        Nodes = pyswmm.Nodes(sim)
-        pyswmm.Links(sim)
-
-        for subcatch in pyswmm.Subcatchments(sim):
-            # print(subcatch.subcatchmentid)
-            # create a string that records the path we travel to get to the outfall
-            path_of_travel = list()
-            # can i grab the rain gage id?
-            path_of_travel.append((subcatch.subcatchmentid, "Subcatchment"))
-            current_id = (
-                subcatch.connection
-            )  # grab the id of the next object downstream
-
-            try:  # if the downstream connection is a subcatchment
-                current = Subcatchments[current_id]
-                current_id = current.subcatchmentid
-                subcatch = Subcatchments[current_id]
-                current_id = (
-                    subcatch.connection
-                )  # grab the id of the next object downstream
-                path_of_travel.append((current_id, "Subcatchment"))
-            except Exception:
-                # print("downstream connection was not another subcatchment")
-                # print(e)
-                pass
-
-            # other option is that downstream connection is a node
-            # in which case we'll start iterating down through nodes and links to the outfall
-            current = Nodes[current_id]
-            path_of_travel.append((current_id, "Node"))
-            while not current.is_outfall():
-                # print(path_of_travel)
-                # if the current object is a node, iterate through the links to find the downstream object
-                if current_id in pyswmm.Nodes(sim):
-                    for link in pyswmm.Links(sim):
-                        # print(link.linkid)
-                        if link.inlet_node == current_id:
-                            path_of_travel.append((link.linkid, "Link"))
-                            current_id = link.outlet_node
-                            path_of_travel.append((current_id, "Node"))
-                            break
-                    else:
-                        print(
-                            "current element is a sink (no link draining). verify this is correct"
-                        )
-                        print(current_id)
-                        break
-                # if the current object is a link, grab the downstream node
-                elif current_id in pyswmm.Links(sim):
-                    path_of_travel.append((link.linkid, "Link"))
-                    current_id = current.outlet_node
-                    path_of_travel.append((current_id, "Node"))
-
-                current = Nodes[current_id]
-
-            # print("path of travel")
-            # print(path_of_travel)
-            # cut all the entries in path_of_travel that are not observable states or actions
-            original_path_of_travel = path_of_travel.copy()
-
-            for step in original_path_of_travel:
-                step_is_state = False
-                step_is_control_input = False
-                for state in pystorms_scenario.config["states"]:
-                    if step[0] == state[0]:  # same id
-                        if (
-                            (step[1] == "Node" and "N" in state[1])
-                            or (step[1] == "Node" and "flooding" in state[1])
-                            or (step[1] == "Node" and "inflow" in state[1])
-                            or (step[1] == "Link" and "L" in state[1])
-                            or (step[1] == "Link" and "flow" in state[1])
-                        ):  # types match
-                            step_is_state = True
-                for control_input in pystorms_scenario.config["action_space"]:
-                    if step[0] == control_input:
-                        step_is_control_input = True
-                if not step_is_state and not step_is_control_input:
-                    path_of_travel.remove(
-                        step
-                    )  # this will change the index, hence the "while"
-            """
-            print("full path of travel")
-            print(original_path_of_travel)
-            print("observable path of travel")
-            print(path_of_travel)
-            """
-            # iterate through the path of travel and rename the steps to align with the columns and indices of A and B
-            for step in path_of_travel:
-                for state in pystorms_scenario.config["states"]:
-                    if step[0] == state[0]:  # same id
-                        if (
-                            (step[1] == "Node" and "N" in state[1])
-                            or (step[1] == "Node" and "flooding" in state[1])
-                            or (step[1] == "Node" and "inflow" in state[1])
-                            or (step[1] == "Link" and "L" in state[1])
-                            or (step[1] == "Link" and "flow" in state[1])
-                        ):  # types match
-                            path_of_travel[path_of_travel.index(step)] = state
-
-                for control_input in pystorms_scenario.config["action_space"]:
-                    if step[0] == control_input:
-                        path_of_travel[path_of_travel.index(step)] = control_input
-
-            # print("observable path of travel")
-            # print(path_of_travel)
-
-            # now, use this path of travel to update the A and B matrices
-            # print("updating A and B matrices")
-
-            # only use "i" if the entries have the same id. otherwise characterize everything as delayed, "d"
-            # because our path of travel only includes the observable states and the action space, we just need to look immediately up and downstream
-            # only looking upstream would simplify things and be sufficient for many scenarios, but it would miss backwater effects
-            for (
-                step
-            ) in path_of_travel:  # all of these are either observable states or actions
-                if (
-                    path_of_travel.index(step) == 0
-                ):  # first entry, previous step not meaningful
-                    prev_step = None
-                else:
-                    prev_step = path_of_travel[path_of_travel.index(step) - 1]
-                if (
-                    path_of_travel.index(step) == len(path_of_travel) - 1
-                ):  # last entry, next step not meaningful)
-                    next_step = None
-                else:
-                    next_step = path_of_travel[path_of_travel.index(step) + 1]
-
-                if step in pystorms_scenario.config["action_space"]:
-                    continue  # we're not learning models for the control inputs, so skip them
-
-                if prev_step and prev_step in pystorms_scenario.config["states"]:
-
-                    if (
-                        re.search(r"\d+", "".join(prev_step)).group()
-                        == re.search(r"\d+", "".join(step)).group()
-                    ):  # same integer id
-                        A.loc[[step], [prev_step]] = "i"
-                    else:
-                        A.loc[[step], [prev_step]] = "d"
-                elif (
-                    prev_step and prev_step in pystorms_scenario.config["action_space"]
-                ):
-
-                    if (
-                        re.search(r"\d+", "".join(prev_step)).group()
-                        == re.search(r"\d+", "".join(step)).group()
-                    ):  # same integer id
-                        B.loc[[step], [prev_step]] = "i"
-                    else:
-                        B.loc[[step], [prev_step]] = "d"
-                if (
-                    next_step
-                    and next_step[0] in pystorms_scenario.config["states"]
-                    or next_step in pystorms_scenario.config["states"]
-                ):
-                    # this only handles integer ids, but some models have letter ids or alphanumeric ids (pystorms scenario delta)
-                    if (
-                        re.search(r"\d+", "".join(next_step)).group()
-                        == re.search(r"\d+", "".join(step)).group()
-                    ):
-                        A.loc[[step], [next_step]] = "i"
-                    else:
-                        A.loc[[step], [next_step]] = "d"
-                elif (
-                    next_step
-                    and next_step[0] in pystorms_scenario.config["action_space"]
-                    or next_step in pystorms_scenario.config["action_space"]
-                ):
-
-                    if (
-                        re.search(r"\d+", "".join(next_step)).group()
-                        == re.search(r"\d+", "".join(step)).group()
-                    ):
-                        B.loc[[step], [next_step]] = "i"
-                    else:
-                        B.loc[[step], [next_step]] = "d"
-
-            # end of loop
-            # print(A)
-            # print(B)
-                        if ((step[1] == "Node" and "N" in state[1])
-                        or (step[1] == "Node" and 'flooding' in state[1])
-                        or (step[1] == "Node" and 'inflow' in state[1])): # node type
-                            # we've found a step in the path of travel which is an observable state
-                            # are there any other observable states or controllabe assets in the path of travel?
-                            for other_step in path_of_travel:
-                                if path_of_travel.index(step) - path_of_travel.index(other_step) > 1: # other step is not immediately upstream
-                                    continue
-                                if other_step == step:
-                                    last_step = True # we only want to look one object downstream
-                                    continue # this is the same step, so skip it
-                                    # if you want only objects that are upstream, substitude that continue with a "break"
-
-                                # we'll include states that come after the examined state in case of feedback such as backwater effects
-                                for other_state in pystorms_scenario.config['states']:
-                                    if other_step[0] == other_state[0]: # same id
-                                        if ((other_step[1] == "Node" and "N" in other_state[1])
-                                            or (other_step[1] == "Node" and 'flooding' in other_state[1])
-                                            or (other_step[1] == "Node" and 'inflow' in other_state[1])): # node type
-                                            A.loc[[state],[other_state]] = 'd'
-                                            #print(A)
-                                        elif ((other_step[1] == "Link" and "L" in other_state[1])
-                                            or (other_step[1] == "Link" and 'flow' in other_state[1])):
-                                            A.loc[[state],[other_state]] = 'd'
-                                            #print(A)
-                                for control_asset in pystorms_scenario.config['action_space']:
-                                    if other_step[0] == control_asset[0]:
-                                        B.loc[[state],[control_asset]] = 'd'
-                                        #print(B)
-                                if last_step: # just look at the next little bit downstream for backwater effects
-                                    break
-
-
-                        elif ((step[1] == "Link" and "L" in state[1])
-                                or (step[1] == "Link" and 'flow' in state[1])):
-                            for other_step in path_of_travel:
-                                if path_of_travel.index(step) - path_of_travel.index(other_step) > 1: # other step is not immediately upstream
-                                    continue
-                                if other_step == step:
-                                    last_step = True # we only want to look a limited distance downstream
-                                    continue # this is the same step, so skip it
-                                for other_state in pystorms_scenario.config['states']:
-                                    if other_step[0] == other_state[0]: # same id
-                                        if ((other_step[1] == "Node" and "N" in other_state[1])
-                                            or (other_step[1] == "Node" and 'flooding' in other_state[1])
-                                            or (other_step[1] == "Node" and 'inflow' in other_state[1])): # node type
-                                            A.loc[[state],[other_state]] = 'd'
-                                            #print(A)
-                                        elif ((other_step[1] == "Link" and "L" in other_state[1])
-                                            or (other_step[1] == "Link" and 'flow' in other_state[1])):
-                                            A.loc[[state],[other_state]] = 'd'
-                                            #print(A)
-                                for control_asset in pystorms_scenario.config['action_space']:
-                                    if other_step[0] == control_asset[0]:
-                                        B.loc[[state],[control_asset]] = 'd'
-                                if last_step: # just look at the next little bit downstream for backwater effects
-                                    break
-                for action in pystorms_scenario.config['action_space']:
-                    if step[0] == action[0] or step[0] == action:
-                        print(step)
-                        print(action)
-                # end of loop
-            # print(A)
-            # print(B)
-
-    # add "i's" on the diagonal of A (instantaneous autocorrelatoin)
-    for idx in A.index:
-        A.loc[[idx], [idx]] = "i"
-    # fill the na's in A and B with 'n'
-    A.fillna("n", inplace=True)
-    B.fillna("n", inplace=True)
-
-    # concatenate the A and B matrices column-wise and return that result
-    causative_topology = pd.concat([A, B], axis=1)
-
-    # print(causative_topology)
-
-    return causative_topology
-
-
-# this is for visuzliation, not building models.
-# to build models, use the function above
-def subway_map_from_pystorms(pystorms_scenario):
-    # remove any duplicates in the state or action space of the config
-    # this is an error within pystorms
-    pystorms_scenario.config["states"] = list(
-        dict.fromkeys(pystorms_scenario.config["states"])
-    )
-    pystorms_scenario.config["action_space"] = list(
-        dict.fromkeys(pystorms_scenario.config["action_space"])
-    )
-
-    # make the index the concatentation of the states and action space
-    index = list(
-        list(pystorms_scenario.config["states"])
-        + list(pystorms_scenario.config["action_space"])
-    )
-
-    adjacency = pd.DataFrame(index=index, columns=index).fillna(0)
-
-    # use pyswmm to iterate through the network
-    with pyswmm.Simulation(pystorms_scenario.config["swmm_input"]) as sim:
-        # start at each subcatchment and iterate down to the outfall
-        # this should work even in the case of multiple outfalls
-        # this should capture all the causation, because ultimately everything is precip driven
-
-        # so i can view these while debugging
-        Subcatchments = pyswmm.Subcatchments(sim)
-        Nodes = pyswmm.Nodes(sim)
-        pyswmm.Links(sim)
-
-        for subcatch in pyswmm.Subcatchments(sim):
-            # print(adjacency)
-            # print(subcatch.subcatchmentid)
-            # create a string that records the path we travel to get to the outfall
-            path_of_travel = list()
-            # can i grab the rain gage id?
-            path_of_travel.append((subcatch.subcatchmentid, "Subcatchment"))
-            current_id = (
-                subcatch.connection
-            )  # grab the id of the next object downstream
-
-            try:  # if the downstream connection is a subcatchment
-                current = Subcatchments[current_id]
-                current_id = current.subcatchmentid
-                subcatch = Subcatchments[current_id]
-                current_id = (
-                    subcatch.connection
-                )  # grab the id of the next object downstream
-                path_of_travel.append((current_id, "Subcatchment"))
-            except Exception:
-                # print("downstream connection was not another subcatchment")
-                # print(e)
-                pass
-
-            # other option is that downstream connection is a node
-            # in which case we'll start iterating down through nodes and links to the outfall
-            current = Nodes[current_id]
-            path_of_travel.append((current_id, "Node"))
-            while not current.is_outfall():
-                # print(path_of_travel)
-                # if the current object is a node, iterate through the links to find the downstream object
-                if current_id in pyswmm.Nodes(sim):
-                    for link in pyswmm.Links(sim):
-                        # print(link.linkid)
-                        if link.inlet_node == current_id:
-                            path_of_travel.append((link.linkid, "Link"))
-                            current_id = link.outlet_node
-                            path_of_travel.append((current_id, "Node"))
-                            break
-                    else:
-                        print(
-                            "current element is a sink (no link draining). verify this is correct"
-                        )
-                        print(current_id)
-                        break
-                # if the current object is a link, grab the downstream node
-                elif current_id in pyswmm.Links(sim):
-                    path_of_travel.append((link.linkid, "Link"))
-                    current_id = current.outlet_node
-                    path_of_travel.append((current_id, "Node"))
-
-                current = Nodes[current_id]
-
-            # print("path of travel")
-            # print(path_of_travel)
-            # cut all the entries in path_of_travel that are not observable states or actions
-            original_path_of_travel = path_of_travel.copy()
-
-            for step in original_path_of_travel:
-                step_is_state = False
-                step_is_control_input = False
-                for state in pystorms_scenario.config["states"]:
-                    if step[0] == state[0]:  # same id
-                        if (
-                            (step[1] == "Node" and "N" in state[1])
-                            or (step[1] == "Node" and "flooding" in state[1])
-                            or (step[1] == "Node" and "inflow" in state[1])
-                            or (step[1] == "Link" and "L" in state[1])
-                            or (step[1] == "Link" and "flow" in state[1])
-                        ):  # types match
-                            step_is_state = True
-                for control_input in pystorms_scenario.config["action_space"]:
-                    if step[0] == control_input:
-                        step_is_control_input = True
-                if not step_is_state and not step_is_control_input:
-                    path_of_travel.remove(
-                        step
-                    )  # this will change the index, hence the "while"
-
-            # print("full path of travel")
-            # print(original_path_of_travel)
-            # print("observable path of travel")
-            # print(path_of_travel)
-
-            # iterate through the path of travel and rename the steps to align with the columns of the adjacency
-            for step in path_of_travel:
-                for state in pystorms_scenario.config["states"]:
-                    if step[0] == state[0]:  # same id
-                        if (
-                            (step[1] == "Node" and "N" in state[1])
-                            or (step[1] == "Node" and "flooding" in state[1])
-                            or (step[1] == "Node" and "inflow" in state[1])
-                            or (step[1] == "Link" and "L" in state[1])
-                            or (step[1] == "Link" and "flow" in state[1])
-                        ):  # types match
-                            path_of_travel[path_of_travel.index(step)] = state
-
-                for control_input in pystorms_scenario.config["action_space"]:
-                    if step[0] == control_input:
-                        path_of_travel[path_of_travel.index(step)] = control_input
-
-            # print("observable path of travel")
-            # print(path_of_travel)
-
-            # now, use this path of travel to update the adjacency
-
-            # only use "i" if the entries have the same id. otherwise characterize everything as delayed, "d"
-            # because our path of travel only includes the observable states and the action space, we just need to look immediately up and downstream
-            # only looking upstream would simplify things and be sufficient for many scenarios, but it would miss backwater effects
-            for (
-                step
-            ) in path_of_travel:  # all of these are either observable states or actions
-                if (
-                    path_of_travel.index(step) == 0
-                ):  # first entry, previous step not meaningful
-                    prev_step = None
-                else:
-                    prev_step = path_of_travel[path_of_travel.index(step) - 1]
-                if (
-                    path_of_travel.index(step) == len(path_of_travel) - 1
-                ):  # last entry, next step not meaningful
-                    next_step = None
-                else:
-                    next_step = path_of_travel[path_of_travel.index(step) + 1]
-
-                # formatted as from row to column
-                if prev_step:
-                    adjacency.loc[[prev_step], [step]] = 1
-                if next_step:
-                    adjacency.loc[[step], [next_step]] = 1
-
-    graph = nx.from_pandas_adjacency(adjacency, create_using=nx.DiGraph)
-    if not nx.is_directed_acyclic_graph(graph):
-        print("graph is not a DAG")
-        plt.figure(figsize=(20, 10))
-        pos = nx.planar_layout(graph)
-        nx.draw_networkx_nodes(graph, pos, node_size=500)
-        nx.draw_networkx_labels(graph, pos, font_size=12)
-        nx.draw_networkx_edges(
-            graph, pos, arrows=True, arrowsize=30, style="solid", alpha=1.0
-        )
-        plt.show()
-
-    # we're now gauranteed to have a directed acycilce graph, so get the topological generations and use that as the subset key
-    gens = nx.topological_generations(graph)
-    gen_idx = 1
-    for generation in gens:
-        # print(generation)
-        for node in graph.nodes:
-            if node in generation:
-                graph.nodes[node]["generation"] = gen_idx
-        gen_idx += 1
-
-    # but to draw without overlaps, we need to partition by the root node, not the generation
-    # give each node a key corresponding to its most distant ancestor
-    # then, we can use that key to partition the nodes and draw them in separate columns
-    for node in graph.nodes:
-        # print(node)
-        # print(nx.ancestors(graph,node))
-        ancestors = nx.ancestors(graph, node)
-        most_distant_ancestor = node
-        for ancestor in ancestors:
-            distance = nx.shortest_path_length(graph, ancestor, node)
-            if distance > nx.shortest_path_length(graph, most_distant_ancestor, node):
-                most_distant_ancestor = ancestor
-        graph.nodes[node]["root"] = most_distant_ancestor
-        # print(most_distant_ancestor)
-
-    return {"adjacency": adjacency, "index": index, "graph": graph}
