@@ -1,0 +1,26 @@
+Metadata-Version: 2.4
+Name: modpods
+Version: 0.1.0
+Summary: Model Discovery in Partially Observable Dynamical Systems
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: numpy>=1.24
+Requires-Dist: pandas>=2.0
+Requires-Dist: scipy>=1.10
+Requires-Dist: matplotlib>=3.7
+Requires-Dist: control>=0.9
+Requires-Dist: pysindy>=2.0
+Requires-Dist: cvxpy>=1.3
+Requires-Dist: networkx>=3.0
+Requires-Dist: pyswmm>=2.0
+Requires-Dist: pystorms>=1.0
+Requires-Dist: statsmodels>=0.14
+Requires-Dist: dill>=0.3
+Dynamic: license-file
+
+# modpods
+ Model Discovery in Partially Observable Dynamical Systems
+
+ [![DOI](https://zenodo.org/badge/636838701.svg)](https://zenodo.org/badge/latestdoi/636838701)
+

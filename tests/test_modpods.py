@@ -446,26 +446,6 @@ def test_delay_io_predict_returns_expected_shape(
 
 
 @pytest.fixture(scope="module")
-def compass_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
-    """Train a model using the default compass-search optimizer."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        model = modpods.delay_io_train(
-            simple_lti_data,
-            dependent_columns=["x1"],
-            independent_columns=["u"],
-            windup_timesteps=0,
-            init_transforms=1,
-            max_transforms=1,
-            max_iter=20,
-            poly_order=1,
-            verbose=False,
-            optimization_method="compass_search",
-        )
-    return cast(dict[Any, Any], model)
-
-
-@pytest.fixture(scope="module")
 def bayesian_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
     """Train a model using Bayesian optimization."""
     with warnings.catch_warnings():
@@ -485,16 +465,44 @@ def bayesian_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
     return cast(dict[Any, Any], model)
 
 
-def test_compass_search_returns_valid_model(
-    compass_model: dict[Any, Any],
-) -> None:
-    """Compass-search optimizer must return a well-formed model dict."""
-    assert isinstance(compass_model, dict)
-    assert 1 in compass_model
-    assert "final_model" in compass_model[1]
-    assert "error_metrics" in compass_model[1]["final_model"]
-    r2 = float(compass_model[1]["final_model"]["error_metrics"]["r2"])
-    assert r2 > -1.0, f"Compass R² {r2:.4f} is unreasonably low"
+@pytest.fixture(scope="module")
+def de_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
+    """Train a model using differential evolution optimization."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=20,
+            poly_order=1,
+            verbose=False,
+            optimization_method="differential_evolution",
+        )
+    return cast(dict[Any, Any], model)
+
+
+@pytest.fixture(scope="module")
+def da_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
+    """Train a model using dual annealing optimization."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=20,
+            poly_order=1,
+            verbose=False,
+            optimization_method="dual_annealing",
+        )
+    return cast(dict[Any, Any], model)
 
 
 def test_bayesian_returns_valid_model(
@@ -509,56 +517,87 @@ def test_bayesian_returns_valid_model(
     assert r2 > -1.0, f"Bayesian R² {r2:.4f} is unreasonably low"
 
 
-def test_both_methods_produce_comparable_r2(
-    compass_model: dict[Any, Any],
-    bayesian_model: dict[Any, Any],
+def test_differential_evolution_returns_valid_model(
+    de_model: dict[Any, Any],
 ) -> None:
-    """Both optimization methods should achieve similar R² on the same data.
+    """Differential evolution optimizer must return a well-formed model dict."""
+    assert isinstance(de_model, dict)
+    assert 1 in de_model
+    assert "final_model" in de_model[1]
+    assert "error_metrics" in de_model[1]["final_model"]
+    r2 = float(de_model[1]["final_model"]["error_metrics"]["r2"])
+    assert r2 > -1.0, f"DE R² {r2:.4f} is unreasonably low"
+
+
+def test_dual_annealing_returns_valid_model(
+    da_model: dict[Any, Any],
+) -> None:
+    """Dual annealing optimizer must return a well-formed model dict."""
+    assert isinstance(da_model, dict)
+    assert 1 in da_model
+    assert "final_model" in da_model[1]
+    assert "error_metrics" in da_model[1]["final_model"]
+    r2 = float(da_model[1]["final_model"]["error_metrics"]["r2"])
+    assert r2 > -1.0, f"DA R² {r2:.4f} is unreasonably low"
+
+
+def test_all_methods_produce_comparable_r2(
+    bayesian_model: dict[Any, Any],
+    de_model: dict[Any, Any],
+    da_model: dict[Any, Any],
+) -> None:
+    """All optimization methods should achieve similar R² on the same data.
 
     The difference in R² should be within a reasonable margin, confirming
-    that both methods solve the same underlying optimization problem.
+    that all methods solve the same underlying optimization problem.
     """
-    r2_compass = float(compass_model[1]["final_model"]["error_metrics"]["r2"])
     r2_bayesian = float(bayesian_model[1]["final_model"]["error_metrics"]["r2"])
-    # Both should be positive (reasonable fit)
-    assert r2_compass > 0.0, f"Compass R² {r2_compass:.4f} is non-positive"
+    r2_de = float(de_model[1]["final_model"]["error_metrics"]["r2"])
+    r2_da = float(da_model[1]["final_model"]["error_metrics"]["r2"])
+    # All should be positive (reasonable fit)
     assert r2_bayesian > 0.0, f"Bayesian R² {r2_bayesian:.4f} is non-positive"
-    # Neither method should be dramatically worse than the other
-    assert abs(r2_compass - r2_bayesian) < 0.5, (
-        f"Methods diverge too much: compass={r2_compass:.4f}, "
-        f"bayesian={r2_bayesian:.4f}"
+    assert r2_de > 0.0, f"DE R² {r2_de:.4f} is non-positive"
+    assert r2_da > 0.0, f"DA R² {r2_da:.4f} is non-positive"
+    # No method should be dramatically worse than the others
+    assert abs(r2_bayesian - r2_de) < 0.5, (
+        f"Methods diverge too much: bayesian={r2_bayesian:.4f}, " f"de={r2_de:.4f}"
+    )
+    assert abs(r2_bayesian - r2_da) < 0.5, (
+        f"Methods diverge too much: bayesian={r2_bayesian:.4f}, " f"da={r2_da:.4f}"
+    )
+    assert abs(r2_de - r2_da) < 0.5, (
+        f"Methods diverge too much: de={r2_de:.4f}, " f"da={r2_da:.4f}"
     )
 
 
-def test_compass_and_bayesian_predictions_agree(
-    compass_model: dict[Any, Any],
+def test_all_methods_predictions_agree(
     bayesian_model: dict[Any, Any],
+    de_model: dict[Any, Any],
+    da_model: dict[Any, Any],
     simple_lti_data: pd.DataFrame,
 ) -> None:
-    """Predictions from compass and Bayesian models should broadly agree."""
+    """Predictions from all optimization methods should broadly agree."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        pred_compass = modpods.delay_io_predict(
-            compass_model, simple_lti_data, num_transforms=1
-        )
         pred_bayesian = modpods.delay_io_predict(
             bayesian_model, simple_lti_data, num_transforms=1
         )
-    assert "prediction" in pred_compass
+        pred_de = modpods.delay_io_predict(de_model, simple_lti_data, num_transforms=1)
+        pred_da = modpods.delay_io_predict(da_model, simple_lti_data, num_transforms=1)
     assert "prediction" in pred_bayesian
-    p_c = pred_compass["prediction"].ravel()
+    assert "prediction" in pred_de
+    assert "prediction" in pred_da
     p_b = pred_bayesian["prediction"].ravel()
-    assert p_c.shape == p_b.shape, "Prediction shapes differ between methods"
-    # Both predictions must be finite (no NaN or Inf)
-    assert np.all(np.isfinite(p_c)), "Compass predictions contain NaN/Inf"
+    p_de = pred_de["prediction"].ravel()
+    p_da = pred_da["prediction"].ravel()
+    # Predictions should be correlated
+    assert np.corrcoef(p_b, p_de)[0, 1] > 0.5, "Bayesian and DE predictions diverge"
+    assert np.corrcoef(p_b, p_da)[0, 1] > 0.5, "Bayesian and DA predictions diverge"
+    assert np.corrcoef(p_de, p_da)[0, 1] > 0.5, "DE and DA predictions diverge"
+    # All predictions must be finite (no NaN or Inf)
     assert np.all(np.isfinite(p_b)), "Bayesian predictions contain NaN/Inf"
-    # Correlation of predictions should be high (both are fitting the same signal)
-    # Guard against constant predictions (std == 0) which yield undefined correlation
-    if p_c.std() > 0 and p_b.std() > 0:
-        corr = float(np.corrcoef(p_c, p_b)[0, 1])
-        assert (
-            corr > 0.5
-        ), f"Compass and Bayesian predictions are poorly correlated: {corr:.4f}"
+    assert np.all(np.isfinite(p_de)), "DE predictions contain NaN/Inf"
+    assert np.all(np.isfinite(p_da)), "DA predictions contain NaN/Inf"
 
 
 # ---------------------------------------------------------------------------
@@ -572,13 +611,13 @@ def test_infer_causative_topology_returns_dataframe(
     """infer_causative_topology must return a (DataFrame, DataFrame) tuple."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = modpods.infer_causative_topology(
+        result = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
             verbose=False,
             max_iter=0,
-            method="granger",
+            method="sindy",
         )
     assert isinstance(result, tuple) and len(result) == 2
     causative_topo, total_graph = result
@@ -589,16 +628,16 @@ def test_infer_causative_topology_returns_dataframe(
 def test_infer_causative_topology_identifies_u1_causes_x2(
     cascade_lti_system_data: pd.DataFrame,
 ) -> None:
-    """Granger causality must identify u1 as a cause of x2 (delayed cascade)."""
+    """SINDy causality must identify u1 as a cause of x2 (delayed cascade)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(
+        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
             verbose=False,
             max_iter=0,
-            method="granger",
+            method="sindy",
         )
     assert (
         causative_topo.loc["x2", "u1"] == "d"
@@ -608,16 +647,16 @@ def test_infer_causative_topology_identifies_u1_causes_x2(
 def test_infer_causative_topology_identifies_u2_causes_x8(
     cascade_lti_system_data: pd.DataFrame,
 ) -> None:
-    """Granger causality must identify u2 as a cause of x8 (direct link)."""
+    """SINDy causality must identify u2 as a cause of x8 (direct link)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(
+        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
             verbose=False,
             max_iter=0,
-            method="granger",
+            method="sindy",
         )
     assert (
         causative_topo.loc["x8", "u2"] == "d"
@@ -630,13 +669,13 @@ def test_infer_causative_topology_no_self_loops(
     """No variable should be identified as causing itself."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(
+        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
             verbose=False,
             max_iter=0,
-            method="granger",
+            method="sindy",
         )
     for dep_var in ["x2", "x8", "x9"]:
         assert (
@@ -699,77 +738,7 @@ def test_lti_system_gen_returns_state_space(
     assert response.outputs.shape[0] == 3, "expected 3 outputs (x2, x8, x9)"
 
 
-# ---------------------------------------------------------------------------
-# topo_from_pystorms tests  (from test_topo_from_swmm.py and
-#                             test_lti_control_of_swmm.py) — SLOW
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.slow
-def test_topo_from_pystorms_zeta_returns_dataframe() -> None:
-    """topo_from_pystorms on the zeta scenario must return a non-empty DataFrame
-    whose index and columns correspond to the scenario's state variables."""
-    pystorms = pytest.importorskip("pystorms")
-    env = pystorms.scenarios.zeta()
-    topo = modpods.topo_from_pystorms(env)
-
-    assert isinstance(topo, pd.DataFrame)
-    assert topo.shape[0] > 0, "topology DataFrame must have at least one row"
-    # All cells should be 'n', 'i', or 'd'
-    valid_values = {"n", "i", "d"}
-    for val in topo.values.flat:
-        assert val in valid_values, f"unexpected cell value '{val}' in topology"
-
-
-@pytest.mark.slow
-def test_topo_from_pystorms_zeta_has_self_connections() -> None:
-    """topo_from_pystorms (zeta) must mark each state as influencing itself ('i')."""
-    pystorms = pytest.importorskip("pystorms")
-    env = pystorms.scenarios.zeta()
-    topo = modpods.topo_from_pystorms(env)
-
-    for state in topo.index:
-        if state in topo.columns:
-            # Use .at[] to avoid pandas MultiIndex interpretation of tuple keys
-            assert (
-                topo.at[state, state] == "i"
-            ), f"state {state!r} should have self-connection 'i'"
-
-
-@pytest.mark.slow
-def test_topo_from_pystorms_gamma_after_characterization() -> None:
-    """After running a characterization simulation of the gamma scenario,
-    topo_from_pystorms must successfully infer the network topology."""
-    pystorms = pytest.importorskip("pystorms")
-    np.random.seed(42)
-
-    # Run characterization simulation (randomly opens/closes valves)
-    env = pystorms.scenarios.gamma()
-    done = False
-    step = 0
-    actions_characterize = np.ones(4)
-    while not done:
-        if step % 1000 == 0:
-            actions_characterize = np.ones(4) * 0.3
-            actions_characterize[np.random.randint(0, 4)] = np.random.rand()
-        done = env.step(np.concatenate((actions_characterize, np.ones(7)), axis=0))
-        step += 1
-
-    # Restrict state/action space to the first 4 controlled basins
-    dependent_columns = env.config["states"][4:8]
-    independent_columns = [
-        c for c in env.config["action_space"] if c not in dependent_columns
-    ]
-    env.config["states"] = dependent_columns
-    env.config["action_space"] = independent_columns
-
-    topo = modpods.topo_from_pystorms(env)
-
-    assert isinstance(topo, pd.DataFrame)
-    assert topo.shape[0] > 0
-
-
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------# ---------------------------------------------------------------------------
 # CAMELS rainfall-runoff tests  (from test.py) — SLOW (uses data file)
 # ---------------------------------------------------------------------------
 
