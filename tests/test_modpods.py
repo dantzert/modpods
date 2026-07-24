@@ -611,7 +611,7 @@ def test_infer_causative_topology_returns_dataframe(
     """infer_causative_topology must return a (DataFrame, DataFrame) tuple."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        result = modpods.infer_causative_topology(
+        result = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
@@ -631,7 +631,7 @@ def test_infer_causative_topology_identifies_u1_causes_x2(
     """SINDy causality must identify u1 as a cause of x2 (delayed cascade)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(
+        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
@@ -650,7 +650,7 @@ def test_infer_causative_topology_identifies_u2_causes_x8(
     """SINDy causality must identify u2 as a cause of x8 (direct link)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(
+        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
@@ -669,7 +669,7 @@ def test_infer_causative_topology_no_self_loops(
     """No variable should be identified as causing itself."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(
+        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
