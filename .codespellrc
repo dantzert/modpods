@@ -1,0 +1,3 @@
+[codespell]
+skip = .git,*.svg,*.png,*.jpg,*.jpeg,*.gif,*.ico,*.pdf,*.zip,*.tar.gz,*.whl,.venv,.vs,__pycache__
+ignore-words-list = Bu,gage,Gage,modpods,sindy,SINDy,pysindy,NSE,HFV,LFV,FDC,LTI,SWMM,pystorms,pyswmm,RAIM,PET,PRCP,CAMELS,USGS,configparser,argparse

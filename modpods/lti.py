@@ -108,8 +108,8 @@ def lti_from_gamma(
         # search across the C vector
         for i in range(
             C.shape[1] - 1, int(-1), int(-1)
-        ):  # accross the columns # start at the end and come back
-            # for i in range(int(0),C.shape[1],int(1)): # accross the columns, start at the beginning and go forward
+        ):  # across the columns # start at the end and come back
+            # for i in range(int(0),C.shape[1],int(1)): # across the columns, start at the beginning and go forward
 
             og_approx = control.ss(A, B, C, 0)
             og_y = np.ndarray.flatten(control.impulse_response(og_approx, t).y)
@@ -437,7 +437,7 @@ def lti_system_gen(
     for row in original_A.index:
         if delay_models[row] is None:
             pass
-        else:  # we want the model with the most transformations where the last trnasformation added at least 0.5% to the R2 score
+        else:  # we want the model with the most transformations where the last transformation added at least 0.5% to the R2 score
             for num_transforms in range(1, max_transforms + 1):
                 if num_transforms == 1:
                     optimal_number_transforms = num_transforms
@@ -654,7 +654,7 @@ def lti_system_gen(
     C = C.apply(pd.to_numeric, errors="coerce").fillna(0.0)
 
     # if bibo_stable is specified and A not hurwitz, make A hurwitz by defining A' = A - I*max(real(eig(A)))
-    # this will gaurantee stability (max eigenvalue will have real part < 0)
+    # this will guarantee stability (max eigenvalue will have real part < 0)
     if bibo_stable:
         orig_eigs, _ = np.linalg.eig(A)
         if any(np.real(orig_eigs) > 0):
@@ -662,7 +662,7 @@ def lti_system_gen(
             epsilon = 10e-4
             A_stab = A - np.eye(len(A)) * (1 + epsilon) * max(
                 np.real(orig_eigs)
-            )  # add factor of (1+epsilon) for stability, not marginal stabilty
+            )  # add factor of (1+epsilon) for stability, not marginal stability
             stab_eigs, _ = np.linalg.eig(A_stab)
             A = A_stab.copy(deep=True)
 
