@@ -3,7 +3,7 @@ import pandas as pd
 
 import modpods
 
-# basic funcionality tests and a bit of a tutorial
+# basic functionality tests and a bit of a tutorial
 
 # some data from the CAMELS dataset
 # change the filepath to wherever you have modpods at
