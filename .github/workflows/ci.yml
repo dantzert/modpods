@@ -28,8 +28,11 @@ jobs:
       - name: Lint with ruff
         run: ruff check .
 
+      - name: Lint with codespell
+        run: codespell .
+
       - name: Type-check with mypy
         run: mypy . --ignore-missing-imports
 
       - name: Run tests with pytest
-        run: pytest tests/ -v
+        run: pytest tests/ -v --junitxml=junit.xml --cov=modpods --cov-report=xml -n auto
