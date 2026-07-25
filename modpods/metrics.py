@@ -14,11 +14,7 @@ def compute_basic_metrics(y_true, y_pred):
     error = y_true - y_pred
     mae = float(np.mean(np.abs(error)))
     rmse = float(np.sqrt(np.mean(error**2)))
-    nse = float(
-        1
-        - np.sum(error**2)
-        / np.sum((y_true - np.mean(y_true)) ** 2)
-    )
+    nse = float(1 - np.sum(error**2) / np.sum((y_true - np.mean(y_true)) ** 2))
     alpha = float(np.std(y_pred) / np.std(y_true))
     beta = float(np.mean(y_pred) / np.mean(y_true))
     return {
