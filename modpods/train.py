@@ -275,10 +275,12 @@ def delay_io_train(
                     return -1.0
 
             # Bayesian optimization
-            # Use more iterations for Bayesian optimization to build a good surrogate model
-            # Cap at 200 to avoid memory issues with GP fitting
+            # Bayesian optimization: bias toward exploration (cheap random samples)
+            # rather than expensive GP refinement. The objective (SINDy fit) is the
+            # dominant cost, so spend the budget on broad initial sampling and only
+            # a few informed iterations.
             bayesian_max_iter = min(max_iter * 4, 200)
-            n_initial = min(20, max(10, bayesian_max_iter // 4))
+            n_initial = min(30, max(20, int(bayesian_max_iter * 0.6)))
             X_sample_list: list[Any] = []
             Y_sample_list: list[Any] = []
 
@@ -299,10 +301,10 @@ def delay_io_train(
             best_params: np.ndarray = X_sample[np.argmax(Y_sample)]
 
             # Gaussian Process setup
-            kernel = Matern(length_scale=1.0, nu=2.5)
+            kernel = Matern(length_scale=1.0, nu=1.5)
             gpr = GaussianProcessRegressor(
                 kernel=kernel,
-                alpha=1e-6,
+                alpha=1e-3,
                 normalize_y=True,
                 n_restarts_optimizer=5,
                 random_state=42,
