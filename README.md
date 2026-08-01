@@ -2,8 +2,6 @@
 
 Model Discovery in Partially Observable Dynamical Systems
 
-[![DOI](https://zenodo.org/badge/636838701.svg)](https://zenodo.org/badge/latestdoi/636838701)
-
 modpods discovers governing equations from time-series data using SINDy-based
 sparse regression with gamma-distribution convolution kernels. It is designed for
 practitioners who want to fit interpretable dynamical models to their data with
@@ -99,21 +97,4 @@ Generate an LTI system whose impulse response matches a given gamma distribution
 
 ## Citation
 
-If you use modpods in your work, please cite the Zenodo release:
-
-```
-@software{modpods,
-  author       = {Dietrich Gebert},
-  title        = {modpods: Model Discovery in Partially Observable Dynamical Systems},
-  version      = {0.1.0},
-  doi          = {10.5281/zenodo.6368387},
-  url          = {https://github.com/dantzert/modpods}
-}
-```
-
-If you find modpods useful in your work, please consider citing the original
-paper that introduced the methodology.
-
-## License
-
-MIT
+Original paper is https://doi.org/10.1016/j.advwatres.2024.104796
