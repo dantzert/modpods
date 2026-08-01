@@ -13,12 +13,11 @@ minimal configuration.
 pip install modpods
 ```
 
-> **TODO:** modpods is not yet published on PyPI. Until the package is added to the
-> Python Package Index, install from the source repository:
->
-> ```bash
-> pip install .
-> ```
+Or with [uv](https://github.com/astral-sh/uv):
+
+```bash
+uv add modpods
+```
 
 ## Quick Start
 
