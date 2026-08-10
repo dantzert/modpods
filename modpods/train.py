@@ -121,9 +121,6 @@ def delay_io_train(
     response = system_data[dependent_columns].copy(deep=True)
 
     results = dict()  # to store the optimized models for each number of transformations
-    prev_model = (
-        None  # will hold the initial model for the current number of transforms
-    )
 
     if transform_dependent:
         shape_factors = pd.DataFrame(
@@ -331,26 +328,6 @@ def delay_io_train(
                     loc_factors.loc[transform, col] = best_params[idx + 2]
                     idx += 3
 
-            # Use the optimized parameters for final evaluation
-            prev_model = SINDY_delays_MI(
-                shape_factors,
-                scale_factors,
-                loc_factors,
-                system_data.index,
-                forcing,
-                response,
-                extra_verbose,
-                poly_order,
-                include_bias,
-                include_interaction,
-                windup_timesteps,
-                bibo_stable,
-                transform_dependent=transform_dependent,
-                transform_only=transform_only,
-                forcing_coef_constraints=forcing_coef_constraints,
-                transform_cache=_transform_cache,
-            )
-
         else:
             # Use scipy.optimize for all other methods (differential_evolution, dual_annealing,
             # basinhopping, shgo, direct, etc.)
@@ -446,26 +423,6 @@ def delay_io_train(
                     loc_factors.loc[transform, col] = best_params[idx + 2]
                     idx += 3
 
-            # Use the optimized parameters for final evaluation
-            prev_model = SINDY_delays_MI(
-                shape_factors,
-                scale_factors,
-                loc_factors,
-                system_data.index,
-                forcing,
-                response,
-                extra_verbose,
-                poly_order,
-                include_bias,
-                include_interaction,
-                windup_timesteps,
-                bibo_stable,
-                transform_dependent=transform_dependent,
-                transform_only=transform_only,
-                forcing_coef_constraints=forcing_coef_constraints,
-                transform_cache=_transform_cache,
-            )
-
         # For bayesian and scipy.optimize methods, we're done with optimization
         print("\nOptimization complete. Using optimized parameters for final model.")
         final_model = SINDY_delays_MI(
@@ -492,7 +449,7 @@ def delay_io_train(
         except Exception as e:
             print(e)
         print("R^2")
-        print(prev_model["error_metrics"]["r2"])
+        print(final_model["error_metrics"]["r2"])
         print("shape factors")
         print(shape_factors)
         print("scale factors")
