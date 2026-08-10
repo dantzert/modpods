@@ -524,6 +524,5 @@ def delay_io_train(
                 " % to R2 score. Terminating early.",
             )
             break
-        continue
 
     return results
