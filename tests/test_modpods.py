@@ -498,7 +498,7 @@ def test_delay_io_train_with_underdamped_kernel(simple_lti_data: pd.DataFrame) -
             max_transforms=1,
             max_iter=5,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
             kernel="underdamped",
         )
     assert isinstance(model, dict)
