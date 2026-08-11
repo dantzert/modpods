@@ -1,3 +1,4 @@
+import logging
 from typing import Any, cast
 
 import numpy as np
@@ -5,8 +6,11 @@ import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern
 
+from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .model import SINDY_delays_MI
 from .transforms import _expected_improvement, _propose_location, _transform_cache
+
+logger = logging.getLogger(__name__)
 
 
 def _run_scipy_optimizer(
@@ -14,7 +18,7 @@ def _run_scipy_optimizer(
     objective_function,
     bounds: np.ndarray,
     max_iter: int,
-    verbose: bool,
+    verbose: Verbosity,
     optimizer_kwargs: dict,
 ) -> np.ndarray:
     """
@@ -80,17 +84,22 @@ def _run_scipy_optimizer(
             f"or 'bayesian' for built-in Bayesian optimization."
         )
 
-    if verbose:
-        print(f"  Running scipy.optimize.{optimization_method} with params: {params}")
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
+        logger.info(
+            "Running scipy.optimize.%s with params: %s", optimization_method, params
+        )
 
     # Run the optimizer
     result = optimizer(objective_function, bounds, **params)
 
-    if verbose:
-        print(
-            f"  Optimization complete. Success: {result.success}, Message: {result.message}"
+    if _normalize_verbose(verbose) != "warnings":
+        logger.info(
+            "Optimization complete. Success: %s, Message: %s",
+            result.success,
+            result.message,
         )
-        print(f"  Best value: {-result.fun:.6f} (R²)")
+        logger.info("Best value: %.6f (R²)", -result.fun)
 
     return result.x  # type: ignore[no-any-return]
 
@@ -105,8 +114,7 @@ def delay_io_train(
     max_iter=250,
     poly_order=3,
     transform_dependent=False,
-    verbose=False,
-    extra_verbose=False,
+    verbose: Verbosity = "warnings",
     include_bias=False,
     include_interaction=False,
     bibo_stable=False,
@@ -116,6 +124,9 @@ def delay_io_train(
     optimization_method="bayesian",
     **optimizer_kwargs,
 ):
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
+
     forcing = system_data[independent_columns].copy(deep=True)
 
     response = system_data[dependent_columns].copy(deep=True)
@@ -166,8 +177,7 @@ def delay_io_train(
         )
         loc_factors.iloc[0, :] = 0  # first transformation is [1,1,0] for each input
     for num_transforms in range(init_transforms, max_transforms + 1):
-        print("num_transforms")
-        print(num_transforms)
+        logger.debug("num_transforms %s", num_transforms)
         if not num_transforms == init_transforms:  # if we're not starting right now
             # start dull
             shape_factors.iloc[num_transforms - 1, :] = 10 * (
@@ -175,18 +185,20 @@ def delay_io_train(
             )  # start with a broad peak centered at ten timesteps
             scale_factors.iloc[num_transforms - 1, :] = 1
             loc_factors.iloc[num_transforms - 1, :] = 0
-            if verbose:
-                print(
+            if _normalize_verbose(verbose) != "warnings":
+                logger.debug(
                     "starting factors for additional transformation\nshape\nscale\nlocation"
                 )
-                print(shape_factors)
-                print(scale_factors)
-                print(loc_factors)
+                logger.debug("%s", shape_factors)
+                logger.debug("%s", scale_factors)
+                logger.debug("%s", loc_factors)
 
         # Choose optimization method
         if optimization_method == "bayesian":
-            if verbose:
-                print(f"Using Bayesian optimization for {num_transforms} transforms...")
+            if _normalize_verbose(verbose) != "warnings":
+                logger.info(
+                    "Using Bayesian optimization for %s transforms...", num_transforms
+                )
 
             # Determine which columns to transform
             if transform_dependent:
@@ -245,15 +257,16 @@ def delay_io_train(
                         transform_only,
                         forcing_coef_constraints,
                         transform_cache=_transform_cache,
+                        verbose=verbose,
                     )
 
                     r2 = result["error_metrics"]["r2"]
-                    if verbose:
-                        print(f"  R² = {r2:.6f}")
+                    if _normalize_verbose(verbose) != "warnings":
+                        logger.debug("  R² = %.6f", r2)
                     return r2
                 except Exception as e:
-                    if verbose:
-                        print(f"  Evaluation failed: {e}")
+                    if _normalize_verbose(verbose) != "warnings":
+                        logger.debug("  Evaluation failed: %s", e)
                     return -1.0
 
             # Bayesian optimization
@@ -272,8 +285,8 @@ def delay_io_train(
                 y = objective_function(x)
                 X_sample_list.append(x)
                 Y_sample_list.append(y)
-                if verbose:
-                    print(f"  Initial sample {i+1}/{n_initial}: R² = {y:.6f}")
+                if _normalize_verbose(verbose) != "warnings":
+                    logger.debug("Initial sample %s/%s: R² = %.6f", i + 1, n_initial, y)
 
             X_sample: np.ndarray = np.array(X_sample_list)
             Y_sample: np.ndarray = np.array(Y_sample_list).reshape(-1, 1)
@@ -303,9 +316,12 @@ def delay_io_train(
                 # Evaluate objective
                 next_y = objective_function(next_x)
 
-                if verbose:
-                    print(
-                        f"  BO iteration {iteration+1}/{bayesian_max_iter-n_initial}: R² = {next_y:.6f}"
+                if _normalize_verbose(verbose) != "warnings":
+                    logger.debug(
+                        "BO iteration %s/%s: R² = %.6f",
+                        iteration + 1,
+                        bayesian_max_iter - n_initial,
+                        next_y,
                     )
 
                 # Update samples
@@ -316,8 +332,8 @@ def delay_io_train(
                 if next_y > best_r2:
                     best_r2 = next_y
                     best_params = next_x
-                    if verbose:
-                        print(f"    New best R² = {best_r2:.6f}")
+                    if _normalize_verbose(verbose) != "warnings":
+                        logger.debug("New best R² = %.6f", best_r2)
 
             # Convert best parameters back to DataFrames
             idx = 0
@@ -331,9 +347,11 @@ def delay_io_train(
         else:
             # Use scipy.optimize for all other methods (differential_evolution, dual_annealing,
             # basinhopping, shgo, direct, etc.)
-            if verbose:
-                print(
-                    f"Using {optimization_method} optimization for {num_transforms} transforms..."
+            if _normalize_verbose(verbose) != "warnings":
+                logger.info(
+                    "Using %s optimization for %s transforms...",
+                    optimization_method,
+                    num_transforms,
                 )
 
             # Determine which columns to transform
@@ -393,15 +411,16 @@ def delay_io_train(
                         transform_only=transform_only,
                         forcing_coef_constraints=forcing_coef_constraints,
                         transform_cache=_transform_cache,
+                        verbose=verbose,
                     )
 
                     r2 = result["error_metrics"]["r2"]
-                    if verbose:
-                        print(f"  R² = {r2:.6f}")
+                    if _normalize_verbose(verbose) != "warnings":
+                        logger.debug("  R² = %.6f", r2)
                     return -r2  # Minimize negative R² (maximize R²)
                 except Exception as e:
-                    if verbose:
-                        print(f"  Evaluation failed: {e}")
+                    if _normalize_verbose(verbose) != "warnings":
+                        logger.debug("  Evaluation failed: %s", e)
                     return 1.0  # Poor score for failed evaluations
 
             # Dispatch to scipy.optimize method
@@ -424,7 +443,9 @@ def delay_io_train(
                     idx += 3
 
         # For bayesian and scipy.optimize methods, we're done with optimization
-        print("\nOptimization complete. Using optimized parameters for final model.")
+        logger.info(
+            "Optimization complete. Using optimized parameters for final model."
+        )
         final_model = SINDY_delays_MI(
             shape_factors,
             scale_factors,
@@ -442,21 +463,21 @@ def delay_io_train(
             transform_only=transform_only,
             forcing_coef_constraints=forcing_coef_constraints,
             transform_cache=_transform_cache,
+            verbose=verbose,
         )
-        print("\nFinal model:\n")
+        logger.info("Final model:")
         try:
-            print(final_model["model"].print(precision=5))
+            logger.info("%s", final_model["model"].print(precision=5))
         except Exception as e:
-            print(e)
-        print("R^2")
-        print(final_model["error_metrics"]["r2"])
-        print("shape factors")
-        print(shape_factors)
-        print("scale factors")
-        print(scale_factors)
-        print("location factors")
-        print(loc_factors)
-        print("\n")
+            logger.warning("%s", e)
+        logger.info("R^2")
+        logger.info("%s", final_model["error_metrics"]["r2"])
+        logger.info("shape factors")
+        logger.info("%s", shape_factors)
+        logger.info("scale factors")
+        logger.info("%s", scale_factors)
+        logger.info("location factors")
+        logger.info("%s", loc_factors)
         results[num_transforms] = {
             "final_model": final_model.copy(),
             "shape_factors": shape_factors.copy(deep=True),
@@ -475,10 +496,9 @@ def delay_io_train(
             - results[num_transforms - 1]["final_model"]["error_metrics"]["r2"]
             < early_stopping_threshold
         ):
-            print(
-                "Last transformation added less than ",
+            logger.warning(
+                "Last transformation added less than %s %% to R2 score. Terminating early.",
                 early_stopping_threshold * 100,
-                " % to R2 score. Terminating early.",
             )
             break
 
