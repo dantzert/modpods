@@ -9,6 +9,7 @@ import pysindy as ps  # type: ignore
 from scipy.optimize import minimize
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from .kernels import ConvolutionKernel, get_kernel
 from .transforms import transform_inputs
 
 logger = logging.getLogger(__name__)
@@ -23,9 +24,11 @@ def find_topology_no_geo(
     verbose: Verbosity = "warnings",
     sensor_locations=None,
     init_neighbors=3,
+    kernel="gamma",
 ):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
+    kernel = get_kernel(kernel)
     """
     Infer network topology from time series data using SINDy-based optimization.
 
@@ -153,23 +156,24 @@ def find_topology_no_geo(
 
             # Objective function to minimize (negative because we want to maximize correlation - p_value)
             def objective(params):
-                shape, scale, loc = params
-
-                # Create transformation parameter DataFrames
-                shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
-                shape_factors.loc[1, forcing_col] = shape
-                scale_factors = pd.DataFrame(columns=[forcing_col], index=[1])
-                scale_factors.loc[1, forcing_col] = scale
-                loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
-                loc_factors.loc[1, forcing_col] = loc
+                # Create transformation parameter DataFrame
+                kernel_params = pd.DataFrame(
+                    index=pd.MultiIndex.from_tuples(
+                        [(1, p) for p in kernel.param_names],
+                        names=["transform", "param"],
+                    ),
+                    columns=[forcing_col],
+                    dtype=float,
+                )
+                for i, p_name in enumerate(kernel.param_names):
+                    kernel_params.loc[(1, p_name), forcing_col] = params[i]
 
                 try:
                     transformed_inputs = pd.DataFrame(index=system_data.index)
                     # SINDY way
                     transformed = transform_inputs(
-                        shape_factors,
-                        scale_factors,
-                        loc_factors,
+                        kernel,
+                        kernel_params,
                         system_data.index,
                         forcing_orig,
                     )
@@ -210,8 +214,8 @@ def find_topology_no_geo(
                     return 1e10  # Large penalty for invalid parameters
 
             # Initial guess and bounds
-            x0 = [2.0, 2.0, 0.0]
-            bounds = [(1.0, 300.0), (1e-5, 300.0), (0, 300.0)]  # shape, scale, loc
+            x0 = kernel.default_init.tolist()
+            bounds = [tuple(b) for b in kernel.default_bounds]
 
             # Optimize
             result = minimize(
@@ -227,20 +231,22 @@ def find_topology_no_geo(
             )
 
             # Store best results
-            best_shape, best_scale, best_loc = result.x
+            best_params.loc[dep_col, forcing_col] = tuple(result.x.tolist())
 
-            # Compute final correlation and p_value with best parameters
-            shape_factors = pd.DataFrame(columns=[forcing_col], index=[1])
-            shape_factors.loc[1, forcing_col] = best_shape
-            scale_factors = pd.DataFrame(columns=[forcing_col], index=[1])
-            scale_factors.loc[1, forcing_col] = best_scale
-            loc_factors = pd.DataFrame(columns=[forcing_col], index=[1])
-            loc_factors.loc[1, forcing_col] = best_loc
+            kernel_params = pd.DataFrame(
+                index=pd.MultiIndex.from_tuples(
+                    [(1, p) for p in kernel.param_names],
+                    names=["transform", "param"],
+                ),
+                columns=[forcing_col],
+                dtype=float,
+            )
+            for i, p_name in enumerate(kernel.param_names):
+                kernel_params.loc[(1, p_name), forcing_col] = result.x[i]
 
             transformed = transform_inputs(
-                shape_factors,
-                scale_factors,
-                loc_factors,
+                kernel,
+                kernel_params,
                 system_data.index,
                 forcing_orig,
             )
@@ -284,14 +290,11 @@ def find_topology_no_geo(
 
             logger.info("Optimizing transformation for %s -> %s", forcing_col, dep_col)
             logger.info(
-                "  BEST: shape=%.2f, scale=%.2f, loc=%.2f",
-                best_shape,
-                best_scale,
-                best_loc,
+                "  BEST: %s",
+                ", ".join(f"{n}={v:.2f}" for n, v in zip(kernel.param_names, result.x.tolist()))
             )
             logger.info("  Cross-correlation: lag=%s, corr=%.4f", best_lag, best_xcorr)
-            # save the best parameters
-            best_params.loc[dep_col, forcing_col] = (best_shape, best_scale, best_loc)
+            best_params.loc[dep_col, forcing_col] = tuple(result.x.tolist())
 
             logger.info("R2 Values:")
             logger.info("%s", r2_values)
@@ -401,42 +404,38 @@ def find_topology_no_geo(
                 correlations = []
                 for sel_input in selected_inputs:
                     # compute correlation between transformed versions of forcing_col and sel_input
-                    shape_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
-                    shape_factors_1.loc[1, forcing_col] = best_params.loc[
-                        dep_col, forcing_col
-                    ][0]
-                    scale_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
-                    scale_factors_1.loc[1, forcing_col] = best_params.loc[
-                        dep_col, forcing_col
-                    ][1]
-                    loc_factors_1 = pd.DataFrame(columns=[forcing_col], index=[1])
-                    loc_factors_1.loc[1, forcing_col] = best_params.loc[
-                        dep_col, forcing_col
-                    ][2]
+                    params_1 = best_params.loc[dep_col, forcing_col]
+                    kernel_params_1 = pd.DataFrame(
+                        index=pd.MultiIndex.from_tuples(
+                            [(1, p) for p in kernel.param_names],
+                            names=["transform", "param"],
+                        ),
+                        columns=[forcing_col],
+                        dtype=float,
+                    )
+                    for i, p_name in enumerate(kernel.param_names):
+                        kernel_params_1.loc[(1, p_name), forcing_col] = params_1[i]
                     transformed_1 = transform_inputs(
-                        shape_factors_1,
-                        scale_factors_1,
-                        loc_factors_1,
+                        kernel,
+                        kernel_params_1,
                         system_data.index,
                         system_data[[forcing_col]],
                     )
 
-                    shape_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
-                    shape_factors_2.loc[1, sel_input] = best_params.loc[
-                        dep_col, sel_input
-                    ][0]
-                    scale_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
-                    scale_factors_2.loc[1, sel_input] = best_params.loc[
-                        dep_col, sel_input
-                    ][1]
-                    loc_factors_2 = pd.DataFrame(columns=[sel_input], index=[1])
-                    loc_factors_2.loc[1, sel_input] = best_params.loc[
-                        dep_col, sel_input
-                    ][2]
+                    params_2 = best_params.loc[dep_col, sel_input]
+                    kernel_params_2 = pd.DataFrame(
+                        index=pd.MultiIndex.from_tuples(
+                            [(1, p) for p in kernel.param_names],
+                            names=["transform", "param"],
+                        ),
+                        columns=[sel_input],
+                        dtype=float,
+                    )
+                    for i, p_name in enumerate(kernel.param_names):
+                        kernel_params_2.loc[(1, p_name), sel_input] = params_2[i]
                     transformed_2 = transform_inputs(
-                        shape_factors_2,
-                        scale_factors_2,
-                        loc_factors_2,
+                        kernel,
+                        kernel_params_2,
                         system_data.index,
                         system_data[[sel_input]],
                     )
@@ -550,20 +549,20 @@ def find_topology_no_geo(
             # params is a flat list of shape, scale, loc for each candidate input
             transformed_inputs = pd.DataFrame(index=system_data.index)
             for i, input_var in enumerate(candidate_inputs):
-                shape = params[i * 3]
-                scale = params[i * 3 + 1]
-                loc = params[i * 3 + 2]
-                shape_factors = pd.DataFrame(columns=[input_var], index=[1])
-                shape_factors.loc[1, input_var] = shape
-                scale_factors = pd.DataFrame(columns=[input_var], index=[1])
-                scale_factors.loc[1, input_var] = scale
-                loc_factors = pd.DataFrame(columns=[input_var], index=[1])
-                loc_factors.loc[1, input_var] = loc
+                kernel_params = pd.DataFrame(
+                    index=pd.MultiIndex.from_tuples(
+                        [(1, p) for p in kernel.param_names],
+                        names=["transform", "param"],
+                    ),
+                    columns=[input_var],
+                    dtype=float,
+                )
+                for j, p_name in enumerate(kernel.param_names):
+                    kernel_params.loc[(1, p_name), input_var] = params[i * kernel.num_params + j]
                 forcing_orig = system_data[[input_var]].copy()
                 transformed = transform_inputs(
-                    shape_factors,
-                    scale_factors,
-                    loc_factors,
+                    kernel,
+                    kernel_params,
                     system_data.index,
                     forcing_orig,
                 )
@@ -656,20 +655,20 @@ def find_topology_no_geo(
         # compute final r2 with optimized params
         transformed_inputs = pd.DataFrame(index=system_data.index)
         for i, input_var in enumerate(candidate_inputs):
-            shape = optimized_params[i * 3]
-            scale = optimized_params[i * 3 + 1]
-            loc = optimized_params[i * 3 + 2]
-            shape_factors = pd.DataFrame(columns=[input_var], index=[1])
-            shape_factors.loc[1, input_var] = shape
-            scale_factors = pd.DataFrame(columns=[input_var], index=[1])
-            scale_factors.loc[1, input_var] = scale
-            loc_factors = pd.DataFrame(columns=[input_var], index=[1])
-            loc_factors.loc[1, input_var] = loc
+            kernel_params = pd.DataFrame(
+                index=pd.MultiIndex.from_tuples(
+                    [(1, p) for p in kernel.param_names],
+                    names=["transform", "param"],
+                ),
+                columns=[input_var],
+                dtype=float,
+            )
+            for j, p_name in enumerate(kernel.param_names):
+                kernel_params.loc[(1, p_name), input_var] = optimized_params[i * kernel.num_params + j]
             forcing_orig = system_data[[input_var]].copy()
             transformed = transform_inputs(
-                shape_factors,
-                scale_factors,
-                loc_factors,
+                kernel,
+                kernel_params,
                 system_data.index,
                 forcing_orig,
             )
@@ -754,6 +753,7 @@ def infer_causative_topology(  # noqa: F811
     derivative=False,
     sensor_locations=None,
     init_neighbors=3,
+    kernel="gamma",
 ):
     """
     Infer causative topology from time series data using SINDy-based optimization.
@@ -810,6 +810,7 @@ def infer_causative_topology(  # noqa: F811
         graph_type=graph_type,
         verbose=verbose,
         init_neighbors=init_neighbors,
+        kernel=kernel,
     )
     # Convert result to match expected return format for backward compatibility
     # The new method returns edges in from->to convention (transposed from old)
