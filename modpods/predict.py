@@ -1,7 +1,12 @@
+import logging
+
 import numpy as np
 
+from ._logging import _normalize_verbose, configure_verbosity, Verbosity
 from .metrics import compute_basic_metrics
 from .transforms import transform_inputs
+
+logger = logging.getLogger(__name__)
 
 
 def delay_io_predict(
@@ -10,7 +15,10 @@ def delay_io_predict(
     num_transforms=1,
     evaluation=False,
     windup_timesteps=None,
+    verbose: Verbosity = "warnings",
 ):
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
     if (
         windup_timesteps is None
     ):  # user didn't specify windup timesteps, use what the model trained with.
@@ -41,9 +49,9 @@ def delay_io_predict(
             u=transformed_forcing[windup_timesteps:],
         )
     except Exception as e:  # and print the exception:
-        print("Exception in simulation\n")
-        print(e)
-        print("diverged.")
+        logger.warning("Exception in simulation")
+        logger.warning("%s", e)
+        logger.warning("diverged.")
         error_metrics = {
             "MAE": [np.nan],
             "RMSE": [np.nan],
@@ -85,7 +93,9 @@ def delay_io_predict(
                 initial_error_length = len(error)
                 error = error[~np.isnan(error)]
                 if len(error) < 0.75 * initial_error_length:
-                    print("WARNING: More than 25% of the entries in error were NaN")
+                    logger.warning(
+                        "More than 25%% of the entries in error were NaN"
+                    )
 
                 basic = compute_basic_metrics(
                     response.values[windup_timesteps + 1 :, col_idx],
@@ -150,21 +160,21 @@ def delay_io_predict(
                     )
                 )
 
-            print("MAE = ", mae)
-            print("RMSE = ", rmse)
+            logger.info("MAE = %s", mae)
+            logger.info("RMSE = %s", rmse)
 
-            print("NSE = ", nse)
+            logger.info("NSE = %s", nse)
             # alpha nse decomposition due to gupta et al 2009
-            print("alpha = ", alpha)
-            print("beta = ", beta)
+            logger.info("alpha = %s", alpha)
+            logger.info("beta = %s", beta)
             # top 2% peak flow bias (HFV) due to yilmaz et al 2008
-            print("HFV = ", hfv)
+            logger.info("HFV = %s", hfv)
             # top 10% peak flow bias (HFV) due to yilmaz et al 2008
-            print("HFV10 = ", hfv10)
+            logger.info("HFV10 = %s", hfv10)
             # 30% low flow bias (LFV) due to yilmaz et al 2008
-            print("LFV = ", lfv)
+            logger.info("LFV = %s", lfv)
             # bias of FDC midsegment slope due to yilmaz et al 2008
-            print("FDC = ", fdc)
+            logger.info("FDC = %s", fdc)
             # compile all the error metrics into a dictionary
             error_metrics = {
                 "MAE": mae,
@@ -186,8 +196,8 @@ def delay_io_predict(
                 "diverged": False,
             }
         except Exception as e:  # and print the exception:
-            print(e)
-            print("Simulation diverged.")
+            logger.warning("%s", e)
+            logger.warning("Simulation diverged.")
             error_metrics = {
                 "MAE": [np.nan],
                 "RMSE": [np.nan],

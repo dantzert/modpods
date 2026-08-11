@@ -1,4 +1,3 @@
-import logging
 from typing import Any, cast
 
 import numpy as np
@@ -6,10 +5,9 @@ import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern
 
+from ._logging import _normalize_verbose, configure_verbosity, Verbosity
 from .model import SINDY_delays_MI
 from .transforms import _expected_improvement, _propose_location, _transform_cache
-
-logger = logging.getLogger(__name__)
 
 
 def _run_scipy_optimizer(
@@ -17,7 +15,7 @@ def _run_scipy_optimizer(
     objective_function,
     bounds: np.ndarray,
     max_iter: int,
-    verbose: bool,
+    verbose: Verbosity,
     optimizer_kwargs: dict,
 ) -> np.ndarray:
     """
@@ -83,8 +81,8 @@ def _run_scipy_optimizer(
             f"or 'bayesian' for built-in Bayesian optimization."
         )
 
-    if verbose:
-        logger.setLevel(logging.INFO)
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
         logger.info(
             "Running scipy.optimize.%s with params: %s", optimization_method, params
         )
@@ -92,7 +90,7 @@ def _run_scipy_optimizer(
     # Run the optimizer
     result = optimizer(objective_function, bounds, **params)
 
-    if verbose:
+    if _normalize_verbose(verbose) != "warnings":
         logger.info(
             "Optimization complete. Success: %s, Message: %s",
             result.success,
@@ -113,7 +111,7 @@ def delay_io_train(
     max_iter=250,
     poly_order=3,
     transform_dependent=False,
-    verbose=False,
+    verbose: Verbosity = "warnings",
     include_bias=False,
     include_interaction=False,
     bibo_stable=False,
@@ -123,8 +121,8 @@ def delay_io_train(
     optimization_method="bayesian",
     **optimizer_kwargs,
 ):
-    if verbose:
-        logger.setLevel(logging.INFO)
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
 
     forcing = system_data[independent_columns].copy(deep=True)
 
@@ -184,7 +182,7 @@ def delay_io_train(
             )  # start with a broad peak centered at ten timesteps
             scale_factors.iloc[num_transforms - 1, :] = 1
             loc_factors.iloc[num_transforms - 1, :] = 0
-            if verbose:
+            if _normalize_verbose(verbose) != "warnings":
                 logger.debug(
                     "starting factors for additional transformation\nshape\nscale\nlocation"
                 )
@@ -194,7 +192,7 @@ def delay_io_train(
 
         # Choose optimization method
         if optimization_method == "bayesian":
-            if verbose:
+            if _normalize_verbose(verbose) != "warnings":
                 logger.info(
                     "Using Bayesian optimization for %s transforms...", num_transforms
                 )
@@ -260,11 +258,11 @@ def delay_io_train(
                     )
 
                     r2 = result["error_metrics"]["r2"]
-                    if verbose:
+                    if _normalize_verbose(verbose) != "warnings":
                         logger.debug("  R² = %.6f", r2)
                     return r2
                 except Exception as e:
-                    if verbose:
+                    if _normalize_verbose(verbose) != "warnings":
                         logger.debug("  Evaluation failed: %s", e)
                     return -1.0
 
@@ -284,7 +282,7 @@ def delay_io_train(
                 y = objective_function(x)
                 X_sample_list.append(x)
                 Y_sample_list.append(y)
-                if verbose:
+                if _normalize_verbose(verbose) != "warnings":
                     logger.debug(
                         "Initial sample %s/%s: R² = %.6f", i + 1, n_initial, y
                     )
@@ -317,7 +315,7 @@ def delay_io_train(
                 # Evaluate objective
                 next_y = objective_function(next_x)
 
-                if verbose:
+                if _normalize_verbose(verbose) != "warnings":
                     logger.debug(
                         "BO iteration %s/%s: R² = %.6f",
                         iteration + 1,
@@ -333,7 +331,7 @@ def delay_io_train(
                 if next_y > best_r2:
                     best_r2 = next_y
                     best_params = next_x
-                    if verbose:
+                    if _normalize_verbose(verbose) != "warnings":
                         logger.debug("New best R² = %.6f", best_r2)
 
             # Convert best parameters back to DataFrames
@@ -348,7 +346,7 @@ def delay_io_train(
         else:
             # Use scipy.optimize for all other methods (differential_evolution, dual_annealing,
             # basinhopping, shgo, direct, etc.)
-            if verbose:
+            if _normalize_verbose(verbose) != "warnings":
                 logger.info(
                     "Using %s optimization for %s transforms...",
                     optimization_method,
@@ -416,11 +414,11 @@ def delay_io_train(
                     )
 
                     r2 = result["error_metrics"]["r2"]
-                    if verbose:
+                    if _normalize_verbose(verbose) != "warnings":
                         logger.debug("  R² = %.6f", r2)
                     return -r2  # Minimize negative R² (maximize R²)
                 except Exception as e:
-                    if verbose:
+                    if _normalize_verbose(verbose) != "warnings":
                         logger.debug("  Evaluation failed: %s", e)
                     return 1.0  # Poor score for failed evaluations
 

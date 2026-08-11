@@ -1,13 +1,17 @@
 from typing import Any
 
 import control
+import logging
 import numpy as np
 import pandas as pd
 import pysindy as ps
 import scipy.stats as stats
 from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
 
+from ._logging import _normalize_verbose, configure_verbosity, Verbosity
 from .train import delay_io_train
+
+logger = logging.getLogger(__name__)
 
 
 def lti_from_gamma(
@@ -16,17 +20,17 @@ def lti_from_gamma(
     location,
     dt=0,
     desired_NSE=0.999,
-    verbose=False,
+    verbose: Verbosity = "warnings",
     max_state_dim=50,
     max_iterations=200,
     max_pole_speed=5,
     min_pole_speed=0.01,
 ):
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
+
     # a pole of speed -5 decays to less than 1% of it's value after one timestep
     # a pole of speed -0.01 decays to more than 99% of it's value after one timestep
-
-    # i've assumed here that gamma pdf is defined the same as in matlab
-    # if that's not true testing will show it soon enough
     t50 = shape * scale + location  # center of mass
     skewness = 2 / np.sqrt(shape)
     total_time_base = (
@@ -52,11 +56,11 @@ def lti_from_gamma(
 
     decay_rate = np.clip(decay_rate, min_pole_speed, max_pole_speed)
 
-    if verbose:
-        print("state dimension is ", state_dim)
-        print("decay rate is ", decay_rate)
-        print("total time base is ", total_time_base)
-        print("resolution is", resolution)
+    if _normalize_verbose(verbose) != "warnings":
+        logger.info("state dimension is %s", state_dim)
+        logger.info("decay rate is %s", decay_rate)
+        logger.info("total time base is %s", total_time_base)
+        logger.info("resolution is %s", resolution)
 
     # make the timestep one so that the relative error is correct (dt too small makes error bigger than written)
     # t = np.linspace(0,3*total_time_base,1000)
@@ -87,11 +91,11 @@ def lti_from_gamma(
     if np.isnan(NSE):
         NSE = -10e6
 
-    if verbose:
-        print("initial NSE")
-        print(NSE)
-        print("desired NSE")
-        print(desired_NSE)
+    if _normalize_verbose(verbose) != "warnings":
+        logger.info("initial NSE")
+        logger.info("%s", NSE)
+        logger.info("desired NSE")
+        logger.info("%s", desired_NSE)
 
     iterations = 0
 
@@ -203,33 +207,33 @@ def lti_from_gamma(
             leap = speeds[speed_idx]
         # print the iteration count every ten
         # comment out for production
-        if iterations % 2 == 0 and verbose:
-            print("iterations = ", iterations)
-            print("error = ", error)
-            print("NSE = ", NSE)
-            print("leap = ", leap)
+        if iterations % 2 == 0 and verbose != "warnings":
+            logger.debug("iterations = %s", iterations)
+            logger.debug("error = %s", error)
+            logger.debug("NSE = %s", NSE)
+            logger.debug("leap = %s", leap)
 
     lti_approx = control.ss(A, B, C, 0)
     y = np.ndarray.flatten(control.impulse_response(og_approx, t).y)
     error = np.sum(np.abs(gam - og_y))
-    print("LTI_from_gamma final NSE")
-    print(NSE)
-    if verbose:
-        print("final system\n")
-        print("A")
-        print(A)
-        print("B")
-        print(B)
-        print("C")
-        print(C)
+    logger.info("LTI_from_gamma final NSE")
+    logger.info("%s", NSE)
+    if _normalize_verbose(verbose) != "warnings":
+        logger.info("final system")
+        logger.info("A")
+        logger.info("%s", A)
+        logger.info("B")
+        logger.info("%s", B)
+        logger.info("C")
+        logger.info("%s", C)
 
-        print("\nfinal error")
-        print(error)
+        logger.info("final error")
+        logger.info("%s", error)
 
     # are any of the final eigenvalues outside the bounds specified?
     E = np.linalg.eigvals(A)
     if np.any(np.abs(E) > max_pole_speed) or np.any(np.abs(E) < min_pole_speed):
-        print("WARNING: final eigenvalues are outside the bounds specified")
+        logger.warning("final eigenvalues are outside the bounds specified")
 
     return {
         "lti_approx": lti_approx,
@@ -253,7 +257,10 @@ def lti_system_gen(
     max_transition_state_dim=50,
     max_transforms=1,
     early_stopping_threshold=0.005,
+    verbose: Verbosity = "warnings",
 ):
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
 
     # cast the columns and indices of causative_topology to strings so sindy can run properly
     # We need the tuples to link the columns in system_data to the object names in the swmm model
@@ -262,19 +269,19 @@ def lti_system_gen(
         causative_topology.columns = causative_topology.columns.astype(str)
         causative_topology.index = causative_topology.index.astype(str)
 
-        print("causative topology \n")
-        print(causative_topology.index)
-        print(causative_topology.columns)
+        logger.info("causative topology")
+        logger.info("%s", causative_topology.index)
+        logger.info("%s", causative_topology.columns)
 
         # do the same for dependent_columns and independent_columns
         dependent_columns = [str(col) for col in dependent_columns]
         independent_columns = [str(col) for col in independent_columns]
-        print(dependent_columns)
-        print(independent_columns)
+        logger.info("%s", dependent_columns)
+        logger.info("%s", independent_columns)
 
         # do the same for the columns of system_data
         system_data.columns = system_data.columns.astype(str)
-        print(system_data.columns)
+        logger.info("%s", system_data.columns)
 
     A = pd.DataFrame(index=dependent_columns, columns=dependent_columns)
     B = pd.DataFrame(index=dependent_columns, columns=independent_columns)
@@ -292,12 +299,12 @@ def lti_system_gen(
         for col in A.columns:
             A.loc[row, col] = causative_topology.loc[row, col]
 
-    print("A")
-    print(A)
-    print("B")
-    print(B)
-    print("C")
-    print(C)
+    logger.info("A")
+    logger.info("%s", A)
+    logger.info("B")
+    logger.info("%s", B)
+    logger.info("C")
+    logger.info("%s", C)
     # use transform_only when calling delay_io_train to only train transfomrations for connections marked "d"
     # train a MISO model for each output
     delay_models: dict = {key: None for key in dependent_columns}
@@ -321,12 +328,10 @@ def lti_system_gen(
         total_forcing = immediate_forcing + delayed_forcing
         feature_names = [row] + total_forcing
         if delayed_forcing:
-            print(
-                "training delayed model for ",
+            logger.info(
+                "training delayed model for %s with forcing %s",
                 row,
-                " with forcing ",
                 total_forcing,
-                "\n",
             )
             delay_models[row] = delay_io_train(
                 system_data,
@@ -336,18 +341,15 @@ def lti_system_gen(
                 max_transforms=max_transforms,
                 poly_order=1,
                 max_iter=max_iter,
-                verbose=False,
+                verbose=verbose,
                 bibo_stable=bibo_stable,
             )
             # we'll parse this delayed causation into the matrices A, B, and C later
         else:
-            ####### TODO: incorporate bibo stability constraint into instantaneous fits ########
-            print(
-                "training immediate model for ",
+            logger.info(
+                "training immediate model for %s with forcing %s",
                 row,
-                " with forcing ",
                 total_forcing,
-                "\n",
             )
             delay_models[row] = None
             # we can put immediate causation into the matrices A, B, and C now
@@ -400,14 +402,14 @@ def lti_system_gen(
                     x=system_data.loc[:, row], t=np.arange(0, len(system_data.index), 1)
                 )
                 instant_fit.print(precision=3)
-                print(
-                    "Training r2 = ",
+                logger.info(
+                    "Training r2 = %s",
                     instant_fit.score(
                         x=system_data.loc[:, row],
                         t=np.arange(0, len(system_data.index), 1),
                     ),
                 )
-                print(instant_fit.coefficients())
+                logger.info("%s", instant_fit.coefficients())
             else:  # there is some forcing
                 instant_fit = model.fit(
                     x=system_data.loc[:, row],
@@ -415,22 +417,22 @@ def lti_system_gen(
                     u=system_data.loc[:, immediate_forcing],
                 )
                 instant_fit.print(precision=3)
-                print(
-                    "Training r2 = ",
+                logger.info(
+                    "Training r2 = %s",
                     instant_fit.score(
                         x=system_data.loc[:, row],
                         t=np.arange(0, len(system_data.index), 1),
                         u=system_data.loc[:, immediate_forcing],
                     ),
                 )
-                print(instant_fit.coefficients())
+                logger.info("%s", instant_fit.coefficients())
             for idx in range(len(feature_names)):
                 if feature_names[idx] in A.columns:
                     A.loc[row, feature_names[idx]] = instant_fit.coefficients()[0][idx]
                 elif feature_names[idx] in B.columns:
                     B.loc[row, feature_names[idx]] = instant_fit.coefficients()[0][idx]
                 else:
-                    print("couldn't find a column for ", feature_names[idx])
+                    logger.warning("couldn't find a column for %s", feature_names[idx])
 
     original_A = A.copy(deep=True)
     # now, parse the delay models into the A, B, and C matrices
@@ -467,7 +469,9 @@ def lti_system_gen(
                 for idx in range(
                     1, optimal_number_transforms + 1
                 ):  # which transformation
-                    print("variable = ", transform_key, ", transformation = ", idx)
+                    logger.info(
+                        "variable = %s, transformation = %s", transform_key, idx
+                    )
                     delay_models[row][optimal_number_transforms]["final_model"][
                         "model"
                     ].print(precision=5)
@@ -482,7 +486,7 @@ def lti_system_gen(
                     ].loc[idx, transform_key]
                     # this will get overwritten if we use more than one transformation per input. i think that's okay.
                     transformation_approximations[transform_key] = lti_from_gamma(
-                        shape, scale, loc, max_state_dim=max_transition_state_dim
+                        shape, scale, loc, max_state_dim=max_transition_state_dim, verbose=verbose
                     )
 
                     lti_result = transformation_approximations[transform_key]
@@ -658,7 +662,9 @@ def lti_system_gen(
     if bibo_stable:
         orig_eigs, _ = np.linalg.eig(A)
         if any(np.real(orig_eigs) > 0):
-            print("stabilizing unstable plant by subtracting I*max(real(eig)) from A")
+            logger.warning(
+                "stabilizing unstable plant by subtracting I*max(real(eig)) from A"
+            )
             epsilon = 10e-4
             A_stab = A - np.eye(len(A)) * (1 + epsilon) * max(
                 np.real(orig_eigs)
@@ -676,10 +682,9 @@ def lti_system_gen(
         A = A / dt
         B = B / dt
         C = C  # what we observe doesn't need to be adjusted, just the dynamics
-        print("system response data index converted to numeric type. dt = ")
-        print(dt)
+        logger.info("system response data index converted to numeric type. dt = %s", dt)
     except Exception as e:
-        print(e)
+        logger.warning("%s", e)
         dt = None
 
     # cast all of A, B, and C to type float (integers cause issues with LQR / LQE calculations)

@@ -1,3 +1,4 @@
+from ._logging import Verbosity, configure_verbosity
 from .lti import lti_from_gamma, lti_system_gen
 from .model import SINDY_delays_MI
 from .predict import delay_io_predict
@@ -6,6 +7,8 @@ from .train import delay_io_train
 from .transforms import TransformCache, transform_inputs
 
 __all__ = [
+    "Verbosity",
+    "configure_verbosity",
     "TransformCache",
     "transform_inputs",
     "delay_io_train",
