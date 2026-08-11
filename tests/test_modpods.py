@@ -157,12 +157,20 @@ def test_transform_inputs_correctness() -> None:
 
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
 
-    shape_factors = pd.DataFrame({"u": [2.0]}, index=[1])
-    scale_factors = pd.DataFrame({"u": [1.0]}, index=[1])
-    loc_factors = pd.DataFrame({"u": [0.0]}, index=[1])
+    kernel = modpods.GammaKernel()
+    kernel_params = pd.DataFrame(
+        index=pd.MultiIndex.from_tuples(
+            [(1, p) for p in kernel.param_names], names=["transform", "param"]
+        ),
+        columns=["u"],
+        dtype=float,
+    )
+    kernel_params.loc[(1, "shape"), "u"] = 2.0
+    kernel_params.loc[(1, "scale"), "u"] = 1.0
+    kernel_params.loc[(1, "loc"), "u"] = 0.0
 
     result = modpods.transform_inputs(
-        shape_factors, scale_factors, loc_factors, index, forcing
+        kernel, kernel_params, index, forcing
     )
 
     assert "u_tr_1" in result.columns
@@ -204,26 +212,31 @@ def test_transform_inputs_with_cache() -> None:
     index = pd.date_range("2000-01-01", periods=n, freq="1h")
 
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
-    shape_factors = pd.DataFrame({"u": [2.0]}, index=[1])
-    scale_factors = pd.DataFrame({"u": [1.0]}, index=[1])
-    loc_factors = pd.DataFrame({"u": [0.0]}, index=[1])
 
-    # First call (cache miss)
+    kernel = modpods.GammaKernel()
+    kernel_params = pd.DataFrame(
+        index=pd.MultiIndex.from_tuples(
+            [(1, p) for p in kernel.param_names], names=["transform", "param"]
+        ),
+        columns=["u"],
+        dtype=float,
+    )
+    kernel_params.loc[(1, "shape"), "u"] = 2.0
+    kernel_params.loc[(1, "scale"), "u"] = 1.0
+    kernel_params.loc[(1, "loc"), "u"] = 0.0
+
     cache = modpods.TransformCache()
     result1 = modpods.transform_inputs(
-        shape_factors, scale_factors, loc_factors, index, forcing, cache=cache
+        kernel, kernel_params, index, forcing, cache=cache
     )
 
-    # Second call with same params (cache hit)
     result2 = modpods.transform_inputs(
-        shape_factors, scale_factors, loc_factors, index, forcing, cache=cache
+        kernel, kernel_params, index, forcing, cache=cache
     )
     stats2 = cache.stats()
 
-    # Results must be identical
     np.testing.assert_allclose(result1["u_tr_1"].values, result2["u_tr_1"].values)
 
-    # Cache should have 1 hit, 1 miss
     assert stats2["hits"] == 1
     assert stats2["misses"] == 1
     assert stats2["hit_rate"] == 0.5
@@ -238,25 +251,26 @@ def test_transform_inputs_performance() -> None:
     index = pd.date_range("2000-01-01", periods=n, freq="1h")
 
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
-    shape_factors = pd.DataFrame({"u": [2.0]}, index=[1])
-    scale_factors = pd.DataFrame({"u": [1.0]}, index=[1])
-    loc_factors = pd.DataFrame({"u": [0.0]}, index=[1])
 
-    # Warm up
-    _ = modpods.transform_inputs(
-        shape_factors, scale_factors, loc_factors, index, forcing
+    kernel = modpods.GammaKernel()
+    kernel_params = pd.DataFrame(
+        index=pd.MultiIndex.from_tuples(
+            [(1, p) for p in kernel.param_names], names=["transform", "param"]
+        ),
+        columns=["u"],
+        dtype=float,
     )
+    kernel_params.loc[(1, "shape"), "u"] = 2.0
+    kernel_params.loc[(1, "scale"), "u"] = 1.0
+    kernel_params.loc[(1, "loc"), "u"] = 0.0
 
-    # Time it
+    _ = modpods.transform_inputs(kernel, kernel_params, index, forcing)
+
     start = time.perf_counter()
     for _ in range(5):
-        _ = modpods.transform_inputs(
-            shape_factors, scale_factors, loc_factors, index, forcing
-        )
+        _ = modpods.transform_inputs(kernel, kernel_params, index, forcing)
     elapsed = (time.perf_counter() - start) / 5
 
-    # Should complete in well under 1 second for 5000 samples
-    # (Original loop implementation took ~4 seconds for 5000 samples)
     assert elapsed < 0.1, f"transform_inputs too slow: {elapsed:.3f}s for {n} samples"
 
 
@@ -268,21 +282,29 @@ def test_transform_inputs_multiple_transforms() -> None:
 
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
 
-    # Two transforms with different parameters
-    shape_factors = pd.DataFrame({"u": [2.0, 3.0]}, index=[1, 2])
-    scale_factors = pd.DataFrame({"u": [1.0, 0.5]}, index=[1, 2])
-    loc_factors = pd.DataFrame({"u": [0.0, 1.0]}, index=[1, 2])
-
-    result = modpods.transform_inputs(
-        shape_factors, scale_factors, loc_factors, index, forcing
+    kernel = modpods.GammaKernel()
+    kernel_params = pd.DataFrame(
+        index=pd.MultiIndex.from_tuples(
+            [(t, p) for t in [1, 2] for p in kernel.param_names],
+            names=["transform", "param"],
+        ),
+        columns=["u"],
+        dtype=float,
     )
+    kernel_params.loc[(1, "shape"), "u"] = 2.0
+    kernel_params.loc[(1, "scale"), "u"] = 1.0
+    kernel_params.loc[(1, "loc"), "u"] = 0.0
+    kernel_params.loc[(2, "shape"), "u"] = 3.0
+    kernel_params.loc[(2, "scale"), "u"] = 0.5
+    kernel_params.loc[(2, "loc"), "u"] = 1.0
+
+    result = modpods.transform_inputs(kernel, kernel_params, index, forcing)
 
     assert "u_tr_1" in result.columns
     assert "u_tr_2" in result.columns
     assert len(result) == n
     assert not result.isnull().values.any()
 
-    # Verify both transforms
     from scipy import signal, stats
 
     forcing_values = forcing["u"].to_numpy()
@@ -312,13 +334,22 @@ def test_transform_inputs_multiple_inputs() -> None:
         index=index,
     )
 
-    shape_factors = pd.DataFrame({"u1": [2.0], "u2": [3.0]}, index=[1])
-    scale_factors = pd.DataFrame({"u1": [1.0], "u2": [0.5]}, index=[1])
-    loc_factors = pd.DataFrame({"u1": [0.0], "u2": [1.0]}, index=[1])
-
-    result = modpods.transform_inputs(
-        shape_factors, scale_factors, loc_factors, index, forcing
+    kernel = modpods.GammaKernel()
+    kernel_params = pd.DataFrame(
+        index=pd.MultiIndex.from_tuples(
+            [(1, p) for p in kernel.param_names], names=["transform", "param"]
+        ),
+        columns=["u1", "u2"],
+        dtype=float,
     )
+    kernel_params.loc[(1, "shape"), "u1"] = 2.0
+    kernel_params.loc[(1, "scale"), "u1"] = 1.0
+    kernel_params.loc[(1, "loc"), "u1"] = 0.0
+    kernel_params.loc[(1, "shape"), "u2"] = 3.0
+    kernel_params.loc[(1, "scale"), "u2"] = 0.5
+    kernel_params.loc[(1, "loc"), "u2"] = 1.0
+
+    result = modpods.transform_inputs(kernel, kernel_params, index, forcing)
 
     assert "u1_tr_1" in result.columns
     assert "u2_tr_1" in result.columns
@@ -334,29 +365,151 @@ def test_transform_inputs_cache_quantization() -> None:
 
     forcing = pd.DataFrame({"u": np.cumsum(np.random.randn(n) * 0.1)}, index=index)
 
-    # Two parameter sets that quantize to the same key (1e-6 quantization)
-    shape_factors1 = pd.DataFrame({"u": [2.0000001]}, index=[1])
-    scale_factors1 = pd.DataFrame({"u": [1.0000001]}, index=[1])
-    loc_factors1 = pd.DataFrame({"u": [0.0000001]}, index=[1])
+    kernel = modpods.GammaKernel()
 
-    shape_factors2 = pd.DataFrame({"u": [2.0000002]}, index=[1])
-    scale_factors2 = pd.DataFrame({"u": [1.0000002]}, index=[1])
-    loc_factors2 = pd.DataFrame({"u": [0.0000002]}, index=[1])
+    def make_params(shape, scale, loc):
+        kp = pd.DataFrame(
+            index=pd.MultiIndex.from_tuples(
+                [(1, p) for p in kernel.param_names], names=["transform", "param"]
+            ),
+            columns=["u"],
+            dtype=float,
+        )
+        kp.loc[(1, "shape"), "u"] = shape
+        kp.loc[(1, "scale"), "u"] = scale
+        kp.loc[(1, "loc"), "u"] = loc
+        return kp
+
+    kp1 = make_params(2.0000001, 1.0000001, 0.0000001)
+    kp2 = make_params(2.0000002, 1.0000002, 0.0000002)
 
     cache = modpods.TransformCache(quantization=1e-6)
 
     result1 = modpods.transform_inputs(
-        shape_factors1, scale_factors1, loc_factors1, index, forcing, cache=cache
+        kernel, kp1, index, forcing, cache=cache
     )
 
     result2 = modpods.transform_inputs(
-        shape_factors2, scale_factors2, loc_factors2, index, forcing, cache=cache
+        kernel, kp2, index, forcing, cache=cache
     )
     stats2 = cache.stats()
 
-    # Should be a cache hit due to quantization
     assert stats2["hits"] == 1
     np.testing.assert_allclose(result1["u_tr_1"].values, result2["u_tr_1"].values)
+
+
+# ---------------------------------------------------------------------------
+# Kernel tests
+# ---------------------------------------------------------------------------
+
+
+def test_kernel_registry() -> None:
+    """All built-in kernels should be discoverable via list_kernels."""
+    names = modpods.list_kernels()
+    assert "gamma" in names
+    assert "lognormal" in names
+    assert "bimodal_gamma" in names
+    assert "underdamped" in names
+
+
+def test_get_kernel_by_name() -> None:
+    """get_kernel should resolve both name strings and instances."""
+    k1 = modpods.get_kernel("gamma")
+    assert isinstance(k1, modpods.GammaKernel)
+    k2 = modpods.get_kernel(modpods.GammaKernel())
+    assert isinstance(k2, modpods.GammaKernel)
+
+
+def test_gamma_kernel_defaults() -> None:
+    """GammaKernel should have 3 params with sensible defaults."""
+    k = modpods.GammaKernel()
+    assert k.num_params == 3
+    assert k.param_names == ["shape", "scale", "loc"]
+    assert k.default_init.tolist() == [1.0, 1.0, 0.0]
+    assert k.default_bounds.shape == (3, 2)
+
+
+def test_underdamped_kernel_defaults() -> None:
+    """UnderdampedOscillatorKernel should have 2 params."""
+    k = modpods.UnderdampedOscillatorKernel()
+    assert k.num_params == 2
+    assert k.param_names == ["zeta", "omega_n"]
+    assert k.default_bounds[0, 0] > 0
+    assert k.default_bounds[0, 1] < 1
+
+
+def test_kernel_fn_shape() -> None:
+    """All kernel_fn outputs must have the same length as the input time array."""
+    t = np.arange(0, 100, 1.0)
+    for name in modpods.list_kernels():
+        k = modpods.get_kernel(name)
+        params = k.default_init
+        h = k.kernel_fn(t, *params)
+        assert h.shape == t.shape, f"{name} kernel output shape mismatch"
+
+
+def test_underdamped_kernel_oscillatory() -> None:
+    """Underdamped kernel should produce non-zero values that decay."""
+    t = np.arange(0, 200, 1.0)
+    k = modpods.UnderdampedOscillatorKernel()
+    h = k.kernel_fn(t, 0.2, 2.0)
+    assert h.max() > 0, "underdamped kernel should have positive peak"
+    assert h[-1] < h.max() / 10, "underdamped kernel should decay"
+    assert np.all(h >= 0), "underdamped kernel should be non-negative (causal)"
+
+
+def test_make_kernel_params() -> None:
+    """make_kernel_params should create a properly indexed DataFrame."""
+    k = modpods.GammaKernel()
+    kp = modpods.make_kernel_params(k, ["u1", "u2"], init_transforms=1, max_transforms=3)
+    assert kp.index.nlevels == 2
+    assert kp.index.names == ["transform", "param"]
+    assert list(kp.columns) == ["u1", "u2"]
+    assert len(kp) == 9  # 3 transforms * 3 params
+    np.testing.assert_allclose(kp.loc[(1, "shape"), :], k.default_init[0])
+    np.testing.assert_allclose(kp.loc[(1, "scale"), :], k.default_init[1])
+    np.testing.assert_allclose(kp.loc[(1, "loc"), :], k.default_init[2])
+
+
+def test_params_vector_roundtrip() -> None:
+    """params_vector_to_dataframe should be the inverse of flattening kernel_params."""
+    k = modpods.GammaKernel()
+    kp = modpods.make_kernel_params(k, ["u"], init_transforms=1, max_transforms=2)
+    kp.loc[(1, "shape"), "u"] = 2.5
+    kp.loc[(1, "scale"), "u"] = 1.5
+    kp.loc[(1, "loc"), "u"] = 0.5
+    kp.loc[(2, "shape"), "u"] = 5.0
+    kp.loc[(2, "scale"), "u"] = 2.0
+    kp.loc[(2, "loc"), "u"] = 1.0
+
+    flat = np.array([2.5, 1.5, 0.5, 5.0, 2.0, 1.0])
+    recovered = modpods.params_vector_to_dataframe(
+        k, flat, ["u"], init_transforms=1, max_transforms=2
+    )
+    pd.testing.assert_frame_equal(kp, recovered)
+
+
+def test_delay_io_train_with_underdamped_kernel(simple_lti_data: pd.DataFrame) -> None:
+    """delay_io_train should work with the underdamped oscillator kernel."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=5,
+            poly_order=1,
+            verbose=False,
+            kernel="underdamped",
+        )
+    assert isinstance(model, dict)
+    assert 1 in model
+    assert "kernel_type" in model[1]
+    assert model[1]["kernel_type"] == "underdamped"
+    assert "kernel_params" in model[1]
 
 
 # ---------------------------------------------------------------------------

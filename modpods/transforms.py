@@ -2,9 +2,12 @@ import warnings
 from collections import OrderedDict
 
 import numpy as np
+import pandas as pd
 import scipy.signal as signal
 import scipy.stats as stats
 from scipy.optimize import minimize
+
+from .kernels import ConvolutionKernel, get_kernel, list_kernels
 
 # Suppress the specific AxesWarning from pysindy after import
 warnings.filterwarnings(
@@ -49,16 +52,16 @@ def _propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=1
 
 
 # =============================================================================
-# Transform Cache - memoizes single-input gamma transforms to avoid recomputation
+# Transform Cache - memoizes single-input kernel transforms to avoid recomputation
 # =============================================================================
 
 
 class TransformCache:
-    """LRU cache for gamma-transformed time series.
+    """LRU cache for kernel-transformed time series.
 
-    Caches results of convolving a forcing series with a gamma PDF kernel.
-    Keys are quantized (input_name, shape, scale, loc) tuples so near-identical
-    parameter sets reuse cached results.
+    Caches results of convolving a forcing series with a kernel impulse response.
+    Keys are quantized (input_name, n, kernel_name, params...) tuples so
+    near-identical parameter sets reuse cached results.
     """
 
     def __init__(self, max_entries: int = 2000, quantization: float = 1e-6):
@@ -75,48 +78,45 @@ class TransformCache:
         return round(value / self.quantization) * self.quantization
 
     def _make_key(
-        self, input_name: str, n: int, shape: float, scale: float, loc: float
+        self,
+        input_name: str,
+        n: int,
+        kernel_name: str,
+        params: tuple,
     ) -> tuple:
-        """Create a hashable cache key from input name and gamma params."""
+        """Create a hashable cache key from input name, kernel, and params."""
         return (
             input_name,
             n,
-            self._quantize(shape),
-            self._quantize(scale),
-            self._quantize(loc),
-        )
+            kernel_name,
+        ) + tuple(self._quantize(p) for p in params)
 
     def get(
         self,
         input_name: str,
         forcing_values: np.ndarray,
-        shape: float,
-        scale: float,
-        loc: float,
+        kernel: ConvolutionKernel,
+        params: tuple,
     ) -> np.ndarray:
         """Get cached transform or compute and cache it.
 
         Returns a COPY of the cached array to prevent mutation issues.
         """
         n = len(forcing_values)
-        key = self._make_key(input_name, n, shape, scale, loc)
+        key = self._make_key(input_name, n, kernel.name, params)
 
         if key in self._cache:
             self.hits += 1
-            # Move to end (most recently used)
             self._cache.move_to_end(key)
             return self._cache[key].copy()
 
-        # Cache miss - compute the transform using FFT convolution
         self.misses += 1
         shape_time = np.arange(0, n, 1)
-        gamma_kernel = stats.gamma.pdf(shape_time, shape, scale=scale, loc=loc)
-        result = signal.fftconvolve(forcing_values, gamma_kernel, mode="full")[:n]
+        kernel_values = kernel.kernel_fn(shape_time, *params)
+        result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[:n]
 
-        # Store in cache
         self._cache[key] = result
 
-        # Evict oldest if over capacity
         if len(self._cache) > self.max_entries:
             self._cache.popitem(last=False)
 
@@ -150,28 +150,100 @@ class TransformCache:
 _transform_cache = TransformCache(max_entries=2000, quantization=1e-6)
 
 
-def transform_inputs(
-    shape_factors, scale_factors, loc_factors, index, forcing, *, cache=None
-):
-    """Vectorized implementation of transform_inputs for greater speed.
+def make_kernel_params(
+    kernel: ConvolutionKernel,
+    columns: list,
+    init_transforms: int = 1,
+    max_transforms: int = 4,
+) -> pd.DataFrame:
+    """Create a kernel_params DataFrame with MultiIndex rows.
 
-    Applies gamma PDF transformations to forcing inputs using FFT-based convolution
-    instead of element-wise iteration. Optional LRU cache avoids recomputation for
-    near-identical parameters during optimization.
+    The DataFrame has a MultiIndex on rows of (transform_idx, param_name)
+    and input variable names as columns.  This generalizes the previous
+    separate shape_factors / scale_factors / loc_factors DataFrames.
 
     Args:
-        shape_factors: DataFrame of gamma shape parameters
-        scale_factors: DataFrame of gamma scale parameters
-        loc_factors: DataFrame of gamma location parameters
-        index: Time index
-        forcing: DataFrame of forcing inputs
-        cache: Optional TransformCache instance for memoization (default None)
+        kernel: ConvolutionKernel instance defining the parameter schema.
+        columns: List of input variable names (DataFrame columns).
+        init_transforms: Starting transform index (usually 1).
+        max_transforms: Ending transform index (inclusive).
+
+    Returns:
+        DataFrame with MultiIndex rows and input columns, initialized to
+        kernel.default_init values.
     """
-    # original forcing columns -> columns of forcing that don't have _tr_ in their name
+    transform_idx = list(range(init_transforms, max_transforms + 1))
+    param_idx = [(t, p) for t in transform_idx for p in kernel.param_names]
+    index = pd.MultiIndex.from_tuples(param_idx, names=["transform", "param"])
+    kernel_params = pd.DataFrame(index=index, columns=columns, dtype=float)
+
+    for t in transform_idx:
+        for col in columns:
+            for i, p_name in enumerate(kernel.param_names):
+                kernel_params.loc[(t, p_name), col] = kernel.default_init[i]
+
+    return kernel_params
+
+
+def params_vector_to_dataframe(
+    kernel: ConvolutionKernel,
+    params_vector: np.ndarray,
+    columns: list,
+    init_transforms: int,
+    max_transforms: int,
+) -> pd.DataFrame:
+    """Convert a flat parameter vector to a kernel_params DataFrame.
+
+    Args:
+        kernel: ConvolutionKernel instance.
+        params_vector: Flat array of all parameters, ordered by
+            (transform_idx * param_name * column).
+        columns: List of input variable names.
+        init_transforms: Starting transform index.
+        max_transforms: Ending transform index (inclusive).
+
+    Returns:
+        DataFrame with MultiIndex rows (transform, param) and input columns.
+    """
+    transform_idx = list(range(init_transforms, max_transforms + 1))
+    param_idx = [(t, p) for t in transform_idx for p in kernel.param_names]
+    index = pd.MultiIndex.from_tuples(param_idx, names=["transform", "param"])
+    kernel_params = pd.DataFrame(index=index, columns=columns, dtype=float)
+
+    idx = 0
+    for t in transform_idx:
+        for col in columns:
+            for p_name in kernel.param_names:
+                kernel_params.loc[(t, p_name), col] = params_vector[idx]
+                idx += 1
+
+    return kernel_params
+
+
+def transform_inputs(
+    kernel: ConvolutionKernel,
+    kernel_params: pd.DataFrame,
+    index,
+    forcing,
+    *,
+    cache=None,
+):
+    """Apply kernel convolution transformations to forcing inputs.
+
+    Vectorized implementation using FFT-based convolution.  Optional LRU cache
+    avoids recomputation for near-identical parameters during optimization.
+
+    Args:
+        kernel: ConvolutionKernel instance defining the impulse response.
+        kernel_params: DataFrame with MultiIndex rows (transform_idx, param_name)
+            and input variable names as columns.
+        index: Time index.
+        forcing: DataFrame of forcing inputs.
+        cache: Optional TransformCache instance for memoization (default None).
+    """
     orig_forcing_columns = [col for col in forcing.columns if "_tr_" not in col]
 
-    # how many rows of shape_factors do not contain NaNs?
-    num_transforms = int(shape_factors.count().iloc[0])
+    num_transforms = kernel_params.index.get_level_values("transform").nunique()
 
     n = len(index)
 
@@ -181,25 +253,20 @@ def transform_inputs(
         for transform_idx in range(1, num_transforms + 1):
             col_name = f"{input_col}_tr_{transform_idx}"
 
-            # Get gamma parameters
-            shape = float(shape_factors[input_col][transform_idx])
-            scale = float(scale_factors[input_col][transform_idx])
-            loc = float(loc_factors[input_col][transform_idx])
+            params = tuple(
+                float(kernel_params.loc[(transform_idx, p_name), input_col])
+                for p_name in kernel.param_names
+            )
 
             if cache is not None:
-                # Use cached transform
-                result = cache.get(input_col, forcing_values, shape, scale, loc)
+                result = cache.get(input_col, forcing_values, kernel, params)
             else:
-                # Compute directly using FFT convolution (faster than np.convolve for large arrays)
                 shape_time = np.arange(0, n, 1)
-                gamma_kernel = stats.gamma.pdf(shape_time, shape, scale=scale, loc=loc)
-                result = signal.fftconvolve(forcing_values, gamma_kernel, mode="full")[
-                    :n
-                ]
+                kernel_values = kernel.kernel_fn(shape_time, *params)
+                result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[:n]
 
             forcing.loc[:, col_name] = result
 
-    # assert there are no NaNs in the forcing
     if forcing.isnull().values.any():
         raise ValueError("Transform inputs produced NaN values")
     return forcing
