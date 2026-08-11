@@ -1,17 +1,17 @@
 from typing import Any
 
-import control as control
+import control as control  # type: ignore
 import numpy as np
 import pandas as pd
 import scipy.stats as stats
 from scipy.optimize import minimize
 
 try:
-    import pyswmm  # not a requirement for any other function
+    import pyswmm  # type: ignore
 except ImportError:
     pyswmm = None
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Matern
+from sklearn.gaussian_process import GaussianProcessRegressor  # type: ignore
+from sklearn.gaussian_process.kernels import Matern  # type: ignore
 
 # Import original modpods functions
 from modpods import *  # noqa: F401, F403
@@ -42,7 +42,7 @@ def propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=25
     Proposes the next sampling point by optimizing the acquisition function.
     """
     dim = X_sample.shape[1]
-    min_val = 1
+    min_val = float("inf")
     min_x = None
 
     def min_obj(X):

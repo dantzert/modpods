@@ -1,9 +1,9 @@
 # not at all working
 
-import ipywidgets as widgets
+import ipywidgets as widgets  # type: ignore
 import matplotlib.pyplot as plt
 import numpy as np
-from ipywidgets import interact
+from ipywidgets import interact  # type: ignore
 from matplotlib import animation
 from scipy.integrate import solve_ivp
 
