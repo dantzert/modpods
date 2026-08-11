@@ -3,8 +3,8 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Matern
+from sklearn.gaussian_process import GaussianProcessRegressor  # type: ignore
+from sklearn.gaussian_process.kernels import Matern  # type: ignore
 
 from .kernels import ConvolutionKernel, get_kernel, list_kernels
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity

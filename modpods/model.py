@@ -2,8 +2,10 @@ import logging
 
 import numpy as np
 import pandas as pd
-import pysindy as ps
-from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
+import pysindy as ps  # type: ignore
+from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped]
+    ConstrainedSR3 as _ConstrainedSR3,
+)
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .metrics import compute_basic_metrics
