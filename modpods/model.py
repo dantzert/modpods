@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 import pandas as pd
 import pysindy as ps
@@ -5,6 +7,8 @@ from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR
 
 from .metrics import compute_basic_metrics
 from .transforms import transform_inputs
+
+logger = logging.getLogger(__name__)
 
 
 def SINDY_delays_MI(
@@ -24,7 +28,10 @@ def SINDY_delays_MI(
     transform_only=None,
     forcing_coef_constraints=None,
     transform_cache=None,
+    verbose=False,
 ):
+    if verbose:
+        logger.setLevel(logging.INFO)
     if transform_only is not None:
         transformed_forcing = transform_inputs(
             shape_factors,
@@ -252,8 +259,8 @@ def SINDY_delays_MI(
                 u=total_train.values[windup_timesteps:, :],
             )  # training data score
         except Exception as e:  # and print the exception
-            print("Exception in model fitting, returning r2=-1\n")
-            print(e)
+            logger.warning("Exception in model fitting, returning r2=-1")
+            logger.warning("%s", e)
             error_metrics = {
                 "MAE": [False],
                 "RMSE": [False],
@@ -290,8 +297,8 @@ def SINDY_delays_MI(
                 u=forcing.values[windup_timesteps:, :],
             )  # training data score
         except Exception as e:  # and print the exception
-            print("Exception in model fitting, returning r2=-1\n")
-            print(e)
+            logger.warning("Exception in model fitting, returning r2=-1")
+            logger.warning("%s", e)
             error_metrics = {
                 "MAE": [False],
                 "RMSE": [False],
@@ -442,20 +449,20 @@ def SINDY_delays_MI(
                     )
                 )
 
-            print("MAE = ", mae)
-            print("RMSE = ", rmse)
-            print("NSE = ", nse)
+            logger.info("MAE = %s", mae)
+            logger.info("RMSE = %s", rmse)
+            logger.info("NSE = %s", nse)
             # alpha nse decomposition due to gupta et al 2009
-            print("alpha = ", alpha)
-            print("beta = ", beta)
+            logger.info("alpha = %s", alpha)
+            logger.info("beta = %s", beta)
             # top 2% peak flow bias (HFV) due to yilmaz et al 2008
-            print("HFV = ", hfv)
+            logger.info("HFV = %s", hfv)
             # top 10% peak flow bias (HFV) due to yilmaz et al 2008
-            print("HFV10 = ", hfv10)
+            logger.info("HFV10 = %s", hfv10)
             # 30% low flow bias (LFV) due to yilmaz et al 2008
-            print("LFV = ", lfv)
+            logger.info("LFV = %s", lfv)
             # bias of FDC midsegment slope due to yilmaz et al 2008
-            print("FDC = ", fdc)
+            logger.info("FDC = %s", fdc)
             # compile all the error metrics into a dictionary
             error_metrics = {
                 "MAE": mae,
@@ -471,8 +478,8 @@ def SINDY_delays_MI(
             }
 
         except Exception as e:  # and print the exception:
-            print("Exception in simulation\n")
-            print(e)
+            logger.warning("Exception in simulation")
+            logger.warning("%s", e)
             error_metrics = {
                 "MAE": [np.nan],
                 "RMSE": [np.nan],

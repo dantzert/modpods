@@ -1,3 +1,4 @@
+import logging
 import warnings
 
 import networkx as nx
@@ -7,6 +8,8 @@ import pysindy as ps
 from scipy.optimize import minimize
 
 from .transforms import transform_inputs
+
+logger = logging.getLogger(__name__)
 
 
 def find_topology_no_geo(
@@ -19,6 +22,8 @@ def find_topology_no_geo(
     sensor_locations=None,
     init_neighbors=3,
 ):
+    if verbose:
+        logger.setLevel(logging.INFO)
     """
     Infer network topology from time series data using SINDy-based optimization.
 
@@ -125,8 +130,11 @@ def find_topology_no_geo(
                 system_data[forcing_col], system_data[dep_col], max_lag_check
             )
             if early_lag < -5:
-                print(
-                    f"\nSkipping {forcing_col} -> {dep_col}: forcing lags response (lag={early_lag})"
+                logger.info(
+                    "Skipping %s -> %s: forcing lags response (lag=%s)",
+                    forcing_col,
+                    dep_col,
+                    early_lag,
                 )
                 lead_lag.loc[dep_col, forcing_col] = early_lag
                 r2_values.loc[dep_col, forcing_col] = 0.0
@@ -138,7 +146,9 @@ def find_topology_no_geo(
                 continue
             # END EXPERIMENTAL
 
-            print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
+            logger.info(
+                "Optimizing transformation for %s -> %s", forcing_col, dep_col
+            )
             forcing_orig = system_data[[forcing_col]].copy(deep=True)
 
             # Objective function to minimize (negative because we want to maximize correlation - p_value)
@@ -195,7 +205,7 @@ def find_topology_no_geo(
                     # if e contains any letters or numbers, print it for debugging
                     if any(c.isalnum() for c in str(e)):
                         if verbose:
-                            print(f"Exception in objective function: {e}")
+                            logger.debug("Exception in objective function: %s", e)
 
                     return 1e10  # Large penalty for invalid parameters
 
@@ -256,7 +266,7 @@ def find_topology_no_geo(
             try:
                 model.print()
             except Exception as e:
-                print(e)
+                logger.warning("%s", e)
 
             r2_values.loc[dep_col, forcing_col] = r2
 
@@ -268,23 +278,29 @@ def find_topology_no_geo(
             )
             lead_lag.loc[dep_col, forcing_col] = best_lag
 
-            print(f"\nOptimizing transformation for {forcing_col} -> {dep_col}")
-            print(
-                f"  BEST: shape={best_shape:.2f}, scale={best_scale:.2f}, loc={best_loc:.2f}"
+            logger.info(
+                "Optimizing transformation for %s -> %s", forcing_col, dep_col
             )
-            print(f"  Cross-correlation: lag={best_lag}, corr={best_xcorr:.4f}")
+            logger.info(
+                "  BEST: shape=%.2f, scale=%.2f, loc=%.2f",
+                best_shape,
+                best_scale,
+                best_loc,
+            )
+            logger.info(
+                "  Cross-correlation: lag=%s, corr=%.4f", best_lag, best_xcorr
+            )
             # save the best parameters
             best_params.loc[dep_col, forcing_col] = (best_shape, best_scale, best_loc)
 
-            print("R2 Values:")
-            print(r2_values)
-            print("\n")
+            logger.info("R2 Values:")
+            logger.info("%s", r2_values)
 
-    print("Final SISO R2 Values:")
-    print(r2_values)
+    logger.info("Final SISO R2 Values:")
+    logger.info("%s", r2_values)
     current_best_r2 = pd.Series(index=dependent_columns, dtype=float, data=0.0)
-    print("Lead/Lag Matrix: (positive lag means forcing leads response)")
-    print(lead_lag)
+    logger.info("Lead/Lag Matrix: (positive lag means forcing leads response)")
+    logger.info("%s", lead_lag)
 
     # OPTION A: Mask r2 values by nonnegative lead/lag (forcing must lead response)
     # This is applied AFTER SISO optimization - use this if not skipping early
@@ -316,7 +332,12 @@ def find_topology_no_geo(
         ):
             edges.loc[dep_col, forcing_col] = 1
             current_best_r2[dep_col] = r2_values.loc[dep_col, forcing_col]
-            print(f"Initial edge added: {forcing_col} -> {dep_col} with r^2 = {r2:.4f}")
+            logger.info(
+                "Initial edge added: %s -> %s with r^2 = %.4f",
+                forcing_col,
+                dep_col,
+                r2,
+            )
 
     # check for cycles and remove them iteratively
     G = nx.from_pandas_adjacency(edges, create_using=nx.DiGraph)
@@ -327,10 +348,11 @@ def find_topology_no_geo(
             if len(cycle_edges) == 0:
                 break
 
-            print(
-                f"Found cycle with {len(cycle_edges)} edges. Removing lowest r^2 edge."
+            logger.info(
+                "Found cycle with %s edges. Removing lowest r^2 edge.",
+                len(cycle_edges),
             )
-            print(f"Cycle edges: {[(e[0], e[1]) for e in cycle_edges]}")
+            logger.info("Cycle edges: %s", [(e[0], e[1]) for e in cycle_edges])
 
             # find the edge with the lowest r^2 in the cycle
             min_r2 = float("inf")
@@ -341,7 +363,9 @@ def find_topology_no_geo(
                 # In our adjacency matrix, edges.loc[row, col] = 1 means col -> row
                 # So we need r2_values.loc[to_node, from_node] for edge from_node -> to_node
                 r2 = r2_values.loc[to_node, from_node]
-                print(f"  Edge {from_node} -> {to_node}: r^2 = {r2:.4f}")
+                logger.info(
+                    "Edge %s -> %s: r^2 = %.4f", from_node, to_node, r2
+                )
                 if r2 < min_r2:
                     min_r2 = r2
                     edge_to_remove = (from_node, to_node)
@@ -349,8 +373,11 @@ def find_topology_no_geo(
             # remove this edge from our edges DataFrame
             # edges.loc[row, col] = 1 means col -> row, so to remove from_node -> to_node:
             edges.loc[edge_to_remove[1], edge_to_remove[0]] = 0
-            print(
-                f"  Removed edge {edge_to_remove[0]} -> {edge_to_remove[1]} with r^2 = {min_r2:.4f}"
+            logger.info(
+                "Removed edge %s -> %s with r^2 = %.4f",
+                edge_to_remove[0],
+                edge_to_remove[1],
+                min_r2,
             )
 
             # rebuild the graph for next iteration
@@ -358,10 +385,10 @@ def find_topology_no_geo(
 
         except nx.NetworkXNoCycle:
             # No cycle found, we're done
-            print("No cycles detected in initial edges.")
+            logger.info("No cycles detected in initial edges.")
             break
         except Exception as e:
-            print(f"Error during cycle detection: {e}")
+            logger.warning("Error during cycle detection: %s", e)
             break
 
     # Helper function to update correlation-weighted R² scores for a single output variable
@@ -448,8 +475,8 @@ def find_topology_no_geo(
 
     sorted_r2 = r2_values.stack().sort_values(ascending=False)
     if verbose:
-        print("Sorted R2 values:")
-        print(sorted_r2)
+        logger.info("Sorted R2 values:")
+        logger.info("%s", sorted_r2)
 
     # Use a while loop so we can re-sort after each edge addition
     # This ensures we always pick the best remaining candidate after correlation weights are updated
@@ -470,7 +497,7 @@ def find_topology_no_geo(
                 break
 
         if idx is None:
-            print("No more candidate edges to evaluate.")
+            logger.info("No more candidate edges to evaluate.")
             break
 
         evaluated_pairs.add(idx)
@@ -490,7 +517,7 @@ def find_topology_no_geo(
             nx.from_pandas_adjacency(non_rain_edges, create_using=nx.DiGraph)
         )
         if n_components_now == 1:
-            print("graph is weakly connected.")
+            logger.info("graph is weakly connected.")
             # done
             break
 
@@ -499,16 +526,21 @@ def find_topology_no_geo(
         )
         if "rain" not in forcing_variable.lower():  # always allow rain edges
             if n_components >= n_components_now:
-                print(
-                    f"Skipping addition of {forcing_variable} -> {output_variable} as it does not improve connectivity"
+                logger.info(
+                    "Skipping addition of %s -> %s as it does not improve connectivity",
+                    forcing_variable,
+                    output_variable,
                 )
                 continue  # skip this addition as it doesn't improve connectivity
 
-        print(
-            f"Evaluating edge {forcing_variable} -> {output_variable} with r2 = {r2:.4f}"
+        logger.info(
+            "Evaluating edge %s -> %s with r2 = %.4f",
+            forcing_variable,
+            output_variable,
+            r2,
         )
-        print("current best r2 values:")
-        print(current_best_r2)
+        logger.info("current best r2 values:")
+        logger.info("%s", current_best_r2)
         # build the candidate input set
         selected_inputs = list(
             edges.loc[output_variable, edges.loc[output_variable, :] == 1].index
@@ -564,8 +596,10 @@ def find_topology_no_geo(
                 u=transformed_inputs,
             )
             if debug:
-                print(
-                    f"    DEBUG joint_objective: inputs={list(transformed_inputs.columns)}, r2={r2:.4f}"
+                logger.debug(
+                    "DEBUG joint_objective: inputs=%s, r2=%.4f",
+                    list(transformed_inputs.columns),
+                    r2,
                 )
                 try:
                     model.print()
@@ -587,7 +621,7 @@ def find_topology_no_geo(
         # First, compute baseline R² using SISO-optimized params (x0)
         # This ensures we never do worse than the initial guess
         baseline_r2 = -joint_objective(x0, debug=True)
-        print(f"  Baseline R² with SISO params: {baseline_r2:.4f}")
+        logger.info("Baseline R² with SISO params: %.4f", baseline_r2)
 
         # optimize
         multivariable_iterations = max_iterations * len(candidate_inputs)
@@ -603,11 +637,13 @@ def find_topology_no_geo(
         # Use optimized params only if they improve on baseline, otherwise keep SISO params
         if optimized_r2 >= baseline_r2:
             optimized_params = result.x
-            print(f"  Optimizer improved R² to {optimized_r2:.4f}")
+            logger.info("Optimizer improved R² to %.4f", optimized_r2)
         else:
             optimized_params = x0
-            print(
-                f"  Optimizer found worse R² ({optimized_r2:.4f}), keeping SISO params (R² = {baseline_r2:.4f})"
+            logger.info(
+                "Optimizer found worse R² (%.4f), keeping SISO params (R² = %.4f)",
+                optimized_r2,
+                baseline_r2,
             )
 
         # extract best params
@@ -660,8 +696,11 @@ def find_topology_no_geo(
             u=transformed_inputs,
         )
 
-        print(
-            f"Testing inputs {candidate_inputs} for output {output_variable} -> r2 = {r2:.4f}"
+        logger.info(
+            "Testing inputs %s for output %s -> r2 = %.4f",
+            candidate_inputs,
+            output_variable,
+            r2,
         )
         if (
             r2 > current_best_r2[output_variable] + 0.01
@@ -669,8 +708,10 @@ def find_topology_no_geo(
             # add a conditional here for reducing the number of components in the graph. if it doesn't connect things that were previously unconnected, we don't want it.
             selected_inputs = candidate_inputs
             current_best_r2[output_variable] = r2
-            print(
-                f"  Accepted new input {forcing_variable}, updated r2 = {current_best_r2[output_variable]:.4f}"
+            logger.info(
+                "Accepted new input %s, updated r2 = %.4f",
+                forcing_variable,
+                current_best_r2[output_variable],
             )
             edges.loc[output_variable, forcing_variable] = 1
 
@@ -679,7 +720,11 @@ def find_topology_no_geo(
             update_corr_weighted_r2(output_variable)
 
         else:
-            print(f"  Rejected new input {forcing_variable}, r2 would be {r2:.4f}")
+            logger.info(
+                "Rejected new input %s, r2 would be %.4f",
+                forcing_variable,
+                r2,
+            )
 
     # transpose edges to have from -> to convention
     edges = edges.T
