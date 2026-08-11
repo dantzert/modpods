@@ -5,7 +5,7 @@ import pandas as pd
 import pysindy as ps
 from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
 
-from ._logging import _normalize_verbose, configure_verbosity, Verbosity
+from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .metrics import compute_basic_metrics
 from .transforms import transform_inputs
 

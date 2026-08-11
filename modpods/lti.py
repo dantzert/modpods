@@ -1,14 +1,14 @@
+import logging
 from typing import Any
 
 import control
-import logging
 import numpy as np
 import pandas as pd
 import pysindy as ps
 import scipy.stats as stats
 from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
 
-from ._logging import _normalize_verbose, configure_verbosity, Verbosity
+from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .train import delay_io_train
 
 logger = logging.getLogger(__name__)
@@ -486,7 +486,11 @@ def lti_system_gen(
                     ].loc[idx, transform_key]
                     # this will get overwritten if we use more than one transformation per input. i think that's okay.
                     transformation_approximations[transform_key] = lti_from_gamma(
-                        shape, scale, loc, max_state_dim=max_transition_state_dim, verbose=verbose
+                        shape,
+                        scale,
+                        loc,
+                        max_state_dim=max_transition_state_dim,
+                        verbose=verbose,
                     )
 
                     lti_result = transformation_approximations[transform_key]

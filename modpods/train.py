@@ -1,3 +1,4 @@
+import logging
 from typing import Any, cast
 
 import numpy as np
@@ -5,9 +6,11 @@ import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern
 
-from ._logging import _normalize_verbose, configure_verbosity, Verbosity
+from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .model import SINDY_delays_MI
 from .transforms import _expected_improvement, _propose_location, _transform_cache
+
+logger = logging.getLogger(__name__)
 
 
 def _run_scipy_optimizer(
@@ -283,9 +286,7 @@ def delay_io_train(
                 X_sample_list.append(x)
                 Y_sample_list.append(y)
                 if _normalize_verbose(verbose) != "warnings":
-                    logger.debug(
-                        "Initial sample %s/%s: R² = %.6f", i + 1, n_initial, y
-                    )
+                    logger.debug("Initial sample %s/%s: R² = %.6f", i + 1, n_initial, y)
 
             X_sample: np.ndarray = np.array(X_sample_list)
             Y_sample: np.ndarray = np.array(Y_sample_list).reshape(-1, 1)
@@ -442,7 +443,9 @@ def delay_io_train(
                     idx += 3
 
         # For bayesian and scipy.optimize methods, we're done with optimization
-        logger.info("Optimization complete. Using optimized parameters for final model.")
+        logger.info(
+            "Optimization complete. Using optimized parameters for final model."
+        )
         final_model = SINDY_delays_MI(
             shape_factors,
             scale_factors,

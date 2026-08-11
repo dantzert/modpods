@@ -377,7 +377,7 @@ def test_delay_io_train_returns_model(simple_lti_data: pd.DataFrame) -> None:
             max_transforms=1,
             max_iter=5,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
         )
     assert isinstance(model, dict)
     assert 1 in model, "expected key 1 (first output) in model dict"
@@ -398,7 +398,7 @@ def test_delay_io_train_nse_above_zero(simple_lti_data: pd.DataFrame) -> None:
             max_transforms=1,
             max_iter=10,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
         )
     nse = float(model[1]["final_model"]["error_metrics"]["NSE"][0])
     assert nse > 0.0, f"Training NSE {nse:.4f} is non-positive"
@@ -420,7 +420,7 @@ def test_delay_io_train_with_forcing_coef_constraints(
             max_transforms=1,
             max_iter=10,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
             bibo_stable=True,
             forcing_coef_constraints={"u": 1},
         )
@@ -444,7 +444,7 @@ def test_delay_io_predict_returns_expected_shape(
             max_transforms=1,
             max_iter=5,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
         )
         pred = modpods.delay_io_predict(model, simple_lti_data, num_transforms=1)
     assert isinstance(pred, dict)
@@ -472,7 +472,7 @@ def bayesian_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
             max_transforms=1,
             max_iter=10,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
             optimization_method="bayesian",
         )
     return cast(dict[Any, Any], model)
@@ -492,7 +492,7 @@ def de_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
             max_transforms=1,
             max_iter=10,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
             optimization_method="differential_evolution",
         )
     return cast(dict[Any, Any], model)
@@ -512,7 +512,7 @@ def da_model(simple_lti_data: pd.DataFrame) -> dict[Any, Any]:
             max_transforms=1,
             max_iter=10,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
             optimization_method="dual_annealing",
         )
     return cast(dict[Any, Any], model)
@@ -628,7 +628,7 @@ def test_infer_causative_topology_returns_dataframe(
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
-            verbose=False,
+            verbose="warnings",
             max_iter=0,
             method="sindy",
         )
@@ -648,7 +648,7 @@ def test_infer_causative_topology_identifies_u1_causes_x2(
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
-            verbose=False,
+            verbose="warnings",
             max_iter=0,
             method="sindy",
         )
@@ -667,7 +667,7 @@ def test_infer_causative_topology_identifies_u2_causes_x8(
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
-            verbose=False,
+            verbose="warnings",
             max_iter=0,
             method="sindy",
         )
@@ -686,7 +686,7 @@ def test_infer_causative_topology_no_self_loops(
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
-            verbose=False,
+            verbose="warnings",
             max_iter=0,
             method="sindy",
         )
@@ -795,7 +795,7 @@ def trained_camels_model(
             max_transforms=1,
             max_iter=5,
             poly_order=1,
-            verbose=False,
+            verbose="warnings",
             bibo_stable=False,
             forcing_coef_constraints={"RAIM": -1, "PET": 1, "PRCP": -1},
         )
