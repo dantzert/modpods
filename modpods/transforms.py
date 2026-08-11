@@ -7,7 +7,7 @@ import scipy.signal as signal
 import scipy.stats as stats
 from scipy.optimize import minimize
 
-from .kernels import ConvolutionKernel, get_kernel, list_kernels
+from .kernels import ConvolutionKernel
 
 # Suppress the specific AxesWarning from pysindy after import
 warnings.filterwarnings(
@@ -263,7 +263,9 @@ def transform_inputs(
             else:
                 shape_time = np.arange(0, n, 1)
                 kernel_values = kernel.kernel_fn(shape_time, *params)
-                result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[:n]
+                result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[
+                    :n
+                ]
 
             forcing.loc[:, col_name] = result
 

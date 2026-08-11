@@ -2,14 +2,19 @@ import logging
 from typing import Any, cast
 
 import numpy as np
-import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor  # type: ignore
 from sklearn.gaussian_process.kernels import Matern  # type: ignore
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .kernels import ConvolutionKernel, get_kernel, list_kernels
 from .model import SINDY_delays_MI
-from .transforms import _expected_improvement, _propose_location, _transform_cache, make_kernel_params, params_vector_to_dataframe
+from .transforms import (
+    _expected_improvement,
+    _propose_location,
+    _transform_cache,
+    make_kernel_params,
+    params_vector_to_dataframe,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,11 +146,7 @@ def _train_single_kernel(
     else:
         columns = forcing.columns
 
-    kernel_params = make_kernel_params(
-        kernel, columns, init_transforms, max_transforms
-    )
-    speeds = [100, 50, 20, 10, 5, 2, 1.1, 1.05, 1.01]
-    improvement_threshold = 1.001 if transform_dependent else 1.0
+    kernel_params = make_kernel_params(kernel, columns, init_transforms, max_transforms)
 
     results = dict()
 
@@ -176,13 +177,18 @@ def _train_single_kernel(
                     "Using Bayesian optimization for %s transforms...", num_transforms
                 )
 
-            bounds = np.tile(kernel.default_bounds, (num_transforms * len(transform_columns), 1))
+            bounds = np.tile(
+                kernel.default_bounds, (num_transforms * len(transform_columns), 1)
+            )
 
             def objective_function(params_vector):
                 try:
                     opt_params = params_vector_to_dataframe(
-                        kernel, params_vector, transform_columns,
-                        init_transforms, num_transforms
+                        kernel,
+                        params_vector,
+                        transform_columns,
+                        init_transforms,
+                        num_transforms,
                     )
                     result = SINDY_delays_MI(
                         kernel,
@@ -279,13 +285,18 @@ def _train_single_kernel(
                     num_transforms,
                 )
 
-            bounds = np.tile(kernel.default_bounds, (num_transforms * len(transform_columns), 1))
+            bounds = np.tile(
+                kernel.default_bounds, (num_transforms * len(transform_columns), 1)
+            )
 
             def objective_function(params_vector):
                 try:
                     opt_params = params_vector_to_dataframe(
-                        kernel, params_vector, transform_columns,
-                        init_transforms, num_transforms
+                        kernel,
+                        params_vector,
+                        transform_columns,
+                        init_transforms,
+                        num_transforms,
                     )
                     result = SINDY_delays_MI(
                         kernel,
@@ -419,7 +430,7 @@ def delay_io_train(
     """
     if kernel in ("try-all", "run-all"):
         all_results = dict()
-        cheap = (kernel == "try-all")
+        cheap = kernel == "try-all"
         for name in list_kernels():
             if _normalize_verbose(verbose) != "warnings":
                 mode = "cheap" if cheap else "expensive"
@@ -487,7 +498,9 @@ def delay_io_train(
                         best_kernel_name = name
             if _normalize_verbose(verbose) != "warnings":
                 logger.info(
-                    "Best kernel from cheap pass: %s (R² = %.4f)", best_kernel_name, best_r2
+                    "Best kernel from cheap pass: %s (R² = %.4f)",
+                    best_kernel_name,
+                    best_r2,
                 )
             if best_kernel_name is None:
                 raise RuntimeError("No kernel produced a valid model in try-all mode.")

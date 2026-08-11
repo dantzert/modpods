@@ -20,9 +20,7 @@ def delay_io_predict(
 ):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
-    if (
-        windup_timesteps is None
-    ):
+    if windup_timesteps is None:
         windup_timesteps = delay_io_model[num_transforms]["windup_timesteps"]
     forcing = system_data[delay_io_model[num_transforms]["independent_columns"]].copy(
         deep=True
@@ -83,9 +81,7 @@ def delay_io_predict(
             hfv10 = list()
             lfv = list()
             fdc = list()
-            for col_idx in range(
-                0, len(response.columns)
-            ):
+            for col_idx in range(0, len(response.columns)):
                 error = (
                     response.values[windup_timesteps + 1 :, col_idx]
                     - prediction[:, col_idx]
@@ -94,7 +90,9 @@ def delay_io_predict(
                 initial_error_length = len(error)
                 error = error[~np.isnan(error)]
                 if len(error) < 0.75 * initial_error_length:
-                    logger.warning("WARNING: More than 25%% of the entries in error were NaN")
+                    logger.warning(
+                        "WARNING: More than 25%% of the entries in error were NaN"
+                    )
 
                 basic = compute_basic_metrics(
                     response.values[windup_timesteps + 1 :, col_idx],

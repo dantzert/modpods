@@ -9,7 +9,7 @@ import pysindy as ps  # type: ignore
 from scipy.optimize import minimize
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
-from .kernels import ConvolutionKernel, get_kernel
+from .kernels import get_kernel
 from .transforms import transform_inputs
 
 logger = logging.getLogger(__name__)
@@ -291,7 +291,10 @@ def find_topology_no_geo(
             logger.info("Optimizing transformation for %s -> %s", forcing_col, dep_col)
             logger.info(
                 "  BEST: %s",
-                ", ".join(f"{n}={v:.2f}" for n, v in zip(kernel.param_names, result.x.tolist()))
+                ", ".join(
+                    f"{n}={v:.2f}"
+                    for n, v in zip(kernel.param_names, result.x.tolist())
+                ),
             )
             logger.info("  Cross-correlation: lag=%s, corr=%.4f", best_lag, best_xcorr)
             best_params.loc[dep_col, forcing_col] = tuple(result.x.tolist())
@@ -558,7 +561,9 @@ def find_topology_no_geo(
                     dtype=float,
                 )
                 for j, p_name in enumerate(kernel.param_names):
-                    kernel_params.loc[(1, p_name), input_var] = params[i * kernel.num_params + j]
+                    kernel_params.loc[(1, p_name), input_var] = params[
+                        i * kernel.num_params + j
+                    ]
                 forcing_orig = system_data[[input_var]].copy()
                 transformed = transform_inputs(
                     kernel,
@@ -664,7 +669,9 @@ def find_topology_no_geo(
                 dtype=float,
             )
             for j, p_name in enumerate(kernel.param_names):
-                kernel_params.loc[(1, p_name), input_var] = optimized_params[i * kernel.num_params + j]
+                kernel_params.loc[(1, p_name), input_var] = optimized_params[
+                    i * kernel.num_params + j
+                ]
             forcing_orig = system_data[[input_var]].copy()
             transformed = transform_inputs(
                 kernel,

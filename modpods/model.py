@@ -61,9 +61,7 @@ def SINDY_delays_MI(
     feature_names = response.columns.tolist() + forcing.columns.tolist()
 
     # SINDy
-    if (
-        not bibo_stable and forcing_coef_constraints is None
-    ):
+    if not bibo_stable and forcing_coef_constraints is None:
         model = ps.SINDy(
             differentiation_method=ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(

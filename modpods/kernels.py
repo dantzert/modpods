@@ -90,18 +90,22 @@ class GammaKernel(ConvolutionKernel):
 
     @property
     def default_bounds(self) -> np.ndarray:
-        return np.array([
-            [1.0, 50.0],
-            [0.1, 5.0],
-            [0.0, 20.0],
-        ])
+        return np.array(
+            [
+                [1.0, 50.0],
+                [0.1, 5.0],
+                [0.0, 20.0],
+            ]
+        )
 
     @property
     def default_init(self) -> np.ndarray:
         return np.array([1.0, 1.0, 0.0])
 
-    def kernel_fn(self, t: np.ndarray, shape: float, scale: float, loc: float) -> np.ndarray:
-        return stats.gamma.pdf(t, shape, scale=scale, loc=loc)
+    def kernel_fn(  # type: ignore[override]
+        self, t: np.ndarray, shape: float, scale: float, loc: float
+    ) -> np.ndarray:
+        return stats.gamma.pdf(t, shape, scale=scale, loc=loc)  # type: ignore[no-any-return]
 
 
 class LogNormalKernel(ConvolutionKernel):
@@ -124,17 +128,19 @@ class LogNormalKernel(ConvolutionKernel):
 
     @property
     def default_bounds(self) -> np.ndarray:
-        return np.array([
-            [0.1, 5.0],
-            [0.1, 5.0],
-        ])
+        return np.array(
+            [
+                [0.1, 5.0],
+                [0.1, 5.0],
+            ]
+        )
 
     @property
     def default_init(self) -> np.ndarray:
         return np.array([0.0, 1.0])
 
-    def kernel_fn(self, t: np.ndarray, mu: float, sigma: float) -> np.ndarray:
-        return stats.lognorm.pdf(t, sigma, scale=np.exp(mu))
+    def kernel_fn(self, t: np.ndarray, mu: float, sigma: float) -> np.ndarray:  # type: ignore[override]
+        return stats.lognorm.pdf(t, sigma, scale=np.exp(mu))  # type: ignore[no-any-return]
 
 
 class BimodalGammaKernel(ConvolutionKernel):
@@ -157,27 +163,34 @@ class BimodalGammaKernel(ConvolutionKernel):
 
     @property
     def default_bounds(self) -> np.ndarray:
-        return np.array([
-            [1.0, 50.0],
-            [0.1, 5.0],
-            [0.0, 20.0],
-            [1.0, 50.0],
-            [0.1, 5.0],
-            [0.0, 20.0],
-        ])
+        return np.array(
+            [
+                [1.0, 50.0],
+                [0.1, 5.0],
+                [0.0, 20.0],
+                [1.0, 50.0],
+                [0.1, 5.0],
+                [0.0, 20.0],
+            ]
+        )
 
     @property
     def default_init(self) -> np.ndarray:
         return np.array([2.0, 1.0, 0.0, 5.0, 1.0, 5.0])
 
-    def kernel_fn(
-        self, t: np.ndarray,
-        shape1: float, scale1: float, loc1: float,
-        shape2: float, scale2: float, loc2: float,
+    def kernel_fn(  # type: ignore[override]
+        self,
+        t: np.ndarray,
+        shape1: float,
+        scale1: float,
+        loc1: float,
+        shape2: float,
+        scale2: float,
+        loc2: float,
     ) -> np.ndarray:
         k1 = stats.gamma.pdf(t, shape1, scale=scale1, loc=loc1)
         k2 = stats.gamma.pdf(t, shape2, scale=scale2, loc=loc2)
-        return 0.5 * (k1 + k2)
+        return 0.5 * (k1 + k2)  # type: ignore[no-any-return]
 
 
 class UnderdampedOscillatorKernel(ConvolutionKernel):
@@ -209,20 +222,22 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
 
     @property
     def default_bounds(self) -> np.ndarray:
-        return np.array([
-            [0.01, 0.99],
-            [0.1, 10.0],
-        ])
+        return np.array(
+            [
+                [0.01, 0.99],
+                [0.1, 10.0],
+            ]
+        )
 
     @property
     def default_init(self) -> np.ndarray:
         return np.array([0.1, 2.0])
 
-    def kernel_fn(self, t: np.ndarray, zeta: float, omega_n: float) -> np.ndarray:
-        omega_d = omega_n * np.sqrt(1.0 - zeta ** 2)
+    def kernel_fn(self, t: np.ndarray, zeta: float, omega_n: float) -> np.ndarray:  # type: ignore[override]
+        omega_d = omega_n * np.sqrt(1.0 - zeta**2)
         amplitude = omega_n / omega_d
         h = amplitude * np.exp(-zeta * omega_n * t) * np.sin(omega_d * t)
-        return np.maximum(h, 0.0)
+        return np.maximum(h, 0.0)  # type: ignore[no-any-return]
 
 
 _KERNEL_REGISTRY: Dict[str, type] = {}
@@ -252,10 +267,9 @@ def get_kernel(name_or_instance) -> ConvolutionKernel:
     cls = _KERNEL_REGISTRY.get(str(name_or_instance))
     if cls is None:
         raise ValueError(
-            f"Unknown kernel '{name_or_instance}'. "
-            f"Available: {list_kernels()}"
+            f"Unknown kernel '{name_or_instance}'. " f"Available: {list_kernels()}"
         )
-    return cls()
+    return cls()  # type: ignore[no-any-return]
 
 
 def list_kernels() -> List[str]:

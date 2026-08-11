@@ -169,9 +169,7 @@ def test_transform_inputs_correctness() -> None:
     kernel_params.loc[(1, "scale"), "u"] = 1.0
     kernel_params.loc[(1, "loc"), "u"] = 0.0
 
-    result = modpods.transform_inputs(
-        kernel, kernel_params, index, forcing
-    )
+    result = modpods.transform_inputs(kernel, kernel_params, index, forcing)
 
     assert "u_tr_1" in result.columns
     assert len(result) == n
@@ -385,13 +383,9 @@ def test_transform_inputs_cache_quantization() -> None:
 
     cache = modpods.TransformCache(quantization=1e-6)
 
-    result1 = modpods.transform_inputs(
-        kernel, kp1, index, forcing, cache=cache
-    )
+    result1 = modpods.transform_inputs(kernel, kp1, index, forcing, cache=cache)
 
-    result2 = modpods.transform_inputs(
-        kernel, kp2, index, forcing, cache=cache
-    )
+    result2 = modpods.transform_inputs(kernel, kp2, index, forcing, cache=cache)
     stats2 = cache.stats()
 
     assert stats2["hits"] == 1
@@ -461,7 +455,9 @@ def test_underdamped_kernel_oscillatory() -> None:
 def test_make_kernel_params() -> None:
     """make_kernel_params should create a properly indexed DataFrame."""
     k = modpods.GammaKernel()
-    kp = modpods.make_kernel_params(k, ["u1", "u2"], init_transforms=1, max_transforms=3)
+    kp = modpods.make_kernel_params(
+        k, ["u1", "u2"], init_transforms=1, max_transforms=3
+    )
     assert kp.index.nlevels == 2
     assert kp.index.names == ["transform", "param"]
     assert list(kp.columns) == ["u1", "u2"]
