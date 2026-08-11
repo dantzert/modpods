@@ -25,7 +25,7 @@ df.set_index("datetime", inplace=True)
 # shift the forcing back one timestep (one day) to make the system causal
 
 print(df[["OBS_RUN", "RAIM"]])
-df.RAIM = df.RAIM.shift(-1)
+df["RAIM"] = df["RAIM"].shift(-1)
 df.dropna(inplace=True)
 print(df[["OBS_RUN", "RAIM"]])
 

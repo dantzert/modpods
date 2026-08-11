@@ -32,7 +32,7 @@ jobs:
         run: codespell .
 
       - name: Type-check with mypy
-        run: mypy . --ignore-missing-imports
+        run: mypy .
 
       - name: Run tests with pytest
         run: pytest tests/ -v --junitxml=junit.xml --cov=modpods --cov-report=xml -n auto

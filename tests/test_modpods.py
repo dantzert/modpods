@@ -13,7 +13,7 @@ import pathlib
 import warnings
 from typing import Any, cast
 
-import control as ct
+import control as ct  # type: ignore
 import numpy as np
 import pandas as pd
 import pytest
@@ -769,7 +769,7 @@ def camels_data() -> pd.DataFrame:
     )
     df["datetime"] = pd.to_datetime(df[["year", "month", "day", "hour"]])
     df.set_index("datetime", inplace=True)
-    df.RAIM = df.RAIM.shift(-1)
+    df["RAIM"] = df["RAIM"].shift(-1)
     df.dropna(inplace=True)
     return df
 

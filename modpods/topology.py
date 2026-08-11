@@ -1,10 +1,11 @@
 import logging
 import warnings
+from typing import cast
 
 import networkx as nx
 import numpy as np
 import pandas as pd
-import pysindy as ps
+import pysindy as ps  # type: ignore
 from scipy.optimize import minimize
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
@@ -319,7 +320,7 @@ def find_topology_no_geo(
     # try a different method of picking initial edges
     # find the n_columns edges in r2_values with the highest r^2 values
     # if they are the maximum in their row and column, include them
-    sorted_r2 = r2_values.stack().sort_values(ascending=False)
+    sorted_r2 = r2_values.stack().sort_values(ascending=False)  # type: ignore[call-overload]
     for idx in sorted_r2.index:
         dep_col = idx[0]
         forcing_col = idx[1]
@@ -470,7 +471,7 @@ def find_topology_no_geo(
     for dep_col in dependent_columns:
         update_corr_weighted_r2(dep_col)
 
-    sorted_r2 = r2_values.stack().sort_values(ascending=False)
+    sorted_r2 = r2_values.stack().sort_values(ascending=False)  # type: ignore[call-overload]
     if _normalize_verbose(verbose) != "warnings":
         logger.info("Sorted R2 values:")
         logger.info("%s", sorted_r2)
@@ -482,7 +483,7 @@ def find_topology_no_geo(
     )  # Track pairs we've already evaluated to avoid infinite loops
 
     while True:
-        sorted_corr_wted_r2 = corr_wted_r2.stack().sort_values(ascending=False)
+        sorted_corr_wted_r2 = corr_wted_r2.stack().sort_values(ascending=False)  # type: ignore[call-overload]
         # Find the best candidate we haven't evaluated yet
         idx = None
         for candidate_idx in sorted_corr_wted_r2.index:
@@ -639,7 +640,7 @@ def find_topology_no_geo(
             optimized_params = result.x
             logger.info("Optimizer improved R² to %.4f", optimized_r2)
         else:
-            optimized_params = x0
+            optimized_params = cast(np.ndarray, np.asarray(x0, dtype=np.float64))
             logger.info(
                 "Optimizer found worse R² (%.4f), keeping SISO params (R² = %.4f)",
                 optimized_r2,

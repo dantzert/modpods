@@ -33,7 +33,7 @@ def _expected_improvement(X, X_sample, Y_sample, gpr, xi=0.01):
 def _propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=10):
     """Propose next sampling point by optimizing acquisition function."""
     dim = X_sample.shape[1]
-    min_val = 1
+    min_val = float("inf")
     min_x = None
 
     def min_obj(X):
