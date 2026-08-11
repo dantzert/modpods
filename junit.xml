@@ -1,0 +1,3581 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="26" failures="0" skipped="0" tests="26" time="6.451" timestamp="2026-08-11T16:28:40.487607+00:00" hostname="cloudchamber"><testcase classname="tests.test_modpods" name="test_lti_from_gamma_achieves_reasonable_nse" time="0.190"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f6963fa3880&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f698d115810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_lti_from_gamma_returns_required_keys" time="0.199"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7feab24cb880&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7feadb515810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_transform_inputs_performance" time="0.201"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f0968fd7640&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f099211d810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_transform_inputs_correctness" time="0.207"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f87401a3880&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f87692ad810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_lti_from_gamma_t_is_nonnegative" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f6963c59f30&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f698d115810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_lti_from_gamma_output_shapes_match" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7feab217dd80&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7feadb515810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_transform_inputs_with_cache" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f873fe55f30&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f87692ad810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_transform_inputs_multiple_transforms" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f0968c81d80&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f099211d810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_transform_inputs_cache_quantization" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7feab217dcf0&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7feadb515810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_transform_inputs_multiple_inputs" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f6963c58550&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f698d115810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_delay_io_train_nse_above_zero" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f873fe54550&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f87692ad810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_delay_io_train_returns_model" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f0968c81c60&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f099211d810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_delay_io_predict_returns_expected_shape" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7feab24cb400&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7feadb515810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_bayesian_returns_valid_model" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f8768ab6cb0&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f87692ad810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_delay_io_train_with_forcing_coef_constraints" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f698c8e6cb0&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f698d115810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_differential_evolution_returns_valid_model" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f0968e95fc0&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f099211d810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_dual_annealing_returns_valid_model" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7feab238d3f0&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7feadb515810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_all_methods_predictions_agree" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f87401a3400&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f87692ad810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_all_methods_produce_comparable_r2" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f6963fa3400&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f698d115810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_infer_causative_topology_returns_dataframe" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f0968c81cf0&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f099211d810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_infer_causative_topology_identifies_u1_causes_x2" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7feab1f17490&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7feadb515810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_infer_causative_topology_identifies_u2_causes_x8" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f873fde8550&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f87692ad810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_infer_causative_topology_no_self_loops" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f6963bec550&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f698d115810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_lti_system_gen_returns_state_space" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f0968a1b1c0&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f099211d810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_delay_io_train_camels_returns_model" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7feab6eb9fc0&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7feadb515810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase><testcase classname="tests.test_modpods" name="test_delay_io_predict_camels_returns_prediction" time="0.001"><error message="failed on setup with &quot;_pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.&#10;Hint: make sure your test modules/packages have valid Python names.&#10;Traceback:&#10;/usr/lib/python3.10/importlib/__init__.py:126: in import_module&#10;    return _bootstrap._gcd_import(name[level:], package, level)&#10;__init__.py:2: in &lt;module&gt;&#10;    from .modpods import *  # noqa: F403&#10;E   ImportError: attempted relative import with no known parent package&quot;">name = '__init__', package = None
+
+    def import_module(name, package=None):
+        """Import a module.
+    
+        The 'package' argument is required when performing a relative import. It
+        specifies the package to use as the anchor point from which to resolve the
+        relative import to an absolute import.
+    
+        """
+        level = 0
+        if name.startswith('.'):
+            if not package:
+                msg = ("the 'package' argument is required to perform a relative "
+                       "import for {!r}")
+                raise TypeError(msg.format(name))
+            for character in name:
+                if character != '.':
+                    break
+                level += 1
+&gt;       return _bootstrap._gcd_import(name[level:], package, level)
+
+/usr/lib/python3.10/importlib/__init__.py:126: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    # mypy: ignore-errors
+&gt;   from .modpods import *  # noqa: F403
+E   ImportError: attempted relative import with no known parent package
+
+__init__.py:2: ImportError
+
+The above exception was the direct cause of the following exception:
+
+cls = &lt;class '_pytest.runner.CallInfo'&gt;
+func = &lt;function call_and_report.&lt;locals&gt;.&lt;lambda&gt; at 0x7f87401a3910&gt;
+when = 'setup'
+reraise = (&lt;class '_pytest.outcomes.Exit'&gt;, &lt;class 'KeyboardInterrupt'&gt;)
+
+    @classmethod
+    def from_call(
+        cls,
+        func: Callable[[], TResult],
+        when: Literal["collect", "setup", "call", "teardown"],
+        reraise: type[BaseException] | tuple[type[BaseException], ...] | None = None,
+    ) -&gt; CallInfo[TResult]:
+        """Call func, wrapping the result in a CallInfo.
+    
+        :param func:
+            The function to call. Called without arguments.
+        :type func: Callable[[], _pytest.runner.TResult]
+        :param when:
+            The phase in which the function is called.
+        :param reraise:
+            Exception or exceptions that shall propagate if raised by the
+            function, instead of being wrapped in the CallInfo.
+        """
+        excinfo = None
+        instant = timing.Instant()
+        try:
+&gt;           result: TResult | None = func()
+
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:250: in &lt;lambda&gt;
+    lambda: runtest_hook(item=item, **kwds),
+/usr/local/lib/python3.10/dist-packages/pluggy/_hooks.py:512: in __call__
+    return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/pluggy/_manager.py:120: in _hookexec
+    return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+/usr/local/lib/python3.10/dist-packages/_pytest/logging.py:858: in pytest_runtest_setup
+    yield
+/usr/local/lib/python3.10/dist-packages/_pytest/capture.py:895: in pytest_runtest_setup
+    return (yield)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:170: in pytest_runtest_setup
+    item.session._setupstate.setup(item)
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:529: in setup
+    raise exc[0].with_traceback(exc[1])
+/usr/local/lib/python3.10/dist-packages/_pytest/runner.py:536: in setup
+    col.setup()
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:678: in setup
+    init_mod = importtestmodule(self.path / "__init__.py", self.config)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py')
+config = &lt;_pytest.config.Config object at 0x7f87692ad810&gt;
+
+    def importtestmodule(
+        path: Path,
+        config: Config,
+    ):
+        # We assume we are only called once per module.
+        importmode = config.getoption("--import-mode")
+        try:
+            mod = import_path(
+                path,
+                mode=importmode,
+                root=config.rootpath,
+                consider_namespace_packages=config.getini("consider_namespace_packages"),
+            )
+        except SyntaxError as e:
+            raise nodes.Collector.CollectError(
+                ExceptionInfo.from_current().getrepr(style="short")
+            ) from e
+        except ImportPathMismatchError as e:
+            raise nodes.Collector.CollectError(
+                "import file mismatch:\n"
+                "imported module {!r} has this __file__ attribute:\n"
+                "  {}\n"
+                "which is not the same as the test file we want to collect:\n"
+                "  {}\n"
+                "HINT: remove __pycache__ / .pyc files and/or use a "
+                "unique basename for your test file modules".format(*e.args)
+            ) from e
+        except ImportError as e:
+            exc_info = ExceptionInfo.from_current()
+            if config.get_verbosity() &lt; 2:
+                exc_info.traceback = exc_info.traceback.filter(filter_traceback)
+            exc_repr = (
+                exc_info.getrepr(style="short")
+                if exc_info.traceback
+                else exc_info.exconly()
+            )
+            formatted_tb = str(exc_repr)
+&gt;           raise nodes.Collector.CollectError(
+                f"ImportError while importing test module '{path}'.\n"
+                "Hint: make sure your test modules/packages have valid Python names.\n"
+                "Traceback:\n"
+                f"{formatted_tb}"
+            ) from e
+E           _pytest.nodes.Collector.CollectError: ImportError while importing test module '/workspace/7056b880-6ac4-45db-99fe-ea9fee8954f7/sessions/agent_12cb9495-bc81-44b0-b4e3-80839e18ea74/__init__.py'.
+E           Hint: make sure your test modules/packages have valid Python names.
+E           Traceback:
+E           /usr/lib/python3.10/importlib/__init__.py:126: in import_module
+E               return _bootstrap._gcd_import(name[level:], package, level)
+E           __init__.py:2: in &lt;module&gt;
+E               from .modpods import *  # noqa: F403
+E           E   ImportError: attempted relative import with no known parent package
+
+/usr/local/lib/python3.10/dist-packages/_pytest/python.py:538: CollectError</error></testcase></testsuite></testsuites>
