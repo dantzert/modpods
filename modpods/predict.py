@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 
+from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .metrics import compute_basic_metrics
 from .transforms import transform_inputs
 
@@ -14,10 +15,10 @@ def delay_io_predict(
     num_transforms=1,
     evaluation=False,
     windup_timesteps=None,
-    verbose=False,
+    verbose: Verbosity = "warnings",
 ):
-    if verbose:
-        logger.setLevel(logging.INFO)
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
     if (
         windup_timesteps is None
     ):  # user didn't specify windup timesteps, use what the model trained with.
@@ -92,9 +93,7 @@ def delay_io_predict(
                 initial_error_length = len(error)
                 error = error[~np.isnan(error)]
                 if len(error) < 0.75 * initial_error_length:
-                    logger.warning(
-                        "More than 25%% of the entries in error were NaN"
-                    )
+                    logger.warning("More than 25%% of the entries in error were NaN")
 
                 basic = compute_basic_metrics(
                     response.values[windup_timesteps + 1 :, col_idx],

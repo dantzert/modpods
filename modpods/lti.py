@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import control
 import numpy as np
@@ -7,6 +8,7 @@ import pysindy as ps
 import scipy.stats as stats
 from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
 
+from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .train import delay_io_train
 
 logger = logging.getLogger(__name__)
@@ -18,20 +20,17 @@ def lti_from_gamma(
     location,
     dt=0,
     desired_NSE=0.999,
-    verbose=False,
+    verbose: Verbosity = "warnings",
     max_state_dim=50,
     max_iterations=200,
     max_pole_speed=5,
     min_pole_speed=0.01,
 ):
-    if verbose:
-        logger.setLevel(logging.INFO)
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
 
     # a pole of speed -5 decays to less than 1% of it's value after one timestep
     # a pole of speed -0.01 decays to more than 99% of it's value after one timestep
-
-    # i've assumed here that gamma pdf is defined the same as in matlab
-    # if that's not true testing will show it soon enough
     t50 = shape * scale + location  # center of mass
     skewness = 2 / np.sqrt(shape)
     total_time_base = (
@@ -57,7 +56,7 @@ def lti_from_gamma(
 
     decay_rate = np.clip(decay_rate, min_pole_speed, max_pole_speed)
 
-    if verbose:
+    if _normalize_verbose(verbose) != "warnings":
         logger.info("state dimension is %s", state_dim)
         logger.info("decay rate is %s", decay_rate)
         logger.info("total time base is %s", total_time_base)
@@ -92,7 +91,7 @@ def lti_from_gamma(
     if np.isnan(NSE):
         NSE = -10e6
 
-    if verbose:
+    if _normalize_verbose(verbose) != "warnings":
         logger.info("initial NSE")
         logger.info("%s", NSE)
         logger.info("desired NSE")
@@ -208,7 +207,7 @@ def lti_from_gamma(
             leap = speeds[speed_idx]
         # print the iteration count every ten
         # comment out for production
-        if iterations % 2 == 0 and verbose:
+        if iterations % 2 == 0 and verbose != "warnings":
             logger.debug("iterations = %s", iterations)
             logger.debug("error = %s", error)
             logger.debug("NSE = %s", NSE)
@@ -219,7 +218,7 @@ def lti_from_gamma(
     error = np.sum(np.abs(gam - og_y))
     logger.info("LTI_from_gamma final NSE")
     logger.info("%s", NSE)
-    if verbose:
+    if _normalize_verbose(verbose) != "warnings":
         logger.info("final system")
         logger.info("A")
         logger.info("%s", A)
@@ -258,10 +257,10 @@ def lti_system_gen(
     max_transition_state_dim=50,
     max_transforms=1,
     early_stopping_threshold=0.005,
-    verbose=False,
+    verbose: Verbosity = "warnings",
 ):
-    if verbose:
-        logger.setLevel(logging.INFO)
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
 
     # cast the columns and indices of causative_topology to strings so sindy can run properly
     # We need the tuples to link the columns in system_data to the object names in the swmm model
@@ -342,7 +341,7 @@ def lti_system_gen(
                 max_transforms=max_transforms,
                 poly_order=1,
                 max_iter=max_iter,
-                verbose=False,
+                verbose=verbose,
                 bibo_stable=bibo_stable,
             )
             # we'll parse this delayed causation into the matrices A, B, and C later
@@ -487,7 +486,11 @@ def lti_system_gen(
                     ].loc[idx, transform_key]
                     # this will get overwritten if we use more than one transformation per input. i think that's okay.
                     transformation_approximations[transform_key] = lti_from_gamma(
-                        shape, scale, loc, max_state_dim=max_transition_state_dim, verbose=verbose
+                        shape,
+                        scale,
+                        loc,
+                        max_state_dim=max_transition_state_dim,
+                        verbose=verbose,
                     )
 
                     lti_result = transformation_approximations[transform_key]

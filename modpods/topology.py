@@ -7,6 +7,7 @@ import pandas as pd
 import pysindy as ps
 from scipy.optimize import minimize
 
+from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .transforms import transform_inputs
 
 logger = logging.getLogger(__name__)
@@ -18,12 +19,12 @@ def find_topology_no_geo(
     independent_columns,
     max_iterations=250,
     graph_type="Weak-Conn",
-    verbose=False,
+    verbose: Verbosity = "warnings",
     sensor_locations=None,
     init_neighbors=3,
 ):
-    if verbose:
-        logger.setLevel(logging.INFO)
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
     """
     Infer network topology from time series data using SINDy-based optimization.
 
@@ -146,9 +147,7 @@ def find_topology_no_geo(
                 continue
             # END EXPERIMENTAL
 
-            logger.info(
-                "Optimizing transformation for %s -> %s", forcing_col, dep_col
-            )
+            logger.info("Optimizing transformation for %s -> %s", forcing_col, dep_col)
             forcing_orig = system_data[[forcing_col]].copy(deep=True)
 
             # Objective function to minimize (negative because we want to maximize correlation - p_value)
@@ -204,7 +203,7 @@ def find_topology_no_geo(
                 except Exception as e:
                     # if e contains any letters or numbers, print it for debugging
                     if any(c.isalnum() for c in str(e)):
-                        if verbose:
+                        if _normalize_verbose(verbose) != "warnings":
                             logger.debug("Exception in objective function: %s", e)
 
                     return 1e10  # Large penalty for invalid parameters
@@ -219,7 +218,11 @@ def find_topology_no_geo(
                 x0,
                 method="Nelder-Mead",
                 bounds=bounds,
-                options={"maxiter": max_iterations, "disp": verbose, "fatol": 1e-4},
+                options={
+                    "maxiter": max_iterations,
+                    "disp": verbose != "warnings",
+                    "fatol": 1e-4,
+                },
             )
 
             # Store best results
@@ -278,18 +281,14 @@ def find_topology_no_geo(
             )
             lead_lag.loc[dep_col, forcing_col] = best_lag
 
-            logger.info(
-                "Optimizing transformation for %s -> %s", forcing_col, dep_col
-            )
+            logger.info("Optimizing transformation for %s -> %s", forcing_col, dep_col)
             logger.info(
                 "  BEST: shape=%.2f, scale=%.2f, loc=%.2f",
                 best_shape,
                 best_scale,
                 best_loc,
             )
-            logger.info(
-                "  Cross-correlation: lag=%s, corr=%.4f", best_lag, best_xcorr
-            )
+            logger.info("  Cross-correlation: lag=%s, corr=%.4f", best_lag, best_xcorr)
             # save the best parameters
             best_params.loc[dep_col, forcing_col] = (best_shape, best_scale, best_loc)
 
@@ -363,9 +362,7 @@ def find_topology_no_geo(
                 # In our adjacency matrix, edges.loc[row, col] = 1 means col -> row
                 # So we need r2_values.loc[to_node, from_node] for edge from_node -> to_node
                 r2 = r2_values.loc[to_node, from_node]
-                logger.info(
-                    "Edge %s -> %s: r^2 = %.4f", from_node, to_node, r2
-                )
+                logger.info("Edge %s -> %s: r^2 = %.4f", from_node, to_node, r2)
                 if r2 < min_r2:
                     min_r2 = r2
                     edge_to_remove = (from_node, to_node)
@@ -474,7 +471,7 @@ def find_topology_no_geo(
         update_corr_weighted_r2(dep_col)
 
     sorted_r2 = r2_values.stack().sort_values(ascending=False)
-    if verbose:
+    if _normalize_verbose(verbose) != "warnings":
         logger.info("Sorted R2 values:")
         logger.info("%s", sorted_r2)
 
@@ -630,7 +627,10 @@ def find_topology_no_geo(
             x0,
             method="Nelder-Mead",
             bounds=bounds,
-            options={"maxiter": multivariable_iterations, "disp": verbose},
+            options={
+                "maxiter": multivariable_iterations,
+                "disp": verbose != "warnings",
+            },
         )
         optimized_r2 = -result.fun
 
@@ -746,7 +746,7 @@ def infer_causative_topology(  # noqa: F811
     dependent_columns,
     independent_columns,
     graph_type="Weak-Conn",
-    verbose=False,
+    verbose: Verbosity = "warnings",
     max_iter=250,
     swmm=False,
     method="sindy",  # Changed default from "granger" to "sindy"

@@ -5,6 +5,7 @@ import pandas as pd
 import pysindy as ps
 from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3
 
+from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .metrics import compute_basic_metrics
 from .transforms import transform_inputs
 
@@ -28,10 +29,10 @@ def SINDY_delays_MI(
     transform_only=None,
     forcing_coef_constraints=None,
     transform_cache=None,
-    verbose=False,
+    verbose: Verbosity = "warnings",
 ):
-    if verbose:
-        logger.setLevel(logging.INFO)
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
     if transform_only is not None:
         transformed_forcing = transform_inputs(
             shape_factors,
