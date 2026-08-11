@@ -6,7 +6,9 @@ import numpy as np
 import pandas as pd
 import pysindy as ps  # type: ignore
 import scipy.stats as stats
-from pysindy.optimizers._constrained_sr3 import ConstrainedSR3 as _ConstrainedSR3  # type: ignore
+from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped]
+    ConstrainedSR3 as _ConstrainedSR3,
+)
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .train import delay_io_train
@@ -567,7 +569,12 @@ def lti_system_gen(
 
                         after_index = list(
                             A.index[
-                                cast(int, A.index.get_loc(transform_key.replace(tr_string, "")))
+                                cast(
+                                    int,
+                                    A.index.get_loc(
+                                        transform_key.replace(tr_string, "")
+                                    ),
+                                )
                                 + 1 :
                             ]
                         )
