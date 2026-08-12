@@ -1,7 +1,7 @@
 """End-to-end quickstart example for modpods.
 
 Generates a small synthetic LTI dataset, trains a delay-IO model, runs
-prediction, and prints error metrics.  Designed to run in CI without
+prediction, and prints error metrics. Designed to run in CI without
 external data files.
 """
 
