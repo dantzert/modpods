@@ -38,4 +38,4 @@ jobs:
         run: pytest tests/ -v --junitxml=junit.xml --cov=modpods --cov-report=xml -n auto
 
       - name: Run quickstart example
-        run: python examples/quickstart.py
+        run: PYTHONPATH=. python examples/quickstart.py
