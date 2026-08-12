@@ -1,9 +1,4 @@
-"""End-to-end quickstart example for modpods.
-
-Generates a small synthetic LTI dataset, trains a delay-IO model, runs
-prediction, and prints error metrics. Designed to run in CI without
-external data files.
-"""
+"""End-to-end quickstart example for modpods."""
 
 import control as ct  # type: ignore
 import numpy as np
@@ -47,7 +42,10 @@ def main() -> None:
     )
 
     pred = modpods.delay_io_predict(
-        model, data, num_transforms=1, evaluation=True
+        model,
+        data,
+        num_transforms=1,
+        evaluation=True,
     )
 
     print("Prediction shape:", pred["prediction"].shape)
