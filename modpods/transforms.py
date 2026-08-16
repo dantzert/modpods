@@ -33,7 +33,9 @@ def _expected_improvement(X, X_sample, Y_sample, gpr, xi=0.01):
     return ei
 
 
-def _propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=10):
+def _propose_location(
+    acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=10, rng=None
+):
     """Propose next sampling point by optimizing acquisition function."""
     dim = X_sample.shape[1]
     min_val = float("inf")
@@ -42,7 +44,11 @@ def _propose_location(acquisition, X_sample, Y_sample, gpr, bounds, n_restarts=1
     def min_obj(X):
         return -acquisition(X.reshape(-1, dim), X_sample, Y_sample, gpr).flatten()
 
-    for x0 in np.random.uniform(bounds[:, 0], bounds[:, 1], size=(n_restarts, dim)):
+    if rng is not None:
+        x0s = rng.uniform(bounds[:, 0], bounds[:, 1], size=(n_restarts, dim))
+    else:
+        x0s = np.random.uniform(bounds[:, 0], bounds[:, 1], size=(n_restarts, dim))
+    for x0 in x0s:
         res = minimize(min_obj, x0=x0, bounds=bounds, method="L-BFGS-B")
         if res.fun < min_val:
             min_val = res.fun

@@ -982,3 +982,142 @@ def test_delay_io_predict_camels_returns_prediction(
     assert isinstance(pred, dict)
     assert "prediction" in pred
     assert pred["prediction"].shape[0] > 0
+
+
+# ---------------------------------------------------------------------------
+# Reproducibility tests
+# ---------------------------------------------------------------------------
+
+
+def test_bayesian_optimization_reproducible_with_seed(
+    simple_lti_data: pd.DataFrame,
+) -> None:
+    """Bayesian optimization with the same seed must produce identical results."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model1 = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=10,
+            poly_order=1,
+            verbose="warnings",
+            optimization_method="bayesian",
+            seed=42,
+        )
+        model2 = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=10,
+            poly_order=1,
+            verbose="warnings",
+            optimization_method="bayesian",
+            seed=42,
+        )
+
+    r2_1 = float(model1[1]["final_model"]["error_metrics"]["r2"])
+    r2_2 = float(model2[1]["final_model"]["error_metrics"]["r2"])
+    np.testing.assert_allclose(r2_1, r2_2, rtol=1e-10)
+
+    shape_1 = np.asarray(model1[1]["shape_factors"].values, dtype=float).flatten()
+    shape_2 = np.asarray(model2[1]["shape_factors"].values, dtype=float).flatten()
+    np.testing.assert_allclose(shape_1, shape_2, rtol=1e-10)
+
+    scale_1 = np.asarray(model1[1]["scale_factors"].values, dtype=float).flatten()
+    scale_2 = np.asarray(model2[1]["scale_factors"].values, dtype=float).flatten()
+    np.testing.assert_allclose(scale_1, scale_2, rtol=1e-10)
+
+    loc_1 = np.asarray(model1[1]["loc_factors"].values, dtype=float).flatten()
+    loc_2 = np.asarray(model2[1]["loc_factors"].values, dtype=float).flatten()
+    np.testing.assert_allclose(loc_1, loc_2, rtol=1e-10)
+
+
+def test_differential_evolution_reproducible_with_seed(
+    simple_lti_data: pd.DataFrame,
+) -> None:
+    """Differential evolution with the same seed must produce identical results."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model1 = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=10,
+            poly_order=1,
+            verbose="warnings",
+            optimization_method="differential_evolution",
+            seed=42,
+        )
+        model2 = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=10,
+            poly_order=1,
+            verbose="warnings",
+            optimization_method="differential_evolution",
+            seed=42,
+        )
+
+    r2_1 = float(model1[1]["final_model"]["error_metrics"]["r2"])
+    r2_2 = float(model2[1]["final_model"]["error_metrics"]["r2"])
+    np.testing.assert_allclose(r2_1, r2_2, rtol=1e-10)
+
+    shape_1 = np.asarray(model1[1]["shape_factors"].values, dtype=float).flatten()
+    shape_2 = np.asarray(model2[1]["shape_factors"].values, dtype=float).flatten()
+    np.testing.assert_allclose(shape_1, shape_2, rtol=1e-10)
+
+
+def test_dual_annealing_reproducible_with_seed(
+    simple_lti_data: pd.DataFrame,
+) -> None:
+    """Dual annealing with the same seed must produce identical results."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model1 = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=10,
+            poly_order=1,
+            verbose="warnings",
+            optimization_method="dual_annealing",
+            seed=42,
+        )
+        model2 = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=10,
+            poly_order=1,
+            verbose="warnings",
+            optimization_method="dual_annealing",
+            seed=42,
+        )
+
+    r2_1 = float(model1[1]["final_model"]["error_metrics"]["r2"])
+    r2_2 = float(model2[1]["final_model"]["error_metrics"]["r2"])
+    np.testing.assert_allclose(r2_1, r2_2, rtol=1e-10)
+
+    shape_1 = np.asarray(model1[1]["shape_factors"].values, dtype=float).flatten()
+    shape_2 = np.asarray(model2[1]["shape_factors"].values, dtype=float).flatten()
+    np.testing.assert_allclose(shape_1, shape_2, rtol=1e-10)

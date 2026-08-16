@@ -115,26 +115,33 @@ def _train_single_kernel(
     system_data,
     dependent_columns,
     independent_columns,
-    windup_timesteps,
-    init_transforms,
-    max_transforms,
-    max_iter,
-    poly_order,
-    transform_dependent,
-    verbose,
-    extra_verbose,
-    include_bias,
-    include_interaction,
-    bibo_stable,
-    transform_only,
-    forcing_coef_constraints,
-    early_stopping_threshold,
-    optimization_method,
-    optimizer_kwargs,
+    windup_timesteps=0,
+    init_transforms=1,
+    max_transforms=4,
+    max_iter=250,
+    poly_order=3,
+    transform_dependent=False,
+    verbose: Verbosity = "warnings",
+    extra_verbose=False,
+    include_bias=False,
+    include_interaction=False,
+    bibo_stable=False,
+    transform_only=None,
+    forcing_coef_constraints=None,
+    early_stopping_threshold=0.005,
+    optimization_method="bayesian",
+    seed=None,
+    **optimizer_kwargs,
 ):
     """Train modpods with a single kernel type."""
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
+
+    rng = np.random.default_rng(seed) if seed is not None else None
+
+    scipy_optimizer_kwargs = dict(optimizer_kwargs)
+    if seed is not None and "seed" not in scipy_optimizer_kwargs:
+        scipy_optimizer_kwargs["seed"] = seed
 
     forcing = system_data[independent_columns].copy(deep=True)
     response = system_data[dependent_columns].copy(deep=True)
@@ -223,7 +230,10 @@ def _train_single_kernel(
             Y_sample_list: list[Any] = []
 
             for i in range(n_initial):
-                x = np.random.uniform(bounds[:, 0], bounds[:, 1])
+                if rng is not None:
+                    x = rng.uniform(bounds[:, 0], bounds[:, 1])
+                else:
+                    x = np.random.uniform(bounds[:, 0], bounds[:, 1])
                 y = objective_function(x)
                 X_sample_list.append(x)
                 Y_sample_list.append(y)
@@ -236,19 +246,21 @@ def _train_single_kernel(
             best_r2 = np.max(Y_sample)
             best_params: np.ndarray = X_sample[np.argmax(Y_sample)]
 
+            # Gaussian Process setup
             gpr_kernel = Matern(length_scale=1.0, nu=1.5)
+            gpr_random_state = seed if seed is not None else 42
             gpr = GaussianProcessRegressor(
                 kernel=gpr_kernel,
                 alpha=1e-3,
                 normalize_y=True,
                 n_restarts_optimizer=5,
-                random_state=42,
+                random_state=gpr_random_state,
             )
 
             for iteration in range(bayesian_max_iter - n_initial):
                 gpr.fit(X_sample, Y_sample.ravel())
                 next_x = _propose_location(
-                    _expected_improvement, X_sample, Y_sample, gpr, bounds
+                    _expected_improvement, X_sample, Y_sample, gpr, bounds, rng=rng
                 )
                 next_x = next_x.flatten()
                 next_y = objective_function(next_x)
@@ -331,7 +343,7 @@ def _train_single_kernel(
                 bounds=bounds,
                 max_iter=max_iter,
                 verbose=verbose,
-                optimizer_kwargs=optimizer_kwargs,
+                optimizer_kwargs=scipy_optimizer_kwargs,
             )
 
             idx = 0
