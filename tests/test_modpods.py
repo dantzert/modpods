@@ -1026,16 +1026,28 @@ def test_bayesian_optimization_reproducible_with_seed(
     r2_2 = float(model2[1]["final_model"]["error_metrics"]["r2"])
     np.testing.assert_allclose(r2_1, r2_2, rtol=1e-10)
 
-    shape_1 = np.asarray(model1[1]["shape_factors"].values, dtype=float).flatten()
-    shape_2 = np.asarray(model2[1]["shape_factors"].values, dtype=float).flatten()
+    shape_1 = np.asarray(
+        model1[1]["kernel_params"].loc[(1, "shape"), :].values, dtype=float
+    ).flatten()
+    shape_2 = np.asarray(
+        model2[1]["kernel_params"].loc[(1, "shape"), :].values, dtype=float
+    ).flatten()
     np.testing.assert_allclose(shape_1, shape_2, rtol=1e-10)
 
-    scale_1 = np.asarray(model1[1]["scale_factors"].values, dtype=float).flatten()
-    scale_2 = np.asarray(model2[1]["scale_factors"].values, dtype=float).flatten()
+    scale_1 = np.asarray(
+        model1[1]["kernel_params"].loc[(1, "scale"), :].values, dtype=float
+    ).flatten()
+    scale_2 = np.asarray(
+        model2[1]["kernel_params"].loc[(1, "scale"), :].values, dtype=float
+    ).flatten()
     np.testing.assert_allclose(scale_1, scale_2, rtol=1e-10)
 
-    loc_1 = np.asarray(model1[1]["loc_factors"].values, dtype=float).flatten()
-    loc_2 = np.asarray(model2[1]["loc_factors"].values, dtype=float).flatten()
+    loc_1 = np.asarray(
+        model1[1]["kernel_params"].loc[(1, "loc"), :].values, dtype=float
+    ).flatten()
+    loc_2 = np.asarray(
+        model2[1]["kernel_params"].loc[(1, "loc"), :].values, dtype=float
+    ).flatten()
     np.testing.assert_allclose(loc_1, loc_2, rtol=1e-10)
 
 
@@ -1076,8 +1088,12 @@ def test_differential_evolution_reproducible_with_seed(
     r2_2 = float(model2[1]["final_model"]["error_metrics"]["r2"])
     np.testing.assert_allclose(r2_1, r2_2, rtol=1e-10)
 
-    shape_1 = np.asarray(model1[1]["shape_factors"].values, dtype=float).flatten()
-    shape_2 = np.asarray(model2[1]["shape_factors"].values, dtype=float).flatten()
+    shape_1 = np.asarray(
+        model1[1]["kernel_params"].loc[(1, "shape"), :].values, dtype=float
+    ).flatten()
+    shape_2 = np.asarray(
+        model2[1]["kernel_params"].loc[(1, "shape"), :].values, dtype=float
+    ).flatten()
     np.testing.assert_allclose(shape_1, shape_2, rtol=1e-10)
 
 
@@ -1118,6 +1134,10 @@ def test_dual_annealing_reproducible_with_seed(
     r2_2 = float(model2[1]["final_model"]["error_metrics"]["r2"])
     np.testing.assert_allclose(r2_1, r2_2, rtol=1e-10)
 
-    shape_1 = np.asarray(model1[1]["shape_factors"].values, dtype=float).flatten()
-    shape_2 = np.asarray(model2[1]["shape_factors"].values, dtype=float).flatten()
+    shape_1 = np.asarray(
+        model1[1]["kernel_params"].loc[(1, "shape"), :].values, dtype=float
+    ).flatten()
+    shape_2 = np.asarray(
+        model2[1]["kernel_params"].loc[(1, "shape"), :].values, dtype=float
+    ).flatten()
     np.testing.assert_allclose(shape_1, shape_2, rtol=1e-10)

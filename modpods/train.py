@@ -131,7 +131,7 @@ def _train_single_kernel(
     early_stopping_threshold=0.005,
     optimization_method="bayesian",
     seed=None,
-    **optimizer_kwargs,
+    optimizer_kwargs=None,
 ):
     """Train modpods with a single kernel type."""
     if _normalize_verbose(verbose) != "warnings":
@@ -139,7 +139,7 @@ def _train_single_kernel(
 
     rng = np.random.default_rng(seed) if seed is not None else None
 
-    scipy_optimizer_kwargs = dict(optimizer_kwargs)
+    scipy_optimizer_kwargs = dict(optimizer_kwargs or {})
     if seed is not None and "seed" not in scipy_optimizer_kwargs:
         scipy_optimizer_kwargs["seed"] = seed
 
@@ -427,6 +427,7 @@ def delay_io_train(
     early_stopping_threshold=0.005,
     optimization_method="bayesian",
     kernel="gamma",
+    seed=None,
     **optimizer_kwargs,
 ):
     """Train a delay-io model with pluggable convolution kernels.
@@ -471,6 +472,7 @@ def delay_io_train(
                     forcing_coef_constraints=forcing_coef_constraints,
                     early_stopping_threshold=early_stopping_threshold,
                     optimization_method=optimization_method,
+                    seed=seed,
                     optimizer_kwargs=cheap_kwargs,
                 )
                 all_results[name] = cheap_results
@@ -495,6 +497,7 @@ def delay_io_train(
                     forcing_coef_constraints=forcing_coef_constraints,
                     early_stopping_threshold=early_stopping_threshold,
                     optimization_method=optimization_method,
+                    seed=seed,
                     optimizer_kwargs=optimizer_kwargs,
                 )
                 all_results[name] = full_results
@@ -536,6 +539,7 @@ def delay_io_train(
                 forcing_coef_constraints=forcing_coef_constraints,
                 early_stopping_threshold=early_stopping_threshold,
                 optimization_method=optimization_method,
+                seed=seed,
                 optimizer_kwargs=optimizer_kwargs,
             )
         else:
@@ -562,5 +566,6 @@ def delay_io_train(
         forcing_coef_constraints=forcing_coef_constraints,
         early_stopping_threshold=early_stopping_threshold,
         optimization_method=optimization_method,
+        seed=seed,
         optimizer_kwargs=optimizer_kwargs,
     )
