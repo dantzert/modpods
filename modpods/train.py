@@ -2,13 +2,19 @@ import logging
 from typing import Any, cast
 
 import numpy as np
-import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor  # type: ignore
 from sklearn.gaussian_process.kernels import Matern  # type: ignore
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from .kernels import ConvolutionKernel, get_kernel, list_kernels
 from .model import SINDY_delays_MI
-from .transforms import _expected_improvement, _propose_location, _transform_cache
+from .transforms import (
+    _expected_improvement,
+    _propose_location,
+    _transform_cache,
+    make_kernel_params,
+    params_vector_to_dataframe,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +110,8 @@ def _run_scipy_optimizer(
     return result.x  # type: ignore[no-any-return]
 
 
-def delay_io_train(
+def _train_single_kernel(
+    kernel: ConvolutionKernel,
     system_data,
     dependent_columns,
     independent_columns,
@@ -115,6 +122,7 @@ def delay_io_train(
     poly_order=3,
     transform_dependent=False,
     verbose: Verbosity = "warnings",
+    extra_verbose=False,
     include_bias=False,
     include_interaction=False,
     bibo_stable=False,
@@ -123,134 +131,75 @@ def delay_io_train(
     early_stopping_threshold=0.005,
     optimization_method="bayesian",
     seed=None,
-    **optimizer_kwargs,
+    optimizer_kwargs=None,
 ):
+    """Train modpods with a single kernel type."""
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
 
     rng = np.random.default_rng(seed) if seed is not None else None
 
-    scipy_optimizer_kwargs = dict(optimizer_kwargs)
+    scipy_optimizer_kwargs = dict(optimizer_kwargs or {})
     if seed is not None and "seed" not in scipy_optimizer_kwargs:
         scipy_optimizer_kwargs["seed"] = seed
 
     forcing = system_data[independent_columns].copy(deep=True)
-
     response = system_data[dependent_columns].copy(deep=True)
 
-    results = dict()  # to store the optimized models for each number of transformations
-
     if transform_dependent:
-        shape_factors = pd.DataFrame(
-            columns=system_data.columns,
-            index=range(init_transforms, max_transforms + 1),
-        )
-        shape_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
-        scale_factors = pd.DataFrame(
-            columns=system_data.columns,
-            index=range(init_transforms, max_transforms + 1),
-        )
-        scale_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
-        loc_factors = pd.DataFrame(
-            columns=system_data.columns,
-            index=range(init_transforms, max_transforms + 1),
-        )
-        loc_factors.iloc[0, :] = 0  # first transformation is [1,1,0] for each input
-    elif transform_only is not None:  # the user provided a list of columns to transform
-        shape_factors = pd.DataFrame(
-            columns=transform_only, index=range(init_transforms, max_transforms + 1)
-        )
-        shape_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
-        scale_factors = pd.DataFrame(
-            columns=transform_only, index=range(init_transforms, max_transforms + 1)
-        )
-        scale_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
-        loc_factors = pd.DataFrame(
-            columns=transform_only, index=range(init_transforms, max_transforms + 1)
-        )
-        loc_factors.iloc[0, :] = 0  # first transformation is [1,1,0] for each input
+        columns = system_data.columns
+    elif transform_only is not None:
+        columns = transform_only
     else:
-        # the transformation factors should be pandas dataframes where the index is which transformation it is and the columns are the variables
-        shape_factors = pd.DataFrame(
-            columns=forcing.columns, index=range(init_transforms, max_transforms + 1)
-        )
-        shape_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
-        scale_factors = pd.DataFrame(
-            columns=forcing.columns, index=range(init_transforms, max_transforms + 1)
-        )
-        scale_factors.iloc[0, :] = 1  # first transformation is [1,1,0] for each input
-        loc_factors = pd.DataFrame(
-            columns=forcing.columns, index=range(init_transforms, max_transforms + 1)
-        )
-        loc_factors.iloc[0, :] = 0  # first transformation is [1,1,0] for each input
+        columns = forcing.columns
+
+    kernel_params = make_kernel_params(kernel, columns, init_transforms, max_transforms)
+
+    results = dict()
+
     for num_transforms in range(init_transforms, max_transforms + 1):
         logger.debug("num_transforms %s", num_transforms)
-        if not num_transforms == init_transforms:  # if we're not starting right now
-            # start dull
-            shape_factors.iloc[num_transforms - 1, :] = 10 * (
-                num_transforms - 1
-            )  # start with a broad peak centered at ten timesteps
-            scale_factors.iloc[num_transforms - 1, :] = 1
-            loc_factors.iloc[num_transforms - 1, :] = 0
+        if not num_transforms == init_transforms:
+            init_vals = kernel.default_init * (num_transforms - 1)
+            for t in range(init_transforms, num_transforms):
+                for col in columns:
+                    for i, p_name in enumerate(kernel.param_names):
+                        kernel_params.loc[(t, p_name), col] = init_vals[i]
             if _normalize_verbose(verbose) != "warnings":
                 logger.debug(
                     "starting factors for additional transformation\nshape\nscale\nlocation"
                 )
-                logger.debug("%s", shape_factors)
-                logger.debug("%s", scale_factors)
-                logger.debug("%s", loc_factors)
+                logger.debug("%s", kernel_params)
 
-        # Choose optimization method
+        if transform_dependent:
+            transform_columns = system_data.columns.tolist()
+        elif transform_only is not None:
+            transform_columns = transform_only
+        else:
+            transform_columns = independent_columns
+
         if optimization_method == "bayesian":
             if _normalize_verbose(verbose) != "warnings":
                 logger.info(
                     "Using Bayesian optimization for %s transforms...", num_transforms
                 )
 
-            # Determine which columns to transform
-            if transform_dependent:
-                transform_columns = system_data.columns.tolist()
-            elif transform_only is not None:
-                transform_columns = transform_only
-            else:
-                transform_columns = independent_columns
-
-            # Bayesian optimization for this number of transforms
-            bounds_list: list[list[float]] = []
-            for transform in range(1, num_transforms + 1):
-                for col in transform_columns:
-                    bounds_list.append([1.0, 50.0])  # shape_factors bounds
-                    bounds_list.append([0.1, 5.0])  # scale_factors bounds
-                    bounds_list.append([0.0, 20.0])  # loc_factors bounds
-            bounds = np.array(bounds_list)
+            bounds = np.tile(
+                kernel.default_bounds, (num_transforms * len(transform_columns), 1)
+            )
 
             def objective_function(params_vector):
                 try:
-                    # Convert vector to DataFrames
-                    shape_factors_opt = pd.DataFrame(
-                        columns=transform_columns, index=range(1, num_transforms + 1)
+                    opt_params = params_vector_to_dataframe(
+                        kernel,
+                        params_vector,
+                        transform_columns,
+                        init_transforms,
+                        num_transforms,
                     )
-                    scale_factors_opt = pd.DataFrame(
-                        columns=transform_columns, index=range(1, num_transforms + 1)
-                    )
-                    loc_factors_opt = pd.DataFrame(
-                        columns=transform_columns, index=range(1, num_transforms + 1)
-                    )
-
-                    idx = 0
-                    for transform in range(1, num_transforms + 1):
-                        for col in transform_columns:
-                            shape_factors_opt.loc[transform, col] = params_vector[idx]
-                            scale_factors_opt.loc[transform, col] = params_vector[
-                                idx + 1
-                            ]
-                            loc_factors_opt.loc[transform, col] = params_vector[idx + 2]
-                            idx += 3
-
                     result = SINDY_delays_MI(
-                        shape_factors_opt,
-                        scale_factors_opt,
-                        loc_factors_opt,
+                        kernel,
+                        opt_params,
                         system_data.index,
                         forcing,
                         response,
@@ -266,7 +215,6 @@ def delay_io_train(
                         transform_cache=_transform_cache,
                         verbose=verbose,
                     )
-
                     r2 = result["error_metrics"]["r2"]
                     if _normalize_verbose(verbose) != "warnings":
                         logger.debug("  R² = %.6f", r2)
@@ -276,17 +224,11 @@ def delay_io_train(
                         logger.debug("  Evaluation failed: %s", e)
                     return -1.0
 
-            # Bayesian optimization
-            # Bayesian optimization: bias toward exploration (cheap random samples)
-            # rather than expensive GP refinement. The objective (SINDy fit) is the
-            # dominant cost, so spend the budget on broad initial sampling and only
-            # a few informed iterations.
             bayesian_max_iter = min(max_iter * 4, 200)
             n_initial = min(30, max(20, int(bayesian_max_iter * 0.6)))
             X_sample_list: list[Any] = []
             Y_sample_list: list[Any] = []
 
-            # Generate initial random samples
             for i in range(n_initial):
                 if rng is not None:
                     x = rng.uniform(bounds[:, 0], bounds[:, 1])
@@ -301,15 +243,14 @@ def delay_io_train(
             X_sample: np.ndarray = np.array(X_sample_list)
             Y_sample: np.ndarray = np.array(Y_sample_list).reshape(-1, 1)
 
-            # Main Bayesian optimization loop
             best_r2 = np.max(Y_sample)
             best_params: np.ndarray = X_sample[np.argmax(Y_sample)]
 
             # Gaussian Process setup
-            kernel = Matern(length_scale=1.0, nu=1.5)
+            gpr_kernel = Matern(length_scale=1.0, nu=1.5)
             gpr_random_state = seed if seed is not None else 42
             gpr = GaussianProcessRegressor(
-                kernel=kernel,
+                kernel=gpr_kernel,
                 alpha=1e-3,
                 normalize_y=True,
                 n_restarts_optimizer=5,
@@ -317,14 +258,11 @@ def delay_io_train(
             )
 
             for iteration in range(bayesian_max_iter - n_initial):
-                # Fit GP and find next point
                 gpr.fit(X_sample, Y_sample.ravel())
                 next_x = _propose_location(
                     _expected_improvement, X_sample, Y_sample, gpr, bounds, rng=rng
                 )
                 next_x = next_x.flatten()
-
-                # Evaluate objective
                 next_y = objective_function(next_x)
 
                 if _normalize_verbose(verbose) != "warnings":
@@ -335,29 +273,23 @@ def delay_io_train(
                         next_y,
                     )
 
-                # Update samples
                 X_sample = np.append(X_sample, [next_x], axis=0)
                 Y_sample = np.append(Y_sample, next_y)
 
-                # Update best
                 if next_y > best_r2:
                     best_r2 = next_y
                     best_params = next_x
                     if _normalize_verbose(verbose) != "warnings":
                         logger.debug("New best R² = %.6f", best_r2)
 
-            # Convert best parameters back to DataFrames
             idx = 0
             for transform in range(1, num_transforms + 1):
                 for col in transform_columns:
-                    shape_factors.loc[transform, col] = best_params[idx]
-                    scale_factors.loc[transform, col] = best_params[idx + 1]
-                    loc_factors.loc[transform, col] = best_params[idx + 2]
-                    idx += 3
+                    for p_name in kernel.param_names:
+                        kernel_params.loc[(transform, p_name), col] = best_params[idx]
+                        idx += 1
 
         else:
-            # Use scipy.optimize for all other methods (differential_evolution, dual_annealing,
-            # basinhopping, shgo, direct, etc.)
             if _normalize_verbose(verbose) != "warnings":
                 logger.info(
                     "Using %s optimization for %s transforms...",
@@ -365,50 +297,22 @@ def delay_io_train(
                     num_transforms,
                 )
 
-            # Determine which columns to transform
-            if transform_dependent:
-                transform_columns = system_data.columns.tolist()
-            elif transform_only is not None:
-                transform_columns = transform_only
-            else:
-                transform_columns = independent_columns
-
-            # Define parameter bounds for this number of transforms
-            bounds_list: list[list[float]] = []  # type: ignore[no-redef]
-            for transform in range(1, num_transforms + 1):
-                for col in transform_columns:
-                    bounds_list.append([1.0, 50.0])  # shape_factors bounds
-                    bounds_list.append([0.1, 5.0])  # scale_factors bounds
-                    bounds_list.append([0.0, 20.0])  # loc_factors bounds
-            bounds = np.array(bounds_list)
+            bounds = np.tile(
+                kernel.default_bounds, (num_transforms * len(transform_columns), 1)
+            )
 
             def objective_function(params_vector):
                 try:
-                    # Convert vector to DataFrames
-                    shape_factors_opt = pd.DataFrame(
-                        columns=transform_columns, index=range(1, num_transforms + 1)
+                    opt_params = params_vector_to_dataframe(
+                        kernel,
+                        params_vector,
+                        transform_columns,
+                        init_transforms,
+                        num_transforms,
                     )
-                    scale_factors_opt = pd.DataFrame(
-                        columns=transform_columns, index=range(1, num_transforms + 1)
-                    )
-                    loc_factors_opt = pd.DataFrame(
-                        columns=transform_columns, index=range(1, num_transforms + 1)
-                    )
-
-                    idx = 0
-                    for transform in range(1, num_transforms + 1):
-                        for col in transform_columns:
-                            shape_factors_opt.loc[transform, col] = params_vector[idx]
-                            scale_factors_opt.loc[transform, col] = params_vector[
-                                idx + 1
-                            ]
-                            loc_factors_opt.loc[transform, col] = params_vector[idx + 2]
-                            idx += 3
-
                     result = SINDY_delays_MI(
-                        shape_factors_opt,
-                        scale_factors_opt,
-                        loc_factors_opt,
+                        kernel,
+                        opt_params,
                         system_data.index,
                         forcing,
                         response,
@@ -424,17 +328,15 @@ def delay_io_train(
                         transform_cache=_transform_cache,
                         verbose=verbose,
                     )
-
                     r2 = result["error_metrics"]["r2"]
                     if _normalize_verbose(verbose) != "warnings":
                         logger.debug("  R² = %.6f", r2)
-                    return -r2  # Minimize negative R² (maximize R²)
+                    return -r2
                 except Exception as e:
                     if _normalize_verbose(verbose) != "warnings":
                         logger.debug("  Evaluation failed: %s", e)
-                    return 1.0  # Poor score for failed evaluations
+                    return 1.0
 
-            # Dispatch to scipy.optimize method
             best_params = _run_scipy_optimizer(
                 optimization_method=optimization_method,
                 objective_function=objective_function,
@@ -444,23 +346,19 @@ def delay_io_train(
                 optimizer_kwargs=scipy_optimizer_kwargs,
             )
 
-            # Convert best parameters back to DataFrames
             idx = 0
             for transform in range(1, num_transforms + 1):
                 for col in transform_columns:
-                    shape_factors.loc[transform, col] = best_params[idx]
-                    scale_factors.loc[transform, col] = best_params[idx + 1]
-                    loc_factors.loc[transform, col] = best_params[idx + 2]
-                    idx += 3
+                    for p_name in kernel.param_names:
+                        kernel_params.loc[(transform, p_name), col] = best_params[idx]
+                        idx += 1
 
-        # For bayesian and scipy.optimize methods, we're done with optimization
         logger.info(
             "Optimization complete. Using optimized parameters for final model."
         )
         final_model = SINDY_delays_MI(
-            shape_factors,
-            scale_factors,
-            loc_factors,
+            kernel,
+            kernel_params,
             system_data.index,
             forcing,
             response,
@@ -483,24 +381,18 @@ def delay_io_train(
             logger.warning("%s", e)
         logger.info("R^2")
         logger.info("%s", final_model["error_metrics"]["r2"])
-        logger.info("shape factors")
-        logger.info("%s", shape_factors)
-        logger.info("scale factors")
-        logger.info("%s", scale_factors)
-        logger.info("location factors")
-        logger.info("%s", loc_factors)
+        logger.info("kernel params")
+        logger.info("%s", kernel_params)
         results[num_transforms] = {
             "final_model": final_model.copy(),
-            "shape_factors": shape_factors.copy(deep=True),
-            "scale_factors": scale_factors.copy(deep=True),
-            "loc_factors": loc_factors.copy(deep=True),
+            "kernel_type": kernel.name,
+            "kernel_params": kernel_params.copy(deep=True),
             "windup_timesteps": windup_timesteps,
             "dependent_columns": dependent_columns,
             "independent_columns": independent_columns,
             "transform_cache": _transform_cache,
         }
 
-        # check if the benefit from adding the last transformation is less than the early stopping threshold
         if (
             num_transforms > init_transforms
             and results[num_transforms]["final_model"]["error_metrics"]["r2"]
@@ -514,3 +406,166 @@ def delay_io_train(
             break
 
     return results
+
+
+def delay_io_train(
+    system_data,
+    dependent_columns,
+    independent_columns,
+    windup_timesteps=0,
+    init_transforms=1,
+    max_transforms=4,
+    max_iter=250,
+    poly_order=3,
+    transform_dependent=False,
+    verbose: Verbosity = "warnings",
+    include_bias=False,
+    include_interaction=False,
+    bibo_stable=False,
+    transform_only=None,
+    forcing_coef_constraints=None,
+    early_stopping_threshold=0.005,
+    optimization_method="bayesian",
+    kernel="gamma",
+    seed=None,
+    **optimizer_kwargs,
+):
+    """Train a delay-io model with pluggable convolution kernels.
+
+    Args:
+        kernel: ConvolutionKernel instance, kernel name string, "try-all", or "run-all".
+            - "try-all": cheap fit all kernels, pick best R², refit expensively.
+            - "run-all": expensive fit all kernels, return all results.
+            - default "gamma" preserves backward compatibility.
+
+    Returns:
+        dict keyed by num_transforms.
+    """
+    if kernel in ("try-all", "run-all"):
+        all_results = dict()
+        cheap = kernel == "try-all"
+        for name in list_kernels():
+            if _normalize_verbose(verbose) != "warnings":
+                mode = "cheap" if cheap else "expensive"
+                logger.info("Running %s fit with kernel: %s", mode, name)
+            k = get_kernel(name)
+            if cheap:
+                cheap_kwargs = dict(optimizer_kwargs)
+                cheap_max_iter = max(5, max_iter // 10)
+                cheap_results = _train_single_kernel(
+                    kernel=k,
+                    system_data=system_data,
+                    dependent_columns=dependent_columns,
+                    independent_columns=independent_columns,
+                    windup_timesteps=windup_timesteps,
+                    init_transforms=init_transforms,
+                    max_transforms=max_transforms,
+                    max_iter=cheap_max_iter,
+                    poly_order=poly_order,
+                    transform_dependent=transform_dependent,
+                    verbose=verbose,
+                    extra_verbose=False,
+                    include_bias=include_bias,
+                    include_interaction=include_interaction,
+                    bibo_stable=bibo_stable,
+                    transform_only=transform_only,
+                    forcing_coef_constraints=forcing_coef_constraints,
+                    early_stopping_threshold=early_stopping_threshold,
+                    optimization_method=optimization_method,
+                    seed=seed,
+                    optimizer_kwargs=cheap_kwargs,
+                )
+                all_results[name] = cheap_results
+            else:
+                full_results = _train_single_kernel(
+                    kernel=k,
+                    system_data=system_data,
+                    dependent_columns=dependent_columns,
+                    independent_columns=independent_columns,
+                    windup_timesteps=windup_timesteps,
+                    init_transforms=init_transforms,
+                    max_transforms=max_transforms,
+                    max_iter=max_iter,
+                    poly_order=poly_order,
+                    transform_dependent=transform_dependent,
+                    verbose=verbose,
+                    extra_verbose=False,
+                    include_bias=include_bias,
+                    include_interaction=include_interaction,
+                    bibo_stable=bibo_stable,
+                    transform_only=transform_only,
+                    forcing_coef_constraints=forcing_coef_constraints,
+                    early_stopping_threshold=early_stopping_threshold,
+                    optimization_method=optimization_method,
+                    seed=seed,
+                    optimizer_kwargs=optimizer_kwargs,
+                )
+                all_results[name] = full_results
+
+        if cheap:
+            best_kernel_name = None
+            best_r2 = -float("inf")
+            for name, res in all_results.items():
+                for nt, entry in res.items():
+                    r2 = entry["final_model"]["error_metrics"]["r2"]
+                    if r2 > best_r2:
+                        best_r2 = r2
+                        best_kernel_name = name
+            if _normalize_verbose(verbose) != "warnings":
+                logger.info(
+                    "Best kernel from cheap pass: %s (R² = %.4f)",
+                    best_kernel_name,
+                    best_r2,
+                )
+            if best_kernel_name is None:
+                raise RuntimeError("No kernel produced a valid model in try-all mode.")
+            return _train_single_kernel(
+                kernel=get_kernel(best_kernel_name),
+                system_data=system_data,
+                dependent_columns=dependent_columns,
+                independent_columns=independent_columns,
+                windup_timesteps=windup_timesteps,
+                init_transforms=init_transforms,
+                max_transforms=max_transforms,
+                max_iter=max_iter,
+                poly_order=poly_order,
+                transform_dependent=transform_dependent,
+                verbose=verbose,
+                extra_verbose=False,
+                include_bias=include_bias,
+                include_interaction=include_interaction,
+                bibo_stable=bibo_stable,
+                transform_only=transform_only,
+                forcing_coef_constraints=forcing_coef_constraints,
+                early_stopping_threshold=early_stopping_threshold,
+                optimization_method=optimization_method,
+                seed=seed,
+                optimizer_kwargs=optimizer_kwargs,
+            )
+        else:
+            return all_results
+
+    kernel = get_kernel(kernel)
+    return _train_single_kernel(
+        kernel=kernel,
+        system_data=system_data,
+        dependent_columns=dependent_columns,
+        independent_columns=independent_columns,
+        windup_timesteps=windup_timesteps,
+        init_transforms=init_transforms,
+        max_transforms=max_transforms,
+        max_iter=max_iter,
+        poly_order=poly_order,
+        transform_dependent=transform_dependent,
+        verbose=verbose,
+        extra_verbose=False,
+        include_bias=include_bias,
+        include_interaction=include_interaction,
+        bibo_stable=bibo_stable,
+        transform_only=transform_only,
+        forcing_coef_constraints=forcing_coef_constraints,
+        early_stopping_threshold=early_stopping_threshold,
+        optimization_method=optimization_method,
+        seed=seed,
+        optimizer_kwargs=optimizer_kwargs,
+    )

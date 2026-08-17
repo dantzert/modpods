@@ -3,6 +3,7 @@ import logging
 import numpy as np
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from .kernels import get_kernel
 from .metrics import compute_basic_metrics
 from .transforms import transform_inputs
 
@@ -19,9 +20,7 @@ def delay_io_predict(
 ):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
-    if (
-        windup_timesteps is None
-    ):  # user didn't specify windup timesteps, use what the model trained with.
+    if windup_timesteps is None:
         windup_timesteps = delay_io_model[num_transforms]["windup_timesteps"]
     forcing = system_data[delay_io_model[num_transforms]["independent_columns"]].copy(
         deep=True
@@ -30,12 +29,13 @@ def delay_io_predict(
         deep=True
     )
 
-    # Use cache from model if available, otherwise create a new one
+    kernel = get_kernel(delay_io_model[num_transforms]["kernel_type"])
+    kernel_params = delay_io_model[num_transforms]["kernel_params"]
+
     transform_cache = delay_io_model[num_transforms].get("transform_cache", None)
     transformed_forcing = transform_inputs(
-        shape_factors=delay_io_model[num_transforms]["shape_factors"],
-        scale_factors=delay_io_model[num_transforms]["scale_factors"],
-        loc_factors=delay_io_model[num_transforms]["loc_factors"],
+        kernel,
+        kernel_params,
         index=system_data.index,
         forcing=forcing,
         cache=transform_cache,
@@ -48,7 +48,7 @@ def delay_io_predict(
             t=np.arange(0, len(system_data.index), 1)[windup_timesteps:],
             u=transformed_forcing[windup_timesteps:],
         )
-    except Exception as e:  # and print the exception:
+    except Exception as e:
         logger.warning("Exception in simulation")
         logger.warning("%s", e)
         logger.warning("diverged.")
@@ -70,7 +70,6 @@ def delay_io_predict(
             "diverged": True,
         }
 
-    # return all the error metrics if the prediction is being evaluated against known measurements
     if evaluation:
         try:
             mae = list()
@@ -82,9 +81,7 @@ def delay_io_predict(
             hfv10 = list()
             lfv = list()
             fdc = list()
-            for col_idx in range(
-                0, len(response.columns)
-            ):  # univariate performance metrics
+            for col_idx in range(0, len(response.columns)):
                 error = (
                     response.values[windup_timesteps + 1 :, col_idx]
                     - prediction[:, col_idx]
@@ -93,7 +90,9 @@ def delay_io_predict(
                 initial_error_length = len(error)
                 error = error[~np.isnan(error)]
                 if len(error) < 0.75 * initial_error_length:
-                    logger.warning("More than 25%% of the entries in error were NaN")
+                    logger.warning(
+                        "WARNING: More than 25%% of the entries in error were NaN"
+                    )
 
                 basic = compute_basic_metrics(
                     response.values[windup_timesteps + 1 :, col_idx],
@@ -162,18 +161,12 @@ def delay_io_predict(
             logger.info("RMSE = %s", rmse)
 
             logger.info("NSE = %s", nse)
-            # alpha nse decomposition due to gupta et al 2009
             logger.info("alpha = %s", alpha)
             logger.info("beta = %s", beta)
-            # top 2% peak flow bias (HFV) due to yilmaz et al 2008
             logger.info("HFV = %s", hfv)
-            # top 10% peak flow bias (HFV) due to yilmaz et al 2008
             logger.info("HFV10 = %s", hfv10)
-            # 30% low flow bias (LFV) due to yilmaz et al 2008
             logger.info("LFV = %s", lfv)
-            # bias of FDC midsegment slope due to yilmaz et al 2008
             logger.info("FDC = %s", fdc)
-            # compile all the error metrics into a dictionary
             error_metrics = {
                 "MAE": mae,
                 "RMSE": rmse,
@@ -185,15 +178,14 @@ def delay_io_predict(
                 "LFV": lfv,
                 "FDC": fdc,
             }
-            # omit r2 here because it doesn't mean the same thing as it does for training, would be misleading.
-            # r2 in training expresses how much of the derivative is predicted by the model, whereas in evaluation it expresses how much of the response is predicted by the model
 
             return {
                 "prediction": prediction,
                 "error_metrics": error_metrics,
                 "diverged": False,
             }
-        except Exception as e:  # and print the exception:
+        except Exception as e:
+            logger.warning("Exception in simulation")
             logger.warning("%s", e)
             logger.warning("Simulation diverged.")
             error_metrics = {

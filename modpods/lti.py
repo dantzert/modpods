@@ -464,7 +464,7 @@ def lti_system_gen(
             transformation_approximations: dict[str, Any] = {
                 transform_key: {}
                 for transform_key in delay_models[row][optimal_number_transforms][
-                    "shape_factors"
+                    "kernel_params"
                 ].columns
             }
             for transform_key in transformation_approximations.keys():  # which input
@@ -477,15 +477,12 @@ def lti_system_gen(
                     delay_models[row][optimal_number_transforms]["final_model"][
                         "model"
                     ].print(precision=5)
-                    shape = delay_models[row][optimal_number_transforms][
-                        "shape_factors"
-                    ].loc[idx, transform_key]
-                    scale = delay_models[row][optimal_number_transforms][
-                        "scale_factors"
-                    ].loc[idx, transform_key]
-                    loc = delay_models[row][optimal_number_transforms][
-                        "loc_factors"
-                    ].loc[idx, transform_key]
+                    kernel_params = delay_models[row][optimal_number_transforms][
+                        "kernel_params"
+                    ]
+                    shape = kernel_params.loc[(idx, "shape"), transform_key]
+                    scale = kernel_params.loc[(idx, "scale"), transform_key]
+                    loc = kernel_params.loc[(idx, "loc"), transform_key]
                     # this will get overwritten if we use more than one transformation per input. i think that's okay.
                     transformation_approximations[transform_key] = lti_from_gamma(
                         shape,
