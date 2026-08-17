@@ -901,6 +901,79 @@ def test_lti_system_gen_returns_state_space(
     assert response.outputs.shape[0] == 3, "expected 3 outputs (x2, x8, x9)"
 
 
+@pytest.mark.slow
+def test_lti_system_gen_produces_hurwitz_stable_A(
+    cascade_lti_system_data: pd.DataFrame,
+    known_topology: pd.DataFrame,
+) -> None:
+    """When bibo_stable=True, all eigenvalues of A must have strictly negative
+    real parts (Hurwitz stability).  Previously, integrator modes with zero
+    eigenvalues survived the stabilisation post-processing."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = modpods.lti_system_gen(
+            known_topology,
+            cascade_lti_system_data,
+            independent_columns=["u1", "u2"],
+            dependent_columns=["x2", "x8", "x9"],
+            max_iter=5,
+            bibo_stable=True,
+            max_transforms=1,
+        )
+
+    A = result["A"].to_numpy()
+    eigenvalues = np.linalg.eigvals(A)
+    max_real = float(np.max(np.real(eigenvalues)))
+    assert max_real < 0, (
+        f"Expected Hurwitz-stable A (all eigenvalues with negative real part), "
+        f"but max real part = {max_real:.6f}"
+    )
+
+
+@pytest.mark.slow
+def test_lti_system_gen_cascade_reconstruction(
+    cascade_lti_system_data: pd.DataFrame,
+    known_topology: pd.DataFrame,
+) -> None:
+    """The assembled state-space system must reconstruct the original input–output
+    behaviour of the cascade: stepping u2 should produce a delayed response in
+    x9 through x8, and the steady-state gain from u2→x8 should be positive
+    (same sign as the ground-truth system)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = modpods.lti_system_gen(
+            known_topology,
+            cascade_lti_system_data,
+            independent_columns=["u1", "u2"],
+            dependent_columns=["x2", "x8", "x9"],
+            max_iter=5,
+            bibo_stable=True,
+            max_transforms=1,
+        )
+
+    sys = result["system"]
+    B = result["B"].to_numpy()
+    # u2 (column 1) should excite x8 (row 1) and x9 (row 2) with positive gain
+    assert B[1, 1] > 0, (
+        f"Expected B[x8, u2] > 0 (direct excitation), got {B[1, 1]:.6f}"
+    )
+    assert B[2, 1] > 0, (
+        f"Expected B[x9, u2] > 0 (cascade via x8), got {B[2, 1]:.6f}"
+    )
+    # Simulate a step in u2 and verify x8 responds
+    T = cascade_lti_system_data.index
+    test_u = np.zeros((len(T), 2))
+    test_u[int(len(T) * 0.2):, 1] = 1.0
+    response = ct.forced_response(sys, T, np.transpose(test_u))
+    x8_response = response.states[1]
+    # x8 should increase after the step
+    assert np.max(x8_response) > 0, "x8 did not respond positively to a step in u2"
+    # The peak should occur after the step onset
+    peak_idx = int(np.argmax(x8_response))
+    assert peak_idx > int(len(T) * 0.2), "x8 peak should occur after step onset"
+
+
+
 # ---------------------------------------------------------------------------# ---------------------------------------------------------------------------
 # CAMELS rainfall-runoff tests  (from test.py) — SLOW (uses data file)
 # ---------------------------------------------------------------------------

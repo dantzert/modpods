@@ -45,6 +45,7 @@ def SINDY_delays_MI(
             forcing.loc[:, transform_only],
             cache=transform_cache,
         )
+        transformed_forcing = transformed_forcing.drop(columns=transform_only)
         untransformed_forcing = forcing.drop(columns=transform_only)
         forcing = pd.concat(
             (untransformed_forcing, transformed_forcing), axis="columns"
@@ -205,6 +206,7 @@ def SINDY_delays_MI(
                 response.values[windup_timesteps:, :],
                 t=np.arange(0, len(index), 1)[windup_timesteps:],
                 u=total_train.values[windup_timesteps:, :],
+                feature_names=feature_names,
             )
             r2 = model.score(
                 response.values[windup_timesteps:, :],
@@ -242,6 +244,7 @@ def SINDY_delays_MI(
                 response.values[windup_timesteps:, :],
                 t=np.arange(0, len(index), 1)[windup_timesteps:],
                 u=forcing.values[windup_timesteps:, :],
+                feature_names=feature_names,
             )
             r2 = model.score(
                 response.values[windup_timesteps:, :],
