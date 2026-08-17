@@ -3,6 +3,7 @@ README.md
 pyproject.toml
 modpods/__init__.py
 modpods/_logging.py
+modpods/kernels.py
 modpods/lti.py
 modpods/metrics.py
 modpods/model.py
