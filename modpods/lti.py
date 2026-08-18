@@ -401,7 +401,8 @@ def lti_system_gen(
                 :, immediate_forcing
             ].empty:  # the subsystem is autonomous
                 instant_fit = model.fit(
-                    x=system_data.loc[:, row], t=np.arange(0, len(system_data.index), 1),
+                    x=system_data.loc[:, row],
+                    t=np.arange(0, len(system_data.index), 1),
                     feature_names=feature_names,
                 )
                 instant_fit.print(precision=3)
