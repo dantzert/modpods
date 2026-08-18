@@ -527,6 +527,7 @@ def test_delay_io_train_returns_model(simple_lti_data: pd.DataFrame) -> None:
             max_iter=5,
             poly_order=1,
             verbose="warnings",
+            seed=42,
         )
     assert isinstance(model, dict)
     assert 1 in model, "expected key 1 (first output) in model dict"
@@ -548,6 +549,7 @@ def test_delay_io_train_nse_above_zero(simple_lti_data: pd.DataFrame) -> None:
             max_iter=10,
             poly_order=1,
             verbose="warnings",
+            seed=42,
         )
     nse = float(model[1]["final_model"]["error_metrics"]["NSE"][0])
     assert nse > 0.0, f"Training NSE {nse:.4f} is non-positive"
@@ -572,6 +574,7 @@ def test_delay_io_train_with_forcing_coef_constraints(
             verbose="warnings",
             bibo_stable=True,
             forcing_coef_constraints={"u": 1},
+            seed=42,
         )
     assert isinstance(model, dict)
     assert 1 in model
@@ -594,6 +597,7 @@ def test_delay_io_predict_returns_expected_shape(
             max_iter=5,
             poly_order=1,
             verbose="warnings",
+            seed=42,
         )
         pred = modpods.delay_io_predict(model, simple_lti_data, num_transforms=1)
     assert isinstance(pred, dict)
@@ -952,26 +956,27 @@ def test_lti_system_gen_cascade_reconstruction(
         )
 
     sys = result["system"]
-    B = result["B"].to_numpy()
-    # u2 (column 1) should excite x8 (row 1) and x9 (row 2) with positive gain
-    assert B[1, 1] > 0, (
-        f"Expected B[x8, u2] > 0 (direct excitation), got {B[1, 1]:.6f}"
-    )
-    assert B[2, 1] > 0, (
-        f"Expected B[x9, u2] > 0 (cascade via x8), got {B[2, 1]:.6f}"
-    )
+    B = result["B"]
+    # u2 (column 1) should excite x8 (row 1) with positive gain
+    assert (
+        B.loc["x8", "u2"] > 0
+    ), f"Expected B[x8, u2] > 0 (direct excitation), got {B.loc['x8', 'u2']:.6f}"
+    # x9 should be driven by x8 through the A matrix (cascade via x8)
+    A = result["A"]
+    assert (
+        A.loc["x9", "x8"] > 0
+    ), f"Expected A[x9, x8] > 0 (cascade via x8), got {A.loc['x9', 'x8']:.6f}"
     # Simulate a step in u2 and verify x8 responds
     T = cascade_lti_system_data.index
     test_u = np.zeros((len(T), 2))
-    test_u[int(len(T) * 0.2):, 1] = 1.0
+    test_u[int(len(T) * 0.2) :, 1] = 1.0
     response = ct.forced_response(sys, T, np.transpose(test_u))
-    x8_response = response.states[1]
+    x8_response = response.outputs[1]
     # x8 should increase after the step
     assert np.max(x8_response) > 0, "x8 did not respond positively to a step in u2"
     # The peak should occur after the step onset
     peak_idx = int(np.argmax(x8_response))
     assert peak_idx > int(len(T) * 0.2), "x8 peak should occur after step onset"
-
 
 
 # ---------------------------------------------------------------------------# ---------------------------------------------------------------------------
