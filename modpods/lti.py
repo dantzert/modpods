@@ -401,7 +401,9 @@ def lti_system_gen(
                 :, immediate_forcing
             ].empty:  # the subsystem is autonomous
                 instant_fit = model.fit(
-                    x=system_data.loc[:, row], t=np.arange(0, len(system_data.index), 1)
+                    x=system_data.loc[:, row],
+                    t=np.arange(0, len(system_data.index), 1),
+                    feature_names=feature_names,
                 )
                 instant_fit.print(precision=3)
                 logger.info(
@@ -417,6 +419,7 @@ def lti_system_gen(
                     x=system_data.loc[:, row],
                     t=np.arange(0, len(system_data.index), 1),
                     u=system_data.loc[:, immediate_forcing],
+                    feature_names=feature_names,
                 )
                 instant_fit.print(precision=3)
                 logger.info(
@@ -546,10 +549,6 @@ def lti_system_gen(
                     # for Agam, the insertion row is immediately after the source (key)
                     # the insertion column is also immediately after the source (key)
 
-                    ### everything below this point is garbage. not performing at all as desired at the moment
-
-                    # first need to create space for the new rows and columns
-                    # create before_index and after_index variables, which record the parts of the index of A that occur before and after row
                     before_index = []
                     if (
                         transform_key.replace(tr_string, "") not in A.index
@@ -665,19 +664,18 @@ def lti_system_gen(
     B = B.apply(pd.to_numeric, errors="coerce").fillna(0.0)
     C = C.apply(pd.to_numeric, errors="coerce").fillna(0.0)
 
-    # if bibo_stable is specified and A not hurwitz, make A hurwitz by defining A' = A - I*max(real(eig(A)))
-    # this will guarantee stability (max eigenvalue will have real part < 0)
+    # if bibo_stable is specified and A not Hurwitz, make A Hurwitz by
+    # subtracting I * shift from A so that max(real(eig(A))) < 0
     if bibo_stable:
         orig_eigs, _ = np.linalg.eig(A)
-        if any(np.real(orig_eigs) > 0):
+        max_real_eig = float(np.max(np.real(orig_eigs)))
+        if max_real_eig >= -1e-12:
             logger.warning(
-                "stabilizing unstable plant by subtracting I*max(real(eig)) from A"
+                "stabilizing unstable or marginally stable plant by shifting A"
             )
             epsilon = 10e-4
-            A_stab = A - np.eye(len(A)) * (1 + epsilon) * max(
-                np.real(orig_eigs)
-            )  # add factor of (1+epsilon) for stability, not marginal stability
-            stab_eigs, _ = np.linalg.eig(A_stab)
+            shift = max((1 + epsilon) * max_real_eig, epsilon)
+            A_stab = A - np.eye(len(A)) * shift
             A = A_stab.copy(deep=True)
 
     # sindy will scale the coefficients according to the timestep if the index is numeric
