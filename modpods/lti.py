@@ -260,7 +260,6 @@ def lti_system_gen(
     max_transforms=1,
     early_stopping_threshold=0.005,
     verbose: Verbosity = "warnings",
-    forcing_coef_constraints=None,
 ):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
@@ -346,7 +345,6 @@ def lti_system_gen(
                 max_iter=max_iter,
                 verbose=verbose,
                 bibo_stable=bibo_stable,
-                forcing_coef_constraints=forcing_coef_constraints,
             )
             # we'll parse this delayed causation into the matrices A, B, and C later
         else:
@@ -366,26 +364,14 @@ def lti_system_gen(
                 # fit on a dummy (2, n_features) array; 2 rows is the minimum pysindy requires
                 library.fit(np.zeros((2, len(feature_names))))
                 n_features = library.n_output_features_
-                n_constraints = 1 + (
-                    len(forcing_coef_constraints) if forcing_coef_constraints else 0
-                )
-                constraint_rhs = np.zeros(n_constraints)
-                constraint_lhs = np.zeros((n_constraints, n_features))
+                constraint_rhs = np.zeros(1)
+                # one row per constraint, one column per coefficient
+                constraint_lhs = np.zeros((1, n_features))
 
                 # constrain the highest order output autocorrelation to be negative
                 # this indexing is only right for include_interaction=False, include_bias=False, and pure polynomial library
                 # for more complex libraries, some conditional logic will be needed to grab the right column
-                constraint_lhs[0, 0] = 1
-
-                constraint_row = 1
-                if forcing_coef_constraints:
-                    for i, col in enumerate(feature_names):
-                        for key in forcing_coef_constraints.keys():
-                            if key in col:
-                                constraint_lhs[constraint_row, i] = (
-                                    -forcing_coef_constraints[key]
-                                )
-                                constraint_row += 1
+                constraint_lhs[:, 0] = 1
 
                 model = ps.SINDy(
                     differentiation_method=ps.FiniteDifference(),

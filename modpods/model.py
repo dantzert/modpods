@@ -127,9 +127,13 @@ def SINDY_delays_MI(
             n_targets = len(response.columns)
             constraint_rhs = np.zeros((n_features,))
             constraint_lhs = np.zeros((n_features, n_targets * n_features))
+            highest_power_col_idx = 0
             for i, col in enumerate(feature_names):
-                if response.columns[0] in col and "^" not in col:
-                    constraint_lhs[0, i] = 1
+                if response.columns[0] in col:
+                    highest_power_col_idx = i
+            constraint_lhs[0, highest_power_col_idx] = 1
+
+            for i, col in enumerate(feature_names):
                 for key in forcing_coef_constraints.keys():
                     if key in col:
                         constraint_lhs[i, i] = -forcing_coef_constraints[key]
