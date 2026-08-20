@@ -1,4 +1,6 @@
 from ._logging import Verbosity, configure_verbosity
+from ._validation import ValidationError
+from .estimator import DelayIO, DelayIOModel
 from .kernels import (
     BimodalGammaKernel,
     ConvolutionKernel,
@@ -23,7 +25,10 @@ from .transforms import (
 
 __all__ = [
     "Verbosity",
+    "ValidationError",
     "configure_verbosity",
+    "DelayIO",
+    "DelayIOModel",
     "ConvolutionKernel",
     "GammaKernel",
     "LogNormalKernel",

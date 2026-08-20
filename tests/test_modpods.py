@@ -841,7 +841,7 @@ def test_all_methods_predictions_agree(
 def test_infer_causative_topology_returns_dataframe(
     cascade_lti_system_data: pd.DataFrame,
 ) -> None:
-    """infer_causative_topology must return a (DataFrame, DataFrame) tuple."""
+    """infer_causative_topology must return a dict with 'causative_topo' and 'total_graph'."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = modpods.infer_causative_topology(  # type: ignore[call-arg]
@@ -852,8 +852,11 @@ def test_infer_causative_topology_returns_dataframe(
             max_iter=0,
             method="sindy",
         )
-    assert isinstance(result, tuple) and len(result) == 2
-    causative_topo, total_graph = result
+    assert isinstance(result, dict)
+    assert "causative_topo" in result
+    assert "total_graph" in result
+    causative_topo = result["causative_topo"]
+    total_graph = result["total_graph"]
     assert isinstance(causative_topo, pd.DataFrame)
     assert isinstance(total_graph, pd.DataFrame)
 
@@ -864,7 +867,7 @@ def test_infer_causative_topology_identifies_u1_causes_x2(
     """SINDy causality must identify u1 as a cause of x2 (delayed cascade)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
+        result = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
@@ -872,6 +875,7 @@ def test_infer_causative_topology_identifies_u1_causes_x2(
             max_iter=0,
             method="sindy",
         )
+    causative_topo = result["causative_topo"]
     assert (
         causative_topo.loc["x2", "u1"] == "d"
     ), f"Expected u1→x2 to be 'd' (delayed), got '{causative_topo.loc['x2', 'u1']}'"
@@ -883,7 +887,7 @@ def test_infer_causative_topology_identifies_u2_causes_x8(
     """SINDy causality must identify u2 as a cause of x8 (direct link)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
+        result = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
@@ -891,6 +895,7 @@ def test_infer_causative_topology_identifies_u2_causes_x8(
             max_iter=0,
             method="sindy",
         )
+    causative_topo = result["causative_topo"]
     assert (
         causative_topo.loc["x8", "u2"] == "d"
     ), f"Expected u2→x8 to be 'd' (delayed), got '{causative_topo.loc['x8', 'u2']}'"
@@ -902,7 +907,7 @@ def test_infer_causative_topology_no_self_loops(
     """No variable should be identified as causing itself."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        causative_topo, _ = modpods.infer_causative_topology(  # type: ignore[call-arg]
+        result = modpods.infer_causative_topology(  # type: ignore[call-arg]
             cascade_lti_system_data,
             dependent_columns=["x2", "x8", "x9"],
             independent_columns=["u1", "u2"],
@@ -910,6 +915,7 @@ def test_infer_causative_topology_no_self_loops(
             max_iter=0,
             method="sindy",
         )
+    causative_topo = result["causative_topo"]
     for dep_var in ["x2", "x8", "x9"]:
         assert (
             causative_topo.loc[dep_var, dep_var] == "n"

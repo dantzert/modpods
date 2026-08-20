@@ -9,6 +9,7 @@ Requires-Dist: numpy>=1.24
 Requires-Dist: pandas>=2.0
 Requires-Dist: scipy>=1.10
 Requires-Dist: matplotlib>=3.7
+Requires-Dist: scikit-learn>=1.0
 Requires-Dist: control>=0.9
 Requires-Dist: pysindy>=2.0
 Requires-Dist: cvxpy>=1.3
