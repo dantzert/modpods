@@ -31,6 +31,4 @@ def validate_columns(system_data: pd.DataFrame, columns: list[str], name: str) -
         raise ValidationError(f"{name} must not be empty")
     missing = [c for c in columns if c not in system_data.columns]
     if missing:
-        raise ValidationError(
-            f"{name} contains columns not in system_data: {missing}"
-        )
+        raise ValidationError(f"{name} contains columns not in system_data: {missing}")

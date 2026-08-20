@@ -82,10 +82,7 @@ class DelayIOModel:
         return float(self.final_model_["error_metrics"]["r2"])
 
     def __repr__(self) -> str:
-        return (
-            f"DelayIOModel(n_transforms={self.n_transforms_}, "
-            f"r2={self.r2_:.4f})"
-        )
+        return f"DelayIOModel(n_transforms={self.n_transforms_}, " f"r2={self.r2_:.4f})"
 
 
 class DelayIO:
@@ -134,9 +131,7 @@ class DelayIO:
         self.random_state = random_state
         self.estimators_: list[DelayIOModel] = []
 
-    def fit(
-        self, system_data: pd.DataFrame, **kwargs: Any
-    ) -> list[DelayIOModel]:
+    def fit(self, system_data: pd.DataFrame, **kwargs: Any) -> list[DelayIOModel]:
         validate_system_data(system_data)
         validate_columns(system_data, self.dependent_columns, "dependent_columns")
         validate_columns(system_data, self.independent_columns, "independent_columns")
