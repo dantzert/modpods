@@ -779,11 +779,14 @@ def infer_causative_topology(  # noqa: F811
         init_neighbors: initial number of nearest neighbors to evaluate when sensor_locations is provided (default: 3)
 
     Returns:
-        dict with keys: "edges", "best_params", "r2_values", "lead_lag"
+        dict with keys: "edges", "best_params", "r2_values", "lead_lag",
+        "causative_topo", "total_graph".
         - edges: DataFrame adjacency matrix (from -> to convention)
         - best_params: DataFrame of transformation parameters (shape, scale, loc)
         - r2_values: DataFrame of R^2 values for each potential edge
         - lead_lag: DataFrame of lead/lag values (positive = forcing leads response)
+        - causative_topo: DataFrame of "d"/"n" labels (dep row, forcing col)
+        - total_graph: DataFrame of R^2 weights (dep row, forcing col)
     """
 
     # Handle deprecated methods
@@ -847,4 +850,11 @@ def infer_causative_topology(  # noqa: F811
                     dep_col, forcing_col
                 ]
 
-    return causative_topo, total_graph
+    return {
+        "edges": edges,
+        "best_params": result["best_params"],
+        "r2_values": r2_values,
+        "lead_lag": result["lead_lag"],
+        "causative_topo": causative_topo,
+        "total_graph": total_graph,
+    }

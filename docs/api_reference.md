@@ -6,6 +6,97 @@ types, defaults, and semantics are taken directly from the implementation in
 
 ---
 
+## `modpods.DelayIO`
+
+Scikit-learn-style estimator for delay-IO model discovery.  Instantiate with
+your column names and call `fit()` to train, then `predict()` to simulate.
+
+```python
+model = modpods.DelayIO(
+    dependent_columns=["Q"],
+    independent_columns=["P", "PET"],
+    windup_timesteps=30,
+    init_transforms=1,
+    max_transforms=4,
+    poly_order=3,
+    optimization_method="bayesian",
+    kernel="gamma",
+    random_state=42,
+)
+estimators = model.fit(system_data)
+pred = model.predict(system_data, n_transforms=1)
+```
+
+### Constructor Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `dependent_columns` | `list[str]` | required | Output / state columns to model. |
+| `independent_columns` | `list[str]` | required | Input / forcing columns. |
+| `windup_timesteps` | `int` | `0` | Number of initial rows to discard as spin-up. |
+| `init_transforms` | `int` | `1` | Minimum number of transforms to try. |
+| `max_transforms` | `int` | `4` | Maximum number of transforms to try. |
+| `poly_order` | `int` | `3` | Polynomial degree for the SINDy feature library. |
+| `transform_dependent` | `bool` | `False` | If `True`, transform **all** columns (outputs + inputs) instead of only inputs. |
+| `verbose` | `str` | `"warnings"` | Logging level: `"warnings"`, `"info"`, or `"debug"`. |
+| `include_bias` | `bool` | `False` | Include a constant term in the SINDy library. |
+| `include_interaction` | `bool` | `False` | Include interaction terms in the SINDy library. |
+| `bibo_stable` | `bool` | `False` | Constrain the highest-order output autocorrelation to be negative. |
+| `forcing_coef_constraints` | `dict` or `None` | `None` | Dict mapping input column names to constraint strengths. |
+| `constraints` | `list[dict]` or `None` | `None` | Custom coefficient constraints. |
+| `early_stopping_threshold` | `float` | `0.005` | Minimum R² improvement required to add another transform. |
+| `optimization_method` | `str` | `"bayesian"` | Optimizer backend. |
+| `kernel` | `str` or `ConvolutionKernel` | `"gamma"` | Kernel name (`"gamma"`, `"lognormal"`, `"bimodal_gamma"`, `"underdamped"`, `"try-all"`, `"run-all"`) or instance. |
+| `random_state` | `int` or `None` | `None` | Seed for reproducibility. |
+
+### Methods
+
+- `fit(system_data, **optimizer_kwargs)` → `list[DelayIOModel]`
+  Train models for each transform count from `init_transforms` to `max_transforms`.
+  Returns a list of fitted `DelayIOModel` objects.  Also sets `self.estimators_`
+  and `self.best_estimator_`.
+
+- `predict(system_data, n_transforms=None, evaluation=False, windup_timesteps=None)` → `dict`
+  Simulate on new data.  If `n_transforms` is `None`, uses `self.best_estimator_`.
+
+- `get_params(deep=True)` → `dict`
+  Return constructor parameters (scikit-learn interface).
+
+- `set_params(**params)` → `DelayIO`
+  Update constructor parameters and return `self`.
+
+### Attributes (after `fit`)
+
+- `estimators_` — `list[DelayIOModel]`, one per transform count.
+- `best_estimator_` — `DelayIOModel` with the highest training R².
+
+---
+
+## `modpods.DelayIOModel`
+
+A single fitted delay-io model returned by `DelayIO.fit()`.
+
+### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `n_transforms_` | `int` | Number of transforms used. |
+| `kernel_type_` | `str` | Kernel name (`"gamma"`, etc.). |
+| `kernel_params_` | `pd.DataFrame` | Optimized kernel parameters. |
+| `windup_timesteps_` | `int` | Spin-up length. |
+| `dependent_columns_` | `list[str]` | Output columns. |
+| `independent_columns_` | `list[str]` | Input columns. |
+| `error_metrics_` | `dict` | Error metrics from training. |
+| `r2_` | `float` | Training R². |
+
+### Methods
+
+- `predict(system_data, evaluation=False, windup_timesteps=None)` → `dict`
+  Simulate and optionally evaluate.  Returns dict with `"prediction"`,
+  `"error_metrics"`, and `"diverged"`.
+
+---
+
 ## `modpods.delay_io_train`
 
 Train a sparse dynamical model from time-series data using SINDy with

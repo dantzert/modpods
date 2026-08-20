@@ -2,6 +2,7 @@ numpy>=1.24
 pandas>=2.0
 scipy>=1.10
 matplotlib>=3.7
+scikit-learn>=1.0
 control>=0.9
 pysindy>=2.0
 cvxpy>=1.3
