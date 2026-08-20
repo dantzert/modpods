@@ -30,6 +30,7 @@ class DelayIOModel:
         self.dependent_columns_ = dependent_columns
         self.independent_columns_ = independent_columns
         self.transform_cache_ = transform_cache
+        self.kernel_name_: str | None = None
 
     @classmethod
     def from_dict(cls, n_transforms: int, entry: dict[str, Any]) -> DelayIOModel:
@@ -64,7 +65,7 @@ class DelayIOModel:
                 "transform_cache": self.transform_cache_,
             }
         }
-        return delay_io_predict(
+        return delay_io_predict(  # type: ignore[no-any-return]
             old_format,
             system_data,
             num_transforms=self.n_transforms_,
@@ -75,7 +76,7 @@ class DelayIOModel:
 
     @property
     def error_metrics_(self) -> dict[str, Any]:
-        return self.final_model_["error_metrics"]
+        return self.final_model_["error_metrics"]  # type: ignore[no-any-return]
 
     @property
     def r2_(self) -> float:
