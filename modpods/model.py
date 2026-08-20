@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -13,6 +14,58 @@ from .metrics import compute_basic_metrics
 from .transforms import transform_inputs
 
 logger = logging.getLogger(__name__)
+
+
+def _build_constraint_matrices(
+    feature_names: list[str],
+    forcing_coef_constraints: dict[str, Any] | None,
+    constraints: list[dict[str, Any]] | None,
+    n_targets: int,
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    n_features = len(feature_names)
+    constraint_rows: list[np.ndarray] = []
+    constraint_rhs_values: list[float] = []
+    all_inequality = True
+
+    if forcing_coef_constraints is not None:
+        for key, value in forcing_coef_constraints.items():
+            row = np.zeros(n_targets * n_features)
+            if isinstance(value, dict):
+                lhs = float(value.get("lhs", -1))
+                rhs = float(value.get("rhs", 0))
+                inequality = value.get("inequality", True)
+            else:
+                lhs = -float(value)
+                rhs = 0.0
+                inequality = True
+            for i, col in enumerate(feature_names):
+                if key in col:
+                    row[i] = lhs
+            constraint_rows.append(row)
+            constraint_rhs_values.append(rhs)
+            all_inequality = all_inequality and inequality
+
+    if constraints is not None:
+        for constraint in constraints:
+            row = np.zeros(n_targets * n_features)
+            features = constraint["features"]
+            coefficients = constraint["coefficients"]
+            rhs = float(constraint.get("rhs", 0))
+            inequality = constraint.get("inequality", True)
+            for feature, coeff in zip(features, coefficients):
+                for i, col in enumerate(feature_names):
+                    if col == feature:
+                        row[i] = float(coeff)
+            constraint_rows.append(row)
+            constraint_rhs_values.append(rhs)
+            all_inequality = all_inequality and inequality
+
+    if not constraint_rows:
+        return np.zeros((0, n_targets * n_features)), np.zeros((0,)), True
+
+    constraint_lhs = np.vstack(constraint_rows)
+    constraint_rhs = np.array(constraint_rhs_values)
+    return constraint_lhs, constraint_rhs, all_inequality
 
 
 def SINDY_delays_MI(
@@ -30,6 +83,7 @@ def SINDY_delays_MI(
     transform_dependent=False,
     transform_only=None,
     forcing_coef_constraints=None,
+    constraints=None,
     transform_cache=None,
     verbose: Verbosity = "warnings",
 ):
@@ -62,7 +116,7 @@ def SINDY_delays_MI(
     feature_names = response.columns.tolist() + forcing.columns.tolist()
 
     # SINDy
-    if not bibo_stable and forcing_coef_constraints is None:
+    if not bibo_stable and forcing_coef_constraints is None and constraints is None:
         model = ps.SINDy(
             differentiation_method=ps.FiniteDifference(),
             feature_library=ps.PolynomialLibrary(
@@ -72,40 +126,7 @@ def SINDY_delays_MI(
             ),
             optimizer=ps.STLSQ(threshold=0),
         )
-    elif forcing_coef_constraints is not None and not bibo_stable:
-        library = ps.PolynomialLibrary(
-            degree=poly_degree,
-            include_bias=include_bias,
-            include_interaction=include_interaction,
-        )
-        total_train = pd.concat((response, forcing), axis="columns")
-        library.fit([ps.AxesArray(total_train, {"ax_sample": 0, "ax_coord": 1})])
-        n_features = library.n_output_features_
-        n_targets = len(response.columns)
-        constraint_rhs = np.zeros((n_features,))
-        constraint_lhs = np.zeros((n_features, n_targets * n_features))
-
-        for i, col in enumerate(feature_names):
-            for key in forcing_coef_constraints.keys():
-                if key in col:
-                    constraint_lhs[i, i] = -forcing_coef_constraints[key]
-
-        model = ps.SINDy(
-            differentiation_method=ps.FiniteDifference(),
-            feature_library=ps.PolynomialLibrary(
-                degree=poly_degree,
-                include_bias=include_bias,
-                include_interaction=include_interaction,
-            ),
-            optimizer=_ConstrainedSR3(
-                reg_weight_lam=0,
-                regularizer="l2",
-                constraint_lhs=constraint_lhs,
-                constraint_rhs=constraint_rhs,
-                inequality_constraints=True,
-            ),
-        )
-    elif bibo_stable:
+    else:
         library = ps.PolynomialLibrary(
             degree=poly_degree,
             include_bias=include_bias,
@@ -115,28 +136,37 @@ def SINDY_delays_MI(
         library.fit([ps.AxesArray(total_train, {"ax_sample": 0, "ax_coord": 1})])
         n_features = library.n_output_features_
         feature_names = library.get_feature_names(input_features=total_train.columns)
-        n_targets = total_train.shape[1]
-        constraint_rhs = np.zeros((len(response.columns), 1))
-        constraint_lhs = np.zeros((len(response.columns), n_features))
+        n_targets = len(response.columns)
 
-        constraint_lhs[
-            :, -len(forcing.columns) - len(response.columns) : -len(forcing.columns)
-        ] = 1
-
-        if forcing_coef_constraints is not None:
-            n_targets = len(response.columns)
-            constraint_rhs = np.zeros((n_features,))
-            constraint_lhs = np.zeros((n_features, n_targets * n_features))
-            highest_power_col_idx = 0
-            for i, col in enumerate(feature_names):
-                if response.columns[0] in col:
-                    highest_power_col_idx = i
-            constraint_lhs[0, highest_power_col_idx] = 1
-
-            for i, col in enumerate(feature_names):
-                for key in forcing_coef_constraints.keys():
-                    if key in col:
-                        constraint_lhs[i, i] = -forcing_coef_constraints[key]
+        if bibo_stable:
+            custom_lhs, custom_rhs, custom_inequality = _build_constraint_matrices(
+                feature_names, forcing_coef_constraints, constraints, n_targets
+            )
+            if custom_lhs.shape[0] > 0:
+                constraint_rhs = np.zeros((n_targets + custom_lhs.shape[0],))
+                constraint_lhs = np.zeros(
+                    (n_targets + custom_lhs.shape[0], n_targets * n_features)
+                )
+                for j in range(n_targets):
+                    constraint_lhs[
+                        j, j * n_features + (j + 1) * n_features - n_targets + j
+                    ] = 1
+                constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
+                constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
+                all_inequality = custom_inequality
+            else:
+                constraint_rhs = np.zeros((n_targets, 1))
+                constraint_lhs = np.zeros((n_targets, n_features))
+                constraint_lhs[
+                    :,
+                    -len(forcing.columns)
+                    - len(response.columns) : -len(forcing.columns),
+                ] = 1
+                all_inequality = True
+        else:
+            constraint_lhs, constraint_rhs, all_inequality = _build_constraint_matrices(
+                feature_names, forcing_coef_constraints, constraints, n_targets
+            )
 
         model = ps.SINDy(
             differentiation_method=ps.FiniteDifference(),
@@ -150,7 +180,7 @@ def SINDY_delays_MI(
                 regularizer="l2",
                 constraint_lhs=constraint_lhs,
                 constraint_rhs=constraint_rhs,
-                inequality_constraints=True,
+                inequality_constraints=all_inequality,
             ),
         )
     if transform_dependent:

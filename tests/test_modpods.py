@@ -581,6 +581,73 @@ def test_delay_io_train_with_forcing_coef_constraints(
     assert model[1]["final_model"]["error_metrics"]["NSE"] is not None
 
 
+def test_delay_io_train_with_custom_constraints(
+    simple_lti_data: pd.DataFrame,
+) -> None:
+    """delay_io_train with custom constraints must complete and honor multi-term bounds."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=10,
+            poly_order=1,
+            verbose="warnings",
+            bibo_stable=True,
+            constraints=[
+                {
+                    "features": ["u"],
+                    "coefficients": [1],
+                    "rhs": 0,
+                    "inequality": True,
+                }
+            ],
+            seed=42,
+        )
+    assert isinstance(model, dict)
+    assert 1 in model
+    coefs = model[1]["final_model"]["model"].coefficients()
+    u_idx = list(model[1]["final_model"]["model"].feature_names).index("u")
+    assert coefs[0, u_idx] >= -0.0, (
+        f"Expected coefficient for 'u' >= 0 under custom constraint, "
+        f"got {coefs[0, u_idx]:.6f}"
+    )
+
+
+def test_delay_io_train_with_forcing_coef_constraints_dict_value(
+    simple_lti_data: pd.DataFrame,
+) -> None:
+    """forcing_coef_constraints dict values should allow explicit constraint specs."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.delay_io_train(
+            simple_lti_data,
+            dependent_columns=["x1"],
+            independent_columns=["u"],
+            windup_timesteps=0,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=10,
+            poly_order=1,
+            verbose="warnings",
+            bibo_stable=True,
+            forcing_coef_constraints={"u": {"lhs": -1, "rhs": 0, "inequality": True}},
+            seed=42,
+        )
+    assert isinstance(model, dict)
+    assert 1 in model
+    coefs = model[1]["final_model"]["model"].coefficients()
+    u_idx = list(model[1]["final_model"]["model"].feature_names).index("u")
+    assert coefs[0, u_idx] >= -0.0, (
+        f"Expected coefficient for 'u' >= 0 under explicit dict constraint, "
+        f"got {coefs[0, u_idx]:.6f}"
+    )
+
+
 def test_delay_io_predict_returns_expected_shape(
     simple_lti_data: pd.DataFrame,
 ) -> None:

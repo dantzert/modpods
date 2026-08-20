@@ -11,6 +11,7 @@ from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped
 )
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from .model import _build_constraint_matrices
 from .train import delay_io_train
 
 logger = logging.getLogger(__name__)
@@ -261,6 +262,7 @@ def lti_system_gen(
     early_stopping_threshold=0.005,
     verbose: Verbosity = "warnings",
     forcing_coef_constraints=None,
+    constraints=None,
 ):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
@@ -347,6 +349,7 @@ def lti_system_gen(
                 verbose=verbose,
                 bibo_stable=bibo_stable,
                 forcing_coef_constraints=forcing_coef_constraints,
+                constraints=constraints,
             )
             # we'll parse this delayed causation into the matrices A, B, and C later
         else:
@@ -364,25 +367,23 @@ def lti_system_gen(
                 )
                 library.fit(np.zeros((2, len(feature_names))))
                 n_features = library.n_output_features_
-                n_constraints = 1 + (
-                    len(forcing_coef_constraints) if forcing_coef_constraints else 0
-                )
-                constraint_rhs = np.zeros(n_constraints)
-                constraint_lhs = np.zeros((n_constraints, n_features))
+
+                constraint_lhs = np.zeros((1, n_features))
+                constraint_rhs = np.zeros(1)
 
                 for i, col in enumerate(feature_names):
                     if col == row:
                         constraint_lhs[0, i] = 1
 
-                constraint_row = 1
-                if forcing_coef_constraints:
-                    for i, col in enumerate(feature_names):
-                        for key in forcing_coef_constraints.keys():
-                            if key in col:
-                                constraint_lhs[constraint_row, i] = (
-                                    -forcing_coef_constraints[key]
-                                )
-                                constraint_row += 1
+                custom_lhs, custom_rhs, custom_inequality = _build_constraint_matrices(
+                    feature_names, forcing_coef_constraints, constraints, n_targets=1
+                )
+                if custom_lhs.shape[0] > 0:
+                    constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
+                    constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
+                    all_inequality = custom_inequality
+                else:
+                    all_inequality = True
 
                 model = ps.SINDy(
                     differentiation_method=ps.FiniteDifference(),
@@ -394,7 +395,7 @@ def lti_system_gen(
                         regularizer="l2",
                         constraint_lhs=constraint_lhs,
                         constraint_rhs=constraint_rhs,
-                        inequality_constraints=True,
+                        inequality_constraints=all_inequality,
                     ),
                 )
 
