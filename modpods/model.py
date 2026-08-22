@@ -1,4 +1,5 @@
 import logging
+from abc import ABC, abstractmethod
 from typing import Any
 
 import numpy as np
@@ -10,7 +11,7 @@ from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .kernels import ConvolutionKernel, get_kernel
-from .metrics import compute_basic_metrics
+from .metrics import compute_detailed_metrics
 from .transforms import transform_inputs
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,17 @@ def _build_constraint_matrices(
     constraints: list[dict[str, Any]] | None,
     n_targets: int,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Build constraint matrices for SINDy optimization.
+
+    Args:
+        feature_names: List of feature names.
+        forcing_coef_constraints: Dict mapping forcing names to constraint specs.
+        constraints: List of custom constraint dicts.
+        n_targets: Number of target variables.
+
+    Returns:
+        Tuple of (constraint_lhs, constraint_rhs, all_inequality).
+    """
     n_features = len(feature_names)
     constraint_rows: list[np.ndarray] = []
     constraint_rhs_values: list[float] = []
@@ -68,6 +80,433 @@ def _build_constraint_matrices(
     return constraint_lhs, constraint_rhs, all_inequality
 
 
+class SINDYBuilder(ABC):
+    """Abstract base class for SINDy model builders."""
+
+    @abstractmethod
+    def build(
+        self,
+        feature_names: list[str],
+        poly_degree: int,
+        include_bias: bool,
+        include_interaction: bool,
+    ) -> ps.SINDy:
+        """Build an unfitted SINDy model.
+
+        Args:
+            feature_names: Names for the feature columns.
+            poly_degree: Polynomial degree for the feature library.
+            include_bias: Whether to include a bias term.
+            include_interaction: Whether to include interaction terms.
+
+        Returns:
+            An unfitted SINDy model instance.
+        """
+        ...
+
+
+class StandardSINDYBuilder(SINDYBuilder):
+    """Build a standard SINDy model with STLSQ optimizer."""
+
+    def build(
+        self,
+        feature_names: list[str],
+        poly_degree: int,
+        include_bias: bool,
+        include_interaction: bool,
+    ) -> ps.SINDy:
+        return ps.SINDy(
+            differentiation_method=ps.FiniteDifference(),
+            feature_library=ps.PolynomialLibrary(
+                degree=poly_degree,
+                include_bias=include_bias,
+                include_interaction=include_interaction,
+            ),
+            optimizer=ps.STLSQ(threshold=0),
+        )
+
+
+class ConstrainedSINDYBuilder(SINDYBuilder):
+    """Build a SINDy model with constrained SR3 optimizer."""
+
+    def __init__(
+        self,
+        constraint_lhs: np.ndarray,
+        constraint_rhs: np.ndarray,
+        inequality_constraints: bool,
+    ) -> None:
+        self.constraint_lhs = constraint_lhs
+        self.constraint_rhs = constraint_rhs
+        self.inequality_constraints = inequality_constraints
+
+    def build(
+        self,
+        feature_names: list[str],
+        poly_degree: int,
+        include_bias: bool,
+        include_interaction: bool,
+    ) -> ps.SINDy:
+        return ps.SINDy(
+            differentiation_method=ps.FiniteDifference(),
+            feature_library=ps.PolynomialLibrary(
+                degree=poly_degree,
+                include_bias=include_bias,
+                include_interaction=include_interaction,
+            ),
+            optimizer=_ConstrainedSR3(
+                reg_weight_lam=0,
+                regularizer="l2",
+                constraint_lhs=self.constraint_lhs,
+                constraint_rhs=self.constraint_rhs,
+                inequality_constraints=self.inequality_constraints,
+            ),
+        )
+
+
+class SINDYModelFactory:
+    """Factory for training SINDy delay-IO models."""
+
+    def __init__(
+        self,
+        kernel: ConvolutionKernel,
+        kernel_params,
+        index,
+        forcing: pd.DataFrame,
+        response: pd.DataFrame,
+        poly_degree: int,
+        include_bias: bool,
+        include_interaction: bool,
+        windup_timesteps: int,
+        bibo_stable: bool = False,
+        transform_dependent: bool = False,
+        transform_only: list[str] | None = None,
+        forcing_coef_constraints: Any = None,
+        constraints: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.kernel = kernel
+        self.kernel_params = kernel_params
+        self.index = index
+        self.forcing = forcing
+        self.response = response
+        self.poly_degree = poly_degree
+        self.include_bias = include_bias
+        self.include_interaction = include_interaction
+        self.windup_timesteps = windup_timesteps
+        self.bibo_stable = bibo_stable
+        self.transform_dependent = transform_dependent
+        self.transform_only = transform_only
+        self.forcing_coef_constraints = forcing_coef_constraints
+        self.constraints = constraints
+
+    def _transform_forcing(self) -> pd.DataFrame:
+        """Apply kernel convolution transformations to forcing inputs."""
+        if self.transform_only is not None:
+            transformed_forcing = transform_inputs(
+                self.kernel,
+                self.kernel_params,
+                self.index,
+                self.forcing.loc[:, self.transform_only],
+            )
+            transformed_forcing = transformed_forcing.drop(columns=self.transform_only)
+            untransformed_forcing = self.forcing.drop(columns=self.transform_only)
+            return pd.concat(  # type: ignore[no-any-return]
+                (untransformed_forcing, transformed_forcing), axis="columns"
+            )
+        return transform_inputs(  # type: ignore[no-any-return]
+            self.kernel,
+            self.kernel_params,
+            self.index,
+            self.forcing,
+        )
+
+    def _build_constraint_matrices(
+        self, feature_names: list[str], n_targets: int
+    ) -> tuple[np.ndarray, np.ndarray, bool]:
+        return _build_constraint_matrices(
+            feature_names,
+            self.forcing_coef_constraints,
+            self.constraints,
+            n_targets,
+        )
+
+    def _create_model_and_feature_names(
+        self, forcing: pd.DataFrame
+    ) -> tuple[ps.SINDy, list[str], pd.DataFrame]:
+        """Create the SINDy model and determine feature names for fitting."""
+        if self.transform_dependent:
+            return self._build_transform_dependent_model(forcing)
+
+        feature_names = self.response.columns.tolist() + forcing.columns.tolist()
+
+        if self.bibo_stable or self.forcing_coef_constraints or self.constraints:
+            library = ps.PolynomialLibrary(
+                degree=self.poly_degree,
+                include_bias=self.include_bias,
+                include_interaction=self.include_interaction,
+            )
+            total_train = pd.concat((self.response, forcing), axis="columns")
+            library.fit([ps.AxesArray(total_train, {"ax_sample": 0, "ax_coord": 1})])
+            poly_feature_names = library.get_feature_names(
+                input_features=total_train.columns
+            )
+            n_targets = len(self.response.columns)
+            custom_lhs, custom_rhs, custom_inequality = self._build_constraint_matrices(
+                poly_feature_names, n_targets
+            )
+            if custom_lhs.shape[0] > 0:
+                constraint_rhs = np.zeros((n_targets + custom_lhs.shape[0],))
+                constraint_lhs = np.zeros(
+                    (
+                        n_targets + custom_lhs.shape[0],
+                        n_targets * len(poly_feature_names),
+                    )
+                )
+                for j in range(n_targets):
+                    constraint_lhs[
+                        j,
+                        j * len(poly_feature_names)
+                        + (j + 1) * len(poly_feature_names)
+                        - n_targets
+                        + j,
+                    ] = 1
+                constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
+                constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
+                all_inequality = custom_inequality
+            else:
+                constraint_rhs = np.zeros((n_targets, 1))
+                constraint_lhs = np.zeros((n_targets, len(poly_feature_names)))
+                constraint_lhs[
+                    :,
+                    -len(forcing.columns)
+                    - len(self.response.columns) : -len(forcing.columns),
+                ] = 1
+                all_inequality = True
+
+            builder = ConstrainedSINDYBuilder(
+                constraint_lhs, constraint_rhs, all_inequality
+            )
+            model = builder.build(
+                poly_feature_names,
+                self.poly_degree,
+                self.include_bias,
+                self.include_interaction,
+            )
+            return model, poly_feature_names, forcing
+
+        std_builder = StandardSINDYBuilder()
+        model = std_builder.build(
+            feature_names,
+            self.poly_degree,
+            self.include_bias,
+            self.include_interaction,
+        )
+        return model, feature_names, forcing
+
+    def _build_transform_dependent_model(
+        self, forcing: pd.DataFrame
+    ) -> tuple[ps.SINDy, list[str], pd.DataFrame]:
+        """Build model for transform_dependent mode."""
+        total_train = pd.concat((self.response, forcing), axis="columns")
+        total_train = transform_inputs(
+            self.kernel,
+            self.kernel_params,
+            self.index,
+            total_train,
+        )
+        total_train = total_train.drop(columns=self.response.columns)
+        feature_names = self.response.columns.tolist() + total_train.columns.tolist()
+
+        library = ps.PolynomialLibrary(
+            degree=self.poly_degree,
+            include_bias=self.include_bias,
+            include_interaction=self.include_interaction,
+        )
+        library_terms = pd.concat((total_train, self.response), axis="columns")
+        library.fit([ps.AxesArray(library_terms, {"ax_sample": 0, "ax_coord": 1})])
+        n_features = library.n_output_features_
+        n_targets = self.response.shape[1]
+
+        constraint_rhs = np.zeros((n_targets,))
+        constraint_lhs = np.zeros((n_targets, n_features * n_targets))
+        if self.bibo_stable:
+            initial_guess = np.zeros((n_targets, n_features))
+            for idx in range(n_targets):
+                initial_guess[idx, idx] = -1
+        else:
+            initial_guess = None
+
+        for idx in range(n_targets):
+            constraint_lhs[idx, (idx + 1) * n_features - n_targets + idx] = 1
+
+        model = ps.SINDy(
+            differentiation_method=ps.FiniteDifference(),
+            feature_library=library,
+            optimizer=_ConstrainedSR3(
+                reg_weight_lam=0,
+                regularizer="l0",
+                relax_coeff_nu=10e9,
+                initial_guess=initial_guess,
+                constraint_lhs=constraint_lhs,
+                constraint_rhs=constraint_rhs,
+                inequality_constraints=False,
+                max_iter=10000,
+            ),
+        )
+        return model, feature_names, total_train
+
+    def _fit_and_score(
+        self,
+        model: ps.SINDy,
+        forcing: pd.DataFrame,
+        feature_names: list[str],
+    ) -> tuple[float, Exception | None]:
+        """Fit the model and compute R² score."""
+        try:
+            model.fit(
+                self.response.values[self.windup_timesteps :, :],
+                t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                u=forcing.values[self.windup_timesteps :, :],
+                feature_names=feature_names,
+            )
+            r2 = model.score(
+                self.response.values[self.windup_timesteps :, :],
+                t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                u=forcing.values[self.windup_timesteps :, :],
+            )
+            return r2, None
+        except Exception as e:
+            logger.warning("Exception in model fitting, returning r2=-1")
+            logger.warning("%s", e)
+            return -1.0, e
+
+    def _error_result(self, model: ps.SINDy | None, r2: float = -1.0) -> dict[str, Any]:
+        error_metrics = {
+            "MAE": [False],
+            "RMSE": [False],
+            "NSE": [False],
+            "alpha": [False],
+            "beta": [False],
+            "HFV": [False],
+            "HFV10": [False],
+            "LFV": [False],
+            "FDC": [False],
+            "r2": r2,
+        }
+        return {
+            "error_metrics": error_metrics,
+            "model": model,
+            "simulated": False,
+            "response": self.response,
+            "forcing": self.forcing,
+            "index": self.index,
+            "diverged": False,
+        }
+
+    def train(self, final_run: bool = False) -> dict[str, Any]:
+        """Train the SINDy model.
+
+        Args:
+            final_run: If True, simulate and compute detailed metrics.
+
+        Returns:
+            Dict with keys: error_metrics, model, simulated, response,
+            forcing, index, diverged.
+        """
+        forcing = self._transform_forcing()
+        model, feature_names, fit_forcing = self._create_model_and_feature_names(
+            forcing
+        )
+
+        if self.transform_dependent:
+            try:
+                model.fit(
+                    self.response.values[self.windup_timesteps :, :],
+                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    u=fit_forcing.values[self.windup_timesteps :, :],
+                    feature_names=feature_names,
+                )
+                r2 = model.score(
+                    self.response.values[self.windup_timesteps :, :],
+                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    u=fit_forcing.values[self.windup_timesteps :, :],
+                )
+            except Exception as e:
+                logger.warning("Exception in model fitting, returning r2=-1")
+                logger.warning("%s", e)
+                return self._error_result(model, r2=-1)
+        else:
+            r2, err = self._fit_and_score(model, fit_forcing, feature_names)
+            if err is not None:
+                return self._error_result(model, r2=-1)
+
+        if not final_run:
+            return {
+                "error_metrics": {"r2": r2},
+                "model": model,
+                "simulated": False,
+                "response": self.response,
+                "forcing": forcing,
+                "index": self.index,
+                "diverged": False,
+            }
+
+        simulated = False
+        try:
+            if self.transform_dependent:
+                simulated = model.simulate(
+                    self.response.values[self.windup_timesteps, :],
+                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    u=fit_forcing.values[self.windup_timesteps :, :],
+                )
+            else:
+                simulated = model.simulate(
+                    self.response.values[self.windup_timesteps, :],
+                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    u=fit_forcing.values[self.windup_timesteps :, :],
+                )
+            error_metrics = compute_detailed_metrics(
+                self.response.values[self.windup_timesteps + 1 :, :],
+                simulated,
+                self.index,
+                self.windup_timesteps,
+            )
+            error_metrics["r2"] = r2
+        except Exception as e:
+            logger.warning("Exception in simulation")
+            logger.warning("%s", e)
+            error_metrics = {
+                "MAE": [np.nan],
+                "RMSE": [np.nan],
+                "NSE": [np.nan],
+                "alpha": [np.nan],
+                "beta": [np.nan],
+                "HFV": [np.nan],
+                "HFV10": [np.nan],
+                "LFV": [np.nan],
+                "FDC": [np.nan],
+                "r2": r2,
+            }
+            return {
+                "error_metrics": error_metrics,
+                "model": model,
+                "simulated": self.response[1:],
+                "response": self.response,
+                "forcing": forcing,
+                "index": self.index,
+                "diverged": True,
+            }
+
+        return {
+            "error_metrics": error_metrics,
+            "model": model,
+            "simulated": simulated,
+            "response": self.response,
+            "forcing": forcing,
+            "index": self.index,
+            "diverged": False,
+        }
+
+
 def SINDY_delays_MI(
     kernel: ConvolutionKernel | str,
     kernel_params,
@@ -87,400 +526,30 @@ def SINDY_delays_MI(
     transform_cache=None,
     verbose: Verbosity = "warnings",
 ):
-    kernel = get_kernel(kernel)
+    """Train a SINDy delay-IO model.
+
+    .. deprecated::
+        Use :class:`SINDYModelFactory` for new code. This function is preserved
+        for backward compatibility.
+    """
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
 
-    if transform_only is not None:
-        transformed_forcing = transform_inputs(
-            kernel,
-            kernel_params,
-            index,
-            forcing.loc[:, transform_only],
-            cache=transform_cache,
-        )
-        transformed_forcing = transformed_forcing.drop(columns=transform_only)
-        untransformed_forcing = forcing.drop(columns=transform_only)
-        forcing = pd.concat(
-            (untransformed_forcing, transformed_forcing), axis="columns"
-        )
-    else:
-        forcing = transform_inputs(
-            kernel,
-            kernel_params,
-            index,
-            forcing,
-            cache=transform_cache,
-        )
-
-    feature_names = response.columns.tolist() + forcing.columns.tolist()
-
-    # SINDy
-    if not bibo_stable and forcing_coef_constraints is None and constraints is None:
-        model = ps.SINDy(
-            differentiation_method=ps.FiniteDifference(),
-            feature_library=ps.PolynomialLibrary(
-                degree=poly_degree,
-                include_bias=include_bias,
-                include_interaction=include_interaction,
-            ),
-            optimizer=ps.STLSQ(threshold=0),
-        )
-    else:
-        library = ps.PolynomialLibrary(
-            degree=poly_degree,
-            include_bias=include_bias,
-            include_interaction=include_interaction,
-        )
-        total_train = pd.concat((response, forcing), axis="columns")
-        library.fit([ps.AxesArray(total_train, {"ax_sample": 0, "ax_coord": 1})])
-        n_features = library.n_output_features_
-        feature_names = library.get_feature_names(input_features=total_train.columns)
-        n_targets = len(response.columns)
-
-        if bibo_stable:
-            custom_lhs, custom_rhs, custom_inequality = _build_constraint_matrices(
-                feature_names, forcing_coef_constraints, constraints, n_targets
-            )
-            if custom_lhs.shape[0] > 0:
-                constraint_rhs = np.zeros((n_targets + custom_lhs.shape[0],))
-                constraint_lhs = np.zeros(
-                    (n_targets + custom_lhs.shape[0], n_targets * n_features)
-                )
-                for j in range(n_targets):
-                    constraint_lhs[
-                        j, j * n_features + (j + 1) * n_features - n_targets + j
-                    ] = 1
-                constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
-                constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
-                all_inequality = custom_inequality
-            else:
-                constraint_rhs = np.zeros((n_targets, 1))
-                constraint_lhs = np.zeros((n_targets, n_features))
-                constraint_lhs[
-                    :,
-                    -len(forcing.columns)
-                    - len(response.columns) : -len(forcing.columns),
-                ] = 1
-                all_inequality = True
-        else:
-            constraint_lhs, constraint_rhs, all_inequality = _build_constraint_matrices(
-                feature_names, forcing_coef_constraints, constraints, n_targets
-            )
-
-        model = ps.SINDy(
-            differentiation_method=ps.FiniteDifference(),
-            feature_library=ps.PolynomialLibrary(
-                degree=poly_degree,
-                include_bias=include_bias,
-                include_interaction=include_interaction,
-            ),
-            optimizer=_ConstrainedSR3(
-                reg_weight_lam=0,
-                regularizer="l2",
-                constraint_lhs=constraint_lhs,
-                constraint_rhs=constraint_rhs,
-                inequality_constraints=all_inequality,
-            ),
-        )
-    if transform_dependent:
-        total_train = pd.concat((response, forcing), axis="columns")
-        total_train = transform_inputs(
-            kernel,
-            kernel_params,
-            index,
-            total_train,
-        )
-        total_train = total_train.drop(columns=response.columns)
-        feature_names = response.columns.tolist() + total_train.columns.tolist()
-
-        library = ps.PolynomialLibrary(
-            degree=poly_degree,
-            include_bias=include_bias,
-            include_interaction=include_interaction,
-        )
-        library_terms = pd.concat((total_train, response), axis="columns")
-        library.fit([ps.AxesArray(library_terms, {"ax_sample": 0, "ax_coord": 1})])
-        n_features = library.n_output_features_
-        n_targets = response.shape[1]
-
-        constraint_rhs = np.zeros((n_targets,))
-        constraint_lhs = np.zeros((n_targets, n_features * n_targets))
-        if bibo_stable:
-            initial_guess = np.zeros((n_targets, n_features))
-            for idx in range(0, n_targets):
-                initial_guess[idx, idx] = -1
-        else:
-            initial_guess = None
-
-        for idx in range(0, n_targets):
-            constraint_lhs[idx, (idx + 1) * n_features - n_targets + idx] = 1
-
-        model = ps.SINDy(
-            differentiation_method=ps.FiniteDifference(),
-            feature_library=library,
-            optimizer=_ConstrainedSR3(
-                reg_weight_lam=0,
-                regularizer="l0",
-                relax_coeff_nu=10e9,
-                initial_guess=initial_guess,
-                constraint_lhs=constraint_lhs,
-                constraint_rhs=constraint_rhs,
-                inequality_constraints=False,
-                max_iter=10000,
-            ),
-        )
-
-        try:
-            model.fit(
-                response.values[windup_timesteps:, :],
-                t=np.arange(0, len(index), 1)[windup_timesteps:],
-                u=total_train.values[windup_timesteps:, :],
-                feature_names=feature_names,
-            )
-            r2 = model.score(
-                response.values[windup_timesteps:, :],
-                t=np.arange(0, len(index), 1)[windup_timesteps:],
-                u=total_train.values[windup_timesteps:, :],
-            )
-        except Exception as e:
-            logger.warning("Exception in model fitting, returning r2=-1")
-            logger.warning("%s", e)
-            error_metrics = {
-                "MAE": [False],
-                "RMSE": [False],
-                "NSE": [False],
-                "alpha": [False],
-                "beta": [False],
-                "HFV": [False],
-                "HFV10": [False],
-                "LFV": [False],
-                "FDC": [False],
-                "r2": -1,
-            }
-            return {
-                "error_metrics": error_metrics,
-                "model": None,
-                "simulated": False,
-                "response": response,
-                "forcing": forcing,
-                "index": index,
-                "diverged": False,
-            }
-
-    else:
-        try:
-            model.fit(
-                response.values[windup_timesteps:, :],
-                t=np.arange(0, len(index), 1)[windup_timesteps:],
-                u=forcing.values[windup_timesteps:, :],
-                feature_names=feature_names,
-            )
-            r2 = model.score(
-                response.values[windup_timesteps:, :],
-                t=np.arange(0, len(index), 1)[windup_timesteps:],
-                u=forcing.values[windup_timesteps:, :],
-            )
-        except Exception as e:
-            logger.warning("Exception in model fitting, returning r2=-1")
-            logger.warning("%s", e)
-            error_metrics = {
-                "MAE": [False],
-                "RMSE": [False],
-                "NSE": [False],
-                "alpha": [False],
-                "beta": [False],
-                "HFV": [False],
-                "HFV10": [False],
-                "LFV": [False],
-                "FDC": [False],
-                "r2": -1,
-            }
-            return {
-                "error_metrics": error_metrics,
-                "model": None,
-                "simulated": False,
-                "response": response,
-                "forcing": forcing,
-                "index": index,
-                "diverged": False,
-            }
-
-    error_metrics = {
-        "MAE": [False],
-        "RMSE": [False],
-        "NSE": [False],
-        "alpha": [False],
-        "beta": [False],
-        "HFV": [False],
-        "HFV10": [False],
-        "LFV": [False],
-        "FDC": [False],
-        "r2": r2,
-    }
-    simulated = False
-    if final_run:
-        try:
-            if transform_dependent:
-                simulated = model.simulate(
-                    response.values[windup_timesteps, :],
-                    t=np.arange(0, len(index), 1)[windup_timesteps:],
-                    u=total_train.values[windup_timesteps:, :],
-                )
-            else:
-                simulated = model.simulate(
-                    response.values[windup_timesteps, :],
-                    t=np.arange(0, len(index), 1)[windup_timesteps:],
-                    u=forcing.values[windup_timesteps:, :],
-                )
-            mae = list()
-            rmse = list()
-            nse = list()
-            alpha = list()
-            beta = list()
-            hfv = list()
-            hfv10 = list()
-            lfv = list()
-            fdc = list()
-            for col_idx in range(0, len(response.columns)):
-                basic = compute_basic_metrics(
-                    response.values[windup_timesteps + 1 :, col_idx],
-                    simulated[:, col_idx],
-                )
-                mae.append(basic["mae"])
-                rmse.append(basic["rmse"])
-                nse.append(basic["nse"])
-                alpha.append(basic["alpha"])
-                beta.append(basic["beta"])
-
-                hfv.append(
-                    100
-                    * np.sum(
-                        np.sort(simulated[:, col_idx])[-int(0.02 * len(index)) :]
-                        - np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                            -int(0.02 * len(index)) :
-                        ]
-                    )
-                    / np.sum(
-                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                            -int(0.02 * len(index)) :
-                        ]
-                    )
-                )
-                hfv10.append(
-                    100
-                    * np.sum(
-                        np.sort(simulated[:, col_idx])[-int(0.1 * len(index)) :]
-                        - np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                            -int(0.1 * len(index)) :
-                        ]
-                    )
-                    / np.sum(
-                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                            -int(0.1 * len(index)) :
-                        ]
-                    )
-                )
-                lfv.append(
-                    100
-                    * np.sum(
-                        np.sort(simulated[:, col_idx])[-int(0.3 * len(index)) :]
-                        - np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                            -int(0.3 * len(index)) :
-                        ]
-                    )
-                    / np.sum(
-                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                            -int(0.3 * len(index)) :
-                        ]
-                    )
-                )
-                fdc.append(
-                    100
-                    * (
-                        np.log10(
-                            np.sort(simulated[:, col_idx])[int(0.2 * len(simulated))]
-                        )
-                        - np.log10(
-                            np.sort(simulated[:, col_idx])[int(0.7 * len(simulated))]
-                        )
-                        - np.log10(
-                            np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                                int(0.2 * len(simulated))
-                            ]
-                        )
-                        + np.log10(
-                            np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                                int(0.7 * len(simulated))
-                            ]
-                        )
-                    )
-                    / np.log10(
-                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                            int(0.2 * len(simulated))
-                        ]
-                    )
-                    - np.log10(
-                        np.sort(response.values[windup_timesteps + 1 :, col_idx])[
-                            int(0.7 * len(simulated))
-                        ]
-                    )
-                )
-
-            logger.info("MAE = %s", mae)
-            logger.info("RMSE = %s", rmse)
-            logger.info("NSE = %s", nse)
-            logger.info("alpha = %s", alpha)
-            logger.info("beta = %s", beta)
-            logger.info("HFV = %s", hfv)
-            logger.info("HFV10 = %s", hfv10)
-            logger.info("LFV = %s", lfv)
-            logger.info("FDC = %s", fdc)
-            error_metrics = {
-                "MAE": mae,
-                "RMSE": rmse,
-                "NSE": nse,
-                "alpha": alpha,
-                "beta": beta,
-                "HFV": hfv,
-                "HFV10": hfv10,
-                "LFV": lfv,
-                "FDC": fdc,
-                "r2": r2,
-            }
-
-        except Exception as e:
-            logger.warning("Exception in simulation")
-            logger.warning("%s", e)
-            error_metrics = {
-                "MAE": [np.nan],
-                "RMSE": [np.nan],
-                "NSE": [np.nan],
-                "alpha": [np.nan],
-                "beta": [np.nan],
-                "HFV": [np.nan],
-                "HFV10": [np.nan],
-                "LFV": [np.nan],
-                "FDC": [np.nan],
-                "r2": r2,
-            }
-
-            return {
-                "error_metrics": error_metrics,
-                "model": model,
-                "simulated": response[1:],
-                "response": response,
-                "forcing": forcing,
-                "index": index,
-                "diverged": True,
-            }
-
-    return {
-        "error_metrics": error_metrics,
-        "model": model,
-        "simulated": simulated,
-        "response": response,
-        "forcing": forcing,
-        "index": index,
-        "diverged": False,
-    }
+    kernel = get_kernel(kernel)
+    factory = SINDYModelFactory(
+        kernel=kernel,
+        kernel_params=kernel_params,
+        index=index,
+        forcing=forcing,
+        response=response,
+        poly_degree=poly_degree,
+        include_bias=include_bias,
+        include_interaction=include_interaction,
+        windup_timesteps=windup_timesteps,
+        bibo_stable=bibo_stable,
+        transform_dependent=transform_dependent,
+        transform_only=transform_only,
+        forcing_coef_constraints=forcing_coef_constraints,
+        constraints=constraints,
+    )
+    return factory.train(final_run=final_run)
