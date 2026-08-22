@@ -80,9 +80,7 @@ def compute_detailed_metrics(
                 np.sort(y_pred[:, col_idx])[-int(0.02 * len(index)) :]
                 - np.sort(y_true[:, col_idx])[-int(0.02 * len(index)) :]
             )
-            / np.sum(
-                np.sort(y_true[:, col_idx])[-int(0.02 * len(index)) :]
-            )
+            / np.sum(np.sort(y_true[:, col_idx])[-int(0.02 * len(index)) :])
         )
         hfv10.append(
             100
@@ -90,9 +88,7 @@ def compute_detailed_metrics(
                 np.sort(y_pred[:, col_idx])[-int(0.1 * len(index)) :]
                 - np.sort(y_true[:, col_idx])[-int(0.1 * len(index)) :]
             )
-            / np.sum(
-                np.sort(y_true[:, col_idx])[-int(0.1 * len(index)) :]
-            )
+            / np.sum(np.sort(y_true[:, col_idx])[-int(0.1 * len(index)) :])
         )
         lfv.append(
             100
@@ -100,32 +96,18 @@ def compute_detailed_metrics(
                 np.sort(y_pred[:, col_idx])[-int(0.3 * len(index)) :]
                 - np.sort(y_true[:, col_idx])[-int(0.3 * len(index)) :]
             )
-            / np.sum(
-                np.sort(y_true[:, col_idx])[-int(0.3 * len(index)) :]
-            )
+            / np.sum(np.sort(y_true[:, col_idx])[-int(0.3 * len(index)) :])
         )
         fdc.append(
             100
             * (
-                np.log10(
-                    np.sort(y_pred[:, col_idx])[int(0.2 * len(y_pred))]
-                )
-                - np.log10(
-                    np.sort(y_pred[:, col_idx])[int(0.7 * len(y_pred))]
-                )
-                - np.log10(
-                    np.sort(y_true[:, col_idx])[int(0.2 * len(y_true))]
-                )
-                + np.log10(
-                    np.sort(y_true[:, col_idx])[int(0.7 * len(y_true))]
-                )
+                np.log10(np.sort(y_pred[:, col_idx])[int(0.2 * len(y_pred))])
+                - np.log10(np.sort(y_pred[:, col_idx])[int(0.7 * len(y_pred))])
+                - np.log10(np.sort(y_true[:, col_idx])[int(0.2 * len(y_true))])
+                + np.log10(np.sort(y_true[:, col_idx])[int(0.7 * len(y_true))])
             )
-            / np.log10(
-                np.sort(y_true[:, col_idx])[int(0.2 * len(y_true))]
-            )
-            - np.log10(
-                np.sort(y_true[:, col_idx])[int(0.7 * len(y_true))]
-            )
+            / np.log10(np.sort(y_true[:, col_idx])[int(0.2 * len(y_true))])
+            - np.log10(np.sort(y_true[:, col_idx])[int(0.7 * len(y_true))])
         )
 
     logger.info("MAE = %s", mae)

@@ -250,8 +250,8 @@ class SINDYModelFactory:
                 input_features=total_train.columns
             )
             n_targets = len(self.response.columns)
-            custom_lhs, custom_rhs, custom_inequality = (
-                self._build_constraint_matrices(poly_feature_names, n_targets)
+            custom_lhs, custom_rhs, custom_inequality = self._build_constraint_matrices(
+                poly_feature_names, n_targets
             )
             if custom_lhs.shape[0] > 0:
                 constraint_rhs = np.zeros((n_targets + custom_lhs.shape[0],))
@@ -336,9 +336,7 @@ class SINDYModelFactory:
             initial_guess = None
 
         for idx in range(n_targets):
-            constraint_lhs[
-                idx, (idx + 1) * n_features - n_targets + idx
-            ] = 1
+            constraint_lhs[idx, (idx + 1) * n_features - n_targets + idx] = 1
 
         model = ps.SINDy(
             differentiation_method=ps.FiniteDifference(),
@@ -365,15 +363,15 @@ class SINDYModelFactory:
         """Fit the model and compute R² score."""
         try:
             model.fit(
-                self.response.values[self.windup_timesteps:, :],
-                t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                u=forcing.values[self.windup_timesteps:, :],
+                self.response.values[self.windup_timesteps :, :],
+                t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                u=forcing.values[self.windup_timesteps :, :],
                 feature_names=feature_names,
             )
             r2 = model.score(
-                self.response.values[self.windup_timesteps:, :],
-                t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                u=forcing.values[self.windup_timesteps:, :],
+                self.response.values[self.windup_timesteps :, :],
+                t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                u=forcing.values[self.windup_timesteps :, :],
             )
             return r2, None
         except Exception as e:
@@ -381,9 +379,7 @@ class SINDYModelFactory:
             logger.warning("%s", e)
             return -1.0, e
 
-    def _error_result(
-        self, model: ps.SINDy | None, r2: float = -1.0
-    ) -> dict[str, Any]:
+    def _error_result(self, model: ps.SINDy | None, r2: float = -1.0) -> dict[str, Any]:
         error_metrics = {
             "MAE": [False],
             "RMSE": [False],
@@ -417,22 +413,22 @@ class SINDYModelFactory:
             forcing, index, diverged.
         """
         forcing = self._transform_forcing()
-        model, feature_names, fit_forcing = (
-            self._create_model_and_feature_names(forcing)
+        model, feature_names, fit_forcing = self._create_model_and_feature_names(
+            forcing
         )
 
         if self.transform_dependent:
             try:
                 model.fit(
-                    self.response.values[self.windup_timesteps:, :],
-                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                    u=fit_forcing.values[self.windup_timesteps:, :],
+                    self.response.values[self.windup_timesteps :, :],
+                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    u=fit_forcing.values[self.windup_timesteps :, :],
                     feature_names=feature_names,
                 )
                 r2 = model.score(
-                    self.response.values[self.windup_timesteps:, :],
-                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                    u=fit_forcing.values[self.windup_timesteps:, :],
+                    self.response.values[self.windup_timesteps :, :],
+                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    u=fit_forcing.values[self.windup_timesteps :, :],
                 )
             except Exception as e:
                 logger.warning("Exception in model fitting, returning r2=-1")
@@ -459,14 +455,14 @@ class SINDYModelFactory:
             if self.transform_dependent:
                 simulated = model.simulate(
                     self.response.values[self.windup_timesteps, :],
-                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                    u=fit_forcing.values[self.windup_timesteps:, :],
+                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    u=fit_forcing.values[self.windup_timesteps :, :],
                 )
             else:
                 simulated = model.simulate(
                     self.response.values[self.windup_timesteps, :],
-                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                    u=fit_forcing.values[self.windup_timesteps:, :],
+                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    u=fit_forcing.values[self.windup_timesteps :, :],
                 )
             error_metrics = compute_detailed_metrics(
                 self.response.values[self.windup_timesteps + 1 :, :],
