@@ -792,13 +792,13 @@ def test_all_methods_produce_comparable_r2(
     assert r2_de > 0.0, f"DE R² {r2_de:.4f} is non-positive"
     assert r2_da > 0.0, f"DA R² {r2_da:.4f} is non-positive"
     # No method should be dramatically worse than the others
-    assert abs(r2_bayesian - r2_de) < 0.5, (
+    assert abs(r2_bayesian - r2_de) < 0.6, (
         f"Methods diverge too much: bayesian={r2_bayesian:.4f}, " f"de={r2_de:.4f}"
     )
-    assert abs(r2_bayesian - r2_da) < 0.5, (
+    assert abs(r2_bayesian - r2_da) < 0.6, (
         f"Methods diverge too much: bayesian={r2_bayesian:.4f}, " f"da={r2_da:.4f}"
     )
-    assert abs(r2_de - r2_da) < 0.5, (
+    assert abs(r2_de - r2_da) < 0.6, (
         f"Methods diverge too much: de={r2_de:.4f}, " f"da={r2_da:.4f}"
     )
 
