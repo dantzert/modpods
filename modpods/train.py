@@ -284,7 +284,7 @@ class SingleKernelTrainer:
 
     def _get_transform_columns(self) -> list[str]:
         if self.transform_dependent:
-            return self.system_data.columns.tolist()
+            return list(self.system_data.columns)
         if self.transform_only is not None:
             return self.transform_only
         return self.independent_columns
@@ -636,7 +636,7 @@ def delay_io_train(
         return trainer.train()
 
     k = get_kernel(kernel)
-    trainer = SingleKernelTrainer(
+    single_trainer = SingleKernelTrainer(
         kernel=k,
         system_data=system_data,
         dependent_columns=dependent_columns,
@@ -659,4 +659,4 @@ def delay_io_train(
         seed=seed,
         optimizer_kwargs=optimizer_kwargs,
     )
-    return trainer.train()
+    return single_trainer.train()

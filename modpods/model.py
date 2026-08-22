@@ -209,10 +209,10 @@ class SINDYModelFactory:
             )
             transformed_forcing = transformed_forcing.drop(columns=self.transform_only)
             untransformed_forcing = self.forcing.drop(columns=self.transform_only)
-            return pd.concat(
+            return pd.concat(  # type: ignore[no-any-return]
                 (untransformed_forcing, transformed_forcing), axis="columns"
             )
-        return transform_inputs(
+        return transform_inputs(  # type: ignore[no-any-return]
             self.kernel,
             self.kernel_params,
             self.index,
@@ -293,8 +293,8 @@ class SINDYModelFactory:
             )
             return model, poly_feature_names, forcing
 
-        builder = StandardSINDYBuilder()
-        model = builder.build(
+        std_builder = StandardSINDYBuilder()
+        model = std_builder.build(
             feature_names,
             self.poly_degree,
             self.include_bias,
