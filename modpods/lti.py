@@ -762,9 +762,6 @@ def lti_system_gen(
                     kernel_params = delay_models[row][optimal_number_transforms][
                         "kernel_params"
                     ]
-                    shape = kernel_params.loc[(idx, "shape"), transform_key]
-                    scale = kernel_params.loc[(idx, "scale"), transform_key]
-                    loc = kernel_params.loc[(idx, "loc"), transform_key]
                     transformation_approximations[transform_key] = lti_from_kernel(
                         row_kernel_type,
                         kernel_params.loc[idx, transform_key].to_dict(),
