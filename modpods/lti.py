@@ -248,7 +248,7 @@ def lti_from_underdamped(zeta, omega_n, dt=0, desired_NSE=0.999, verbose="warnin
     A = np.array(
         [
             [0, 1],
-            [-omega_n**2, -2 * zeta * omega_n],
+            [-(omega_n**2), -2 * zeta * omega_n],
         ]
     )
     B = np.array([[0], [1]])
@@ -362,7 +362,17 @@ def lti_from_lognormal(mu, sigma, dt=0, desired_NSE=0.999, verbose="warnings"):
     }
 
 
-def lti_from_bimodal_gamma(shape1, scale1, loc1, shape2, scale2, loc2, dt=0, desired_NSE=0.999, verbose="warnings"):
+def lti_from_bimodal_gamma(
+    shape1,
+    scale1,
+    loc1,
+    shape2,
+    scale2,
+    loc2,
+    dt=0,
+    desired_NSE=0.999,
+    verbose="warnings",
+):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
 
@@ -371,14 +381,24 @@ def lti_from_bimodal_gamma(shape1, scale1, loc1, shape2, scale2, loc2, dt=0, des
         5 * (shape2 * scale2 + loc2 + 3 * scale2 * np.sqrt(shape2)),
     )
     t = np.linspace(0, t_end, num=300)
-    target = 0.5 * stats.gamma.pdf(t, shape1, loc=loc1, scale=scale1) + 0.5 * stats.gamma.pdf(t, shape2, loc=loc2, scale=scale2)
+    target = 0.5 * stats.gamma.pdf(
+        t, shape1, loc=loc1, scale=scale1
+    ) + 0.5 * stats.gamma.pdf(t, shape2, loc=loc2, scale=scale2)
 
     max_state_dim = 50
     result1 = lti_from_gamma(
-        shape1, scale1, loc1, max_state_dim=max(3, int(np.ceil(shape1 * 2))), verbose=verbose
+        shape1,
+        scale1,
+        loc1,
+        max_state_dim=max(3, int(np.ceil(shape1 * 2))),
+        verbose=verbose,
     )
     result2 = lti_from_gamma(
-        shape2, scale2, loc2, max_state_dim=max(3, int(np.ceil(shape2 * 2))), verbose=verbose
+        shape2,
+        scale2,
+        loc2,
+        max_state_dim=max(3, int(np.ceil(shape2 * 2))),
+        verbose=verbose,
     )
 
     sys1 = result1["lti_approx"]

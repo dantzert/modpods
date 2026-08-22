@@ -179,9 +179,7 @@ def test_lti_from_underdamped_achieves_reasonable_nse() -> None:
 
 def test_lti_from_kernel_gamma() -> None:
     """lti_from_kernel should dispatch to lti_from_gamma for gamma kernel."""
-    result = modpods.lti_from_kernel(
-        "gamma", {"shape": 5.0, "scale": 1.0, "loc": 0.0}
-    )
+    result = modpods.lti_from_kernel("gamma", {"shape": 5.0, "scale": 1.0, "loc": 0.0})
     assert "lti_approx" in result
     assert "t" in result
     assert "gamma_pdf" in result
@@ -189,9 +187,7 @@ def test_lti_from_kernel_gamma() -> None:
 
 def test_lti_from_kernel_underdamped() -> None:
     """lti_from_kernel should dispatch to lti_from_underdamped for underdamped kernel."""
-    result = modpods.lti_from_kernel(
-        "underdamped", {"zeta": 0.2, "omega_n": 2.0}
-    )
+    result = modpods.lti_from_kernel("underdamped", {"zeta": 0.2, "omega_n": 2.0})
     assert "lti_approx" in result
     assert "t" in result
     assert "target" in result
@@ -232,9 +228,7 @@ def test_lti_from_lognormal_achieves_reasonable_nse() -> None:
 
 def test_lti_from_kernel_lognormal() -> None:
     """lti_from_kernel should dispatch to lti_from_lognormal for lognormal kernel."""
-    result = modpods.lti_from_kernel(
-        "lognormal", {"mu": 0.0, "sigma": 1.0}
-    )
+    result = modpods.lti_from_kernel("lognormal", {"mu": 0.0, "sigma": 1.0})
     assert "lti_approx" in result
     assert "t" in result
     assert "target" in result
@@ -243,8 +237,7 @@ def test_lti_from_kernel_lognormal() -> None:
 def test_lti_from_bimodal_gamma_returns_required_keys() -> None:
     """lti_from_bimodal_gamma must return a dict with the expected keys."""
     result = modpods.lti_from_bimodal_gamma(
-        shape1=2.0, scale1=1.0, loc1=0.0,
-        shape2=5.0, scale2=1.0, loc2=5.0
+        shape1=2.0, scale1=1.0, loc1=0.0, shape2=5.0, scale2=1.0, loc2=5.0
     )
     assert isinstance(result, dict)
     for key in ("t", "target", "lti_approx_output", "lti_approx"):
@@ -254,8 +247,7 @@ def test_lti_from_bimodal_gamma_returns_required_keys() -> None:
 def test_lti_from_bimodal_gamma_output_shapes_match() -> None:
     """target and lti_approx_output must have the same length."""
     result = modpods.lti_from_bimodal_gamma(
-        shape1=2.0, scale1=1.0, loc1=0.0,
-        shape2=5.0, scale2=1.0, loc2=5.0
+        shape1=2.0, scale1=1.0, loc1=0.0, shape2=5.0, scale2=1.0, loc2=5.0
     )
     assert result["target"].shape == result["lti_approx_output"].shape
 
@@ -263,8 +255,7 @@ def test_lti_from_bimodal_gamma_output_shapes_match() -> None:
 def test_lti_from_bimodal_gamma_achieves_reasonable_nse() -> None:
     """LTI approximation should match the bimodal gamma PDF."""
     result = modpods.lti_from_bimodal_gamma(
-        shape1=2.0, scale1=1.0, loc1=0.0,
-        shape2=5.0, scale2=1.0, loc2=5.0
+        shape1=2.0, scale1=1.0, loc1=0.0, shape2=5.0, scale2=1.0, loc2=5.0
     )
     target = result["target"]
     lti_approx = result["lti_approx_output"]
