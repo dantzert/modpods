@@ -11,7 +11,14 @@ from .kernels import (
     list_kernels,
     register_kernel,
 )
-from .lti import lti_from_gamma, lti_system_gen
+from .lti import (
+    lti_from_bimodal_gamma,
+    lti_from_gamma,
+    lti_from_kernel,
+    lti_from_lognormal,
+    lti_from_underdamped,
+    lti_system_gen,
+)
 from .model import SINDY_delays_MI
 from .predict import delay_io_predict
 from .topology import find_topology_no_geo, infer_causative_topology
@@ -45,6 +52,10 @@ __all__ = [
     "SINDY_delays_MI",
     "delay_io_predict",
     "lti_from_gamma",
+    "lti_from_bimodal_gamma",
+    "lti_from_lognormal",
+    "lti_from_underdamped",
+    "lti_from_kernel",
     "lti_system_gen",
     "find_topology_no_geo",
     "infer_causative_topology",

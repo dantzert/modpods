@@ -11,6 +11,7 @@ from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped
 )
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from .kernels import get_kernel
 from .model import _build_constraint_matrices
 from .train import delay_io_train
 
@@ -45,19 +46,9 @@ def lti_from_gamma(
     # resolution = 1/ skewness
     decay_rate = 1 / resolution
     decay_rate = np.clip(decay_rate, min_pole_speed, max_pole_speed)
-    state_dim = int(
-        np.floor(total_time_base * decay_rate)
-    )  # this keeps the time base fixed for a given decay rate
-    if state_dim > max_state_dim:
-        state_dim = max_state_dim
-        decay_rate = state_dim / total_time_base
-        resolution = 1 / decay_rate
-    if state_dim < 1:
-        state_dim = 1
-        decay_rate = state_dim / total_time_base
-        resolution = 1 / decay_rate
-
-    decay_rate = np.clip(decay_rate, min_pole_speed, max_pole_speed)
+    state_dim = max(1, min(int(np.ceil(shape * 2)), max_state_dim))
+    decay_rate = state_dim / total_time_base
+    resolution = 1 / decay_rate
 
     if _normalize_verbose(verbose) != "warnings":
         logger.info("state dimension is %s", state_dim)
@@ -247,6 +238,276 @@ def lti_from_gamma(
     }
 
 
+def lti_from_underdamped(zeta, omega_n, dt=0, desired_NSE=0.999, verbose="warnings"):
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
+
+    omega_d = omega_n * np.sqrt(1.0 - zeta**2)
+
+    A = np.array(
+        [
+            [0, 1],
+            [-(omega_n**2), -2 * zeta * omega_n],
+        ]
+    )
+    B = np.array([[0], [1]])
+    C = np.array([[omega_n, 0]])
+
+    t = np.linspace(0, 4 * np.pi / omega_d, num=200)
+    target = (omega_n / omega_d) * np.exp(-zeta * omega_n * t) * np.sin(omega_d * t)
+    target = np.maximum(target, 0.0)
+
+    lti_sys = control.ss(A, B, C, 0)
+    y = np.ndarray.flatten(control.impulse_response(lti_sys, t).y)
+    y = np.maximum(y, 0.0)
+
+    NSE = 1 - (
+        np.sum(np.square(target - y)) / np.sum(np.square(target - np.mean(target)))
+    )
+    if np.isnan(NSE):
+        NSE = -10e6
+
+    error = np.sum(np.abs(target - y))
+
+    if _normalize_verbose(verbose) != "warnings":
+        logger.info("LTI_from_underdamped final NSE: %s", NSE)
+        logger.info("A:\n%s", A)
+        logger.info("B:\n%s", B)
+        logger.info("C:\n%s", C)
+        logger.info("final error: %s", error)
+
+    return {
+        "lti_approx": lti_sys,
+        "lti_approx_output": y,
+        "error": error,
+        "t": t,
+        "target": target,
+    }
+
+
+def lti_from_lognormal(mu, sigma, dt=0, desired_NSE=0.999, verbose="warnings"):
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
+
+    t_end = 5 * np.exp(mu + 2 * sigma**2)
+    t = np.linspace(0, t_end, num=200)
+    target = stats.lognorm.pdf(t, sigma, scale=np.exp(mu))
+
+    def _impulse_response(coeffs, t):
+        a0, a1, a2, c0, c1, c2 = coeffs
+        A = np.array([[0, 1, 0], [0, 0, 1], [-a0, -a1, -a2]])
+        B = np.array([[0], [0], [1]])
+        C = np.array([[c0, c1, c2]])
+        sys = control.ss(A, B, C, 0)
+        return np.ndarray.flatten(control.impulse_response(sys, t).y)
+
+    omega_n = 1.0 / max(np.exp(mu), 1e-6)
+    a0_init = omega_n**3
+    a1_init = 3 * omega_n**2
+    a2_init = 3 * omega_n
+    target_max = np.max(target)
+    c0_init = target_max * omega_n
+    c1_init = 0.0
+    c2_init = 0.0
+    coeffs_init = np.array([a0_init, a1_init, a2_init, c0_init, c1_init, c2_init])
+
+    def objective(coeffs):
+        y = _impulse_response(coeffs, t)
+        a0, a1, a2 = coeffs[:3]
+        A = np.array([[0, 1, 0], [0, 0, 1], [-a0, -a1, -a2]])
+        eigs = np.linalg.eigvals(A)
+        stability_penalty = np.sum(np.maximum(np.real(eigs), 0.0) ** 2) * 1e6
+        resid = target - y
+        nse = 1.0 - np.sum(resid**2) / np.sum((target - np.mean(target)) ** 2)
+        return -nse + stability_penalty
+
+    from scipy.optimize import minimize
+
+    bounds = [
+        (1e-8, None),
+        (1e-8, None),
+        (1e-8, None),
+        (1e-8, None),
+        (None, None),
+        (None, None),
+    ]
+    result = minimize(objective, coeffs_init, method="L-BFGS-B", bounds=bounds)
+    a0, a1, a2, c0, c1, c2 = result.x
+    A = np.array([[0, 1, 0], [0, 0, 1], [-a0, -a1, -a2]])
+    B = np.array([[0], [0], [1]])
+    C = np.array([[c0, c1, c2]])
+    lti_sys = control.ss(A, B, C, 0)
+    y = np.ndarray.flatten(control.impulse_response(lti_sys, t).y)
+    y = np.maximum(y, 0.0)
+
+    NSE = 1.0 - np.sum((target - y) ** 2) / np.sum((target - np.mean(target)) ** 2)
+    if np.isnan(NSE):
+        NSE = -10e6
+    error = np.sum(np.abs(target - y))
+
+    if _normalize_verbose(verbose) != "warnings":
+        logger.info("LTI_from_lognormal final NSE: %s", NSE)
+        logger.info("A:\n%s", A)
+        logger.info("B:\n%s", B)
+        logger.info("C:\n%s", C)
+        logger.info("final error: %s", error)
+
+    return {
+        "lti_approx": lti_sys,
+        "lti_approx_output": y,
+        "error": error,
+        "t": t,
+        "target": target,
+    }
+
+
+def lti_from_bimodal_gamma(
+    shape1,
+    scale1,
+    loc1,
+    shape2,
+    scale2,
+    loc2,
+    dt=0,
+    desired_NSE=0.999,
+    verbose="warnings",
+):
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
+
+    t_end = max(
+        5 * (shape1 * scale1 + loc1 + 3 * scale1 * np.sqrt(shape1)),
+        5 * (shape2 * scale2 + loc2 + 3 * scale2 * np.sqrt(shape2)),
+    )
+    t = np.linspace(0, t_end, num=300)
+    target = 0.5 * stats.gamma.pdf(
+        t, shape1, loc=loc1, scale=scale1
+    ) + 0.5 * stats.gamma.pdf(t, shape2, loc=loc2, scale=scale2)
+
+    result1 = lti_from_gamma(
+        shape1,
+        scale1,
+        loc1,
+        max_state_dim=max(3, int(np.ceil(shape1 * 2))),
+        verbose=verbose,
+    )
+    result2 = lti_from_gamma(
+        shape2,
+        scale2,
+        loc2,
+        max_state_dim=max(3, int(np.ceil(shape2 * 2))),
+        verbose=verbose,
+    )
+
+    sys1 = result1["lti_approx"]
+    sys2 = result2["lti_approx"]
+    n1 = sys1.A.shape[0]
+    n2 = sys2.A.shape[0]
+    A_combined = np.block([[sys1.A, np.zeros((n1, n2))], [np.zeros((n2, n1)), sys2.A]])
+    B_combined = np.block([[sys1.B], [sys2.B]])
+    C_combined = np.hstack([0.5 * sys1.C, 0.5 * sys2.C])
+    lti_sys = control.ss(A_combined, B_combined, C_combined, 0)
+    y = np.ndarray.flatten(control.impulse_response(lti_sys, t).y)
+    y = np.maximum(y, 0.0)
+
+    NSE = 1.0 - np.sum((target - y) ** 2) / np.sum((target - np.mean(target)) ** 2)
+    if np.isnan(NSE):
+        NSE = -10e6
+    error = np.sum(np.abs(target - y))
+
+    if _normalize_verbose(verbose) != "warnings":
+        logger.info("LTI_from_bimodal_gamma final NSE: %s", NSE)
+        logger.info("A:\n%s", A_combined)
+        logger.info("B:\n%s", B_combined)
+        logger.info("C:\n%s", C_combined)
+        logger.info("final error: %s", error)
+        logger.info("states from component 1: %s", n1)
+        logger.info("states from component 2: %s", n2)
+
+    return {
+        "lti_approx": lti_sys,
+        "lti_approx_output": y,
+        "error": error,
+        "t": t,
+        "target": target,
+    }
+
+
+def lti_from_kernel(
+    kernel,
+    params,
+    dt=0,
+    desired_NSE=0.999,
+    verbose="warnings",
+    max_state_dim=50,
+    max_iterations=200,
+    max_pole_speed=5,
+    min_pole_speed=0.01,
+):
+    if isinstance(kernel, str):
+        kernel = get_kernel(kernel)
+
+    if kernel.name == "gamma":
+        shape = params["shape"]
+        scale = params["scale"]
+        loc = params["loc"]
+        return lti_from_gamma(
+            shape,
+            scale,
+            loc,
+            dt=dt,
+            desired_NSE=desired_NSE,
+            verbose=verbose,
+            max_state_dim=max_state_dim,
+            max_iterations=max_iterations,
+            max_pole_speed=max_pole_speed,
+            min_pole_speed=min_pole_speed,
+        )
+
+    if kernel.name == "underdamped":
+        zeta = params["zeta"]
+        omega_n = params["omega_n"]
+        return lti_from_underdamped(
+            zeta,
+            omega_n,
+            dt=dt,
+            desired_NSE=desired_NSE,
+            verbose=verbose,
+        )
+
+    if kernel.name == "lognormal":
+        mu = params["mu"]
+        sigma = params["sigma"]
+        return lti_from_lognormal(
+            mu,
+            sigma,
+            dt=dt,
+            desired_NSE=desired_NSE,
+            verbose=verbose,
+        )
+
+    if kernel.name == "bimodal_gamma":
+        shape1 = params["shape1"]
+        scale1 = params["scale1"]
+        loc1 = params["loc1"]
+        shape2 = params["shape2"]
+        scale2 = params["scale2"]
+        loc2 = params["loc2"]
+        return lti_from_bimodal_gamma(
+            shape1,
+            scale1,
+            loc1,
+            shape2,
+            scale2,
+            loc2,
+            dt=dt,
+            desired_NSE=desired_NSE,
+            verbose=verbose,
+        )
+
+    raise ValueError(f"Unsupported kernel: {kernel.name}")
+
+
 # this function takes the system data and the causative topology and returns an LTI system
 # if the causative topology isn't already defined, it needs to be created using infer_causative_topology
 def lti_system_gen(
@@ -263,6 +524,7 @@ def lti_system_gen(
     verbose: Verbosity = "warnings",
     forcing_coef_constraints=None,
     constraints=None,
+    kernel="gamma",
 ):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
@@ -482,6 +744,9 @@ def lti_system_gen(
                     "kernel_params"
                 ].columns
             }
+            row_kernel_type = delay_models[row][optimal_number_transforms].get(
+                "kernel_type", "gamma"
+            )
             for transform_key in transformation_approximations.keys():  # which input
                 for idx in range(
                     1, optimal_number_transforms + 1
@@ -495,14 +760,9 @@ def lti_system_gen(
                     kernel_params = delay_models[row][optimal_number_transforms][
                         "kernel_params"
                     ]
-                    shape = kernel_params.loc[(idx, "shape"), transform_key]
-                    scale = kernel_params.loc[(idx, "scale"), transform_key]
-                    loc = kernel_params.loc[(idx, "loc"), transform_key]
-                    # this will get overwritten if we use more than one transformation per input. i think that's okay.
-                    transformation_approximations[transform_key] = lti_from_gamma(
-                        shape,
-                        scale,
-                        loc,
+                    transformation_approximations[transform_key] = lti_from_kernel(
+                        row_kernel_type,
+                        kernel_params.loc[idx, transform_key].to_dict(),
                         max_state_dim=max_transition_state_dim,
                         verbose=verbose,
                     )
