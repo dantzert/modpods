@@ -11,10 +11,73 @@ from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .kernels import ConvolutionKernel, get_kernel
-from .metrics import compute_basic_metrics, compute_detailed_metrics
+from .metrics import compute_detailed_metrics
 from .transforms import transform_inputs
 
 logger = logging.getLogger(__name__)
+
+
+def _build_constraint_matrices(
+    feature_names: list[str],
+    forcing_coef_constraints: dict[str, Any] | None,
+    constraints: list[dict[str, Any]] | None,
+    n_targets: int,
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """Build constraint matrices for SINDy optimization.
+
+    Args:
+        feature_names: List of feature names.
+        forcing_coef_constraints: Dict mapping forcing names to constraint specs.
+        constraints: List of custom constraint dicts.
+        n_targets: Number of target variables.
+
+    Returns:
+        Tuple of (constraint_lhs, constraint_rhs, all_inequality).
+    """
+    n_features = len(feature_names)
+    constraint_rows: list[np.ndarray] = []
+    constraint_rhs_values: list[float] = []
+    all_inequality = True
+
+    if forcing_coef_constraints is not None:
+        for key, value in forcing_coef_constraints.items():
+            row = np.zeros(n_targets * n_features)
+            if isinstance(value, dict):
+                lhs = float(value.get("lhs", -1))
+                rhs = float(value.get("rhs", 0))
+                inequality = value.get("inequality", True)
+            else:
+                lhs = -float(value)
+                rhs = 0.0
+                inequality = True
+            for i, col in enumerate(feature_names):
+                if key in col:
+                    row[i] = lhs
+            constraint_rows.append(row)
+            constraint_rhs_values.append(rhs)
+            all_inequality = all_inequality and inequality
+
+    if constraints is not None:
+        for constraint in constraints:
+            row = np.zeros(n_targets * n_features)
+            features = constraint["features"]
+            coefficients = constraint["coefficients"]
+            rhs = float(constraint.get("rhs", 0))
+            inequality = constraint.get("inequality", True)
+            for feature, coeff in zip(features, coefficients):
+                for i, col in enumerate(feature_names):
+                    if col == feature:
+                        row[i] = float(coeff)
+            constraint_rows.append(row)
+            constraint_rhs_values.append(rhs)
+            all_inequality = all_inequality and inequality
+
+    if not constraint_rows:
+        return np.zeros((0, n_targets * n_features)), np.zeros((0,)), True
+
+    constraint_lhs = np.vstack(constraint_rows)
+    constraint_rhs = np.array(constraint_rhs_values)
+    return constraint_lhs, constraint_rhs, all_inequality
 
 
 class SINDYBuilder(ABC):
@@ -100,44 +163,6 @@ class ConstrainedSINDYBuilder(SINDYBuilder):
         )
 
 
-class TransformDependentSINDYBuilder(SINDYBuilder):
-    """Build a SINDy model for transform_dependent mode."""
-
-    def __init__(self, bibo_stable: bool = False) -> None:
-        self.bibo_stable = bibo_stable
-
-    def build(
-        self,
-        feature_names: list[str],
-        poly_degree: int,
-        include_bias: bool,
-        include_interaction: bool,
-    ) -> ps.SINDy:
-        library = ps.PolynomialLibrary(
-            degree=poly_degree,
-            include_bias=include_bias,
-            include_interaction=include_interaction,
-        )
-        n_targets = len(feature_names) - len(
-            [f for f in feature_names if f in ["MAE", "RMSE", "NSE", "alpha", "beta", "HFV", "HFV10", "LFV", "FDC"]]
-        )
-        # The n_targets will be set properly by the factory
-        # This builder needs additional context from the factory
-        return ps.SINDy(  # type: ignore[no-any-return]
-            differentiation_method=ps.FiniteDifference(),
-            feature_library=library,
-            optimizer=_ConstrainedSR3(
-                reg_weight_lam=0,
-                regularizer="l0",
-                relax_coeff_nu=10e9,
-                constraint_lhs=np.zeros((0, 1)),
-                constraint_rhs=np.zeros((0,)),
-                inequality_constraints=False,
-                max_iter=10000,
-            ),
-        )
-
-
 class SINDYModelFactory:
     """Factory for training SINDy delay-IO models."""
 
@@ -197,91 +222,87 @@ class SINDYModelFactory:
     def _build_constraint_matrices(
         self, feature_names: list[str], n_targets: int
     ) -> tuple[np.ndarray, np.ndarray, bool]:
-        n_features = len(feature_names)
-        constraint_rows: list[np.ndarray] = []
-        constraint_rhs_values: list[float] = []
-        all_inequality = True
+        return _build_constraint_matrices(
+            feature_names,
+            self.forcing_coef_constraints,
+            self.constraints,
+            n_targets,
+        )
 
-        if self.forcing_coef_constraints is not None:
-            for key, value in self.forcing_coef_constraints.items():
-                row = np.zeros(n_targets * n_features)
-                if isinstance(value, dict):
-                    lhs = float(value.get("lhs", -1))
-                    rhs = float(value.get("rhs", 0))
-                    inequality = value.get("inequality", True)
-                else:
-                    lhs = -float(value)
-                    rhs = 0.0
-                    inequality = True
-                for i, col in enumerate(feature_names):
-                    if key in col:
-                        row[i] = lhs
-                constraint_rows.append(row)
-                constraint_rhs_values.append(rhs)
-                all_inequality = all_inequality and inequality
-
-        if self.constraints is not None:
-            for constraint in self.constraints:
-                row = np.zeros(n_targets * n_features)
-                features = constraint["features"]
-                coefficients = constraint["coefficients"]
-                rhs = float(constraint.get("rhs", 0))
-                inequality = constraint.get("inequality", True)
-                for feature, coeff in zip(features, coefficients):
-                    for i, col in enumerate(feature_names):
-                        if col == feature:
-                            row[i] = float(coeff)
-                constraint_rows.append(row)
-                constraint_rhs_values.append(rhs)
-                all_inequality = all_inequality and inequality
-
-        if not constraint_rows:
-            return (
-                np.zeros((0, n_targets * n_features)),
-                np.zeros((0,)),
-                True,
-            )
-
-        constraint_lhs = np.vstack(constraint_rows)
-        constraint_rhs = np.array(constraint_rhs_values)
-        return constraint_lhs, constraint_rhs, all_inequality
-
-    def _create_builder(self) -> SINDYBuilder:
+    def _create_model_and_feature_names(
+        self, forcing: pd.DataFrame
+    ) -> tuple[ps.SINDy, list[str], pd.DataFrame]:
+        """Create the SINDy model and determine feature names for fitting."""
         if self.transform_dependent:
-            return TransformDependentSINDYBuilder(bibo_stable=self.bibo_stable)
+            return self._build_transform_dependent_model(forcing)
+
+        feature_names = self.response.columns.tolist() + forcing.columns.tolist()
+
         if self.bibo_stable or self.forcing_coef_constraints or self.constraints:
-            feature_names = self.response.columns.tolist() + self.forcing.columns.tolist()
+            library = ps.PolynomialLibrary(
+                degree=self.poly_degree,
+                include_bias=self.include_bias,
+                include_interaction=self.include_interaction,
+            )
+            total_train = pd.concat((self.response, forcing), axis="columns")
+            library.fit([ps.AxesArray(total_train, {"ax_sample": 0, "ax_coord": 1})])
+            poly_feature_names = library.get_feature_names(
+                input_features=total_train.columns
+            )
             n_targets = len(self.response.columns)
-            custom_lhs, custom_rhs, custom_inequality = self._build_constraint_matrices(
-                feature_names, n_targets
+            custom_lhs, custom_rhs, custom_inequality = (
+                self._build_constraint_matrices(poly_feature_names, n_targets)
             )
             if custom_lhs.shape[0] > 0:
                 constraint_rhs = np.zeros((n_targets + custom_lhs.shape[0],))
                 constraint_lhs = np.zeros(
-                    (n_targets + custom_lhs.shape[0], n_targets * len(feature_names))
+                    (n_targets + custom_lhs.shape[0], n_targets * len(poly_feature_names))
                 )
                 for j in range(n_targets):
                     constraint_lhs[
-                        j, j * len(feature_names) + (j + 1) * len(feature_names) - n_targets + j
+                        j,
+                        j * len(poly_feature_names)
+                        + (j + 1) * len(poly_feature_names)
+                        - n_targets
+                        + j,
                     ] = 1
                 constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
                 constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
                 all_inequality = custom_inequality
             else:
                 constraint_rhs = np.zeros((n_targets, 1))
-                constraint_lhs = np.zeros((n_targets, len(feature_names)))
+                constraint_lhs = np.zeros((n_targets, len(poly_feature_names)))
                 constraint_lhs[
                     :,
-                    -len(self.forcing.columns)
-                    - len(self.response.columns) : -len(self.forcing.columns),
+                    -len(forcing.columns)
+                    - len(self.response.columns) : -len(forcing.columns),
                 ] = 1
                 all_inequality = True
-            return ConstrainedSINDYBuilder(constraint_lhs, constraint_rhs, all_inequality)
-        return StandardSINDYBuilder()
+
+            builder = ConstrainedSINDYBuilder(
+                constraint_lhs, constraint_rhs, all_inequality
+            )
+            model = builder.build(
+                poly_feature_names,
+                self.poly_degree,
+                self.include_bias,
+                self.include_interaction,
+            )
+            return model, poly_feature_names, forcing
+
+        builder = StandardSINDYBuilder()
+        model = builder.build(
+            feature_names,
+            self.poly_degree,
+            self.include_bias,
+            self.include_interaction,
+        )
+        return model, feature_names, forcing
 
     def _build_transform_dependent_model(
         self, forcing: pd.DataFrame
-    ) -> tuple[ps.SINDy, pd.DataFrame]:
+    ) -> tuple[ps.SINDy, list[str], pd.DataFrame]:
+        """Build model for transform_dependent mode."""
         total_train = pd.concat((self.response, forcing), axis="columns")
         total_train = transform_inputs(
             self.kernel,
@@ -312,7 +333,9 @@ class SINDYModelFactory:
             initial_guess = None
 
         for idx in range(n_targets):
-            constraint_lhs[idx, (idx + 1) * n_features - n_targets + idx] = 1
+            constraint_lhs[
+                idx, (idx + 1) * n_features - n_targets + idx
+            ] = 1
 
         model = ps.SINDy(
             differentiation_method=ps.FiniteDifference(),
@@ -328,19 +351,21 @@ class SINDYModelFactory:
                 max_iter=10000,
             ),
         )
-        return model, total_train
+        return model, feature_names, total_train
 
     def _fit_and_score(
         self,
         model: ps.SINDy,
         forcing: pd.DataFrame,
-    ) -> tuple[float, Any]:
+        feature_names: list[str],
+    ) -> tuple[float, Exception | None]:
+        """Fit the model and compute R² score."""
         try:
             model.fit(
                 self.response.values[self.windup_timesteps:, :],
                 t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
                 u=forcing.values[self.windup_timesteps:, :],
-                feature_names=self.response.columns.tolist() + forcing.columns.tolist(),
+                feature_names=feature_names,
             )
             r2 = model.score(
                 self.response.values[self.windup_timesteps:, :],
@@ -353,7 +378,9 @@ class SINDYModelFactory:
             logger.warning("%s", e)
             return -1.0, e
 
-    def _error_result(self, model: ps.SINDy | None, r2: float = -1.0) -> dict[str, Any]:
+    def _error_result(
+        self, model: ps.SINDy | None, r2: float = -1.0
+    ) -> dict[str, Any]:
         error_metrics = {
             "MAE": [False],
             "RMSE": [False],
@@ -386,35 +413,27 @@ class SINDYModelFactory:
             Dict with keys: error_metrics, model, simulated, response, forcing, index, diverged.
         """
         forcing = self._transform_forcing()
-        feature_names = self.response.columns.tolist() + forcing.columns.tolist()
+        model, feature_names, fit_forcing = self._create_model_and_feature_names(forcing)
 
         if self.transform_dependent:
-            model, total_train = self._build_transform_dependent_model(forcing)
             try:
                 model.fit(
                     self.response.values[self.windup_timesteps:, :],
                     t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                    u=total_train.values[self.windup_timesteps:, :],
+                    u=fit_forcing.values[self.windup_timesteps:, :],
                     feature_names=feature_names,
                 )
                 r2 = model.score(
                     self.response.values[self.windup_timesteps:, :],
                     t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                    u=total_train.values[self.windup_timesteps:, :],
+                    u=fit_forcing.values[self.windup_timesteps:, :],
                 )
             except Exception as e:
                 logger.warning("Exception in model fitting, returning r2=-1")
                 logger.warning("%s", e)
                 return self._error_result(model, r2=-1)
         else:
-            builder = self._create_builder()
-            model = builder.build(
-                feature_names=feature_names,
-                poly_degree=self.poly_degree,
-                include_bias=self.include_bias,
-                include_interaction=self.include_interaction,
-            )
-            r2, err = self._fit_and_score(model, forcing)
+            r2, err = self._fit_and_score(model, fit_forcing, feature_names)
             if err is not None:
                 return self._error_result(model, r2=-1)
 
@@ -435,13 +454,13 @@ class SINDYModelFactory:
                 simulated = model.simulate(
                     self.response.values[self.windup_timesteps, :],
                     t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                    u=total_train.values[self.windup_timesteps:, :],
+                    u=fit_forcing.values[self.windup_timesteps:, :],
                 )
             else:
                 simulated = model.simulate(
                     self.response.values[self.windup_timesteps, :],
                     t=np.arange(0, len(self.index), 1)[self.windup_timesteps:],
-                    u=forcing.values[self.windup_timesteps:, :],
+                    u=fit_forcing.values[self.windup_timesteps:, :],
                 )
             error_metrics = compute_detailed_metrics(
                 self.response.values[self.windup_timesteps + 1 :, :],
