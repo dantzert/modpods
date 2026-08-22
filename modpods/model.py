@@ -256,7 +256,10 @@ class SINDYModelFactory:
             if custom_lhs.shape[0] > 0:
                 constraint_rhs = np.zeros((n_targets + custom_lhs.shape[0],))
                 constraint_lhs = np.zeros(
-                    (n_targets + custom_lhs.shape[0], n_targets * len(poly_feature_names))
+                    (
+                        n_targets + custom_lhs.shape[0],
+                        n_targets * len(poly_feature_names),
+                    )
                 )
                 for j in range(n_targets):
                     constraint_lhs[
@@ -410,10 +413,13 @@ class SINDYModelFactory:
             final_run: If True, simulate and compute detailed metrics.
 
         Returns:
-            Dict with keys: error_metrics, model, simulated, response, forcing, index, diverged.
+            Dict with keys: error_metrics, model, simulated, response,
+            forcing, index, diverged.
         """
         forcing = self._transform_forcing()
-        model, feature_names, fit_forcing = self._create_model_and_feature_names(forcing)
+        model, feature_names, fit_forcing = (
+            self._create_model_and_feature_names(forcing)
+        )
 
         if self.transform_dependent:
             try:

@@ -36,7 +36,8 @@ class OptimizerStrategy(ABC):
         """Run optimization and return best parameter vector.
 
         Args:
-            objective_function: Callable that takes parameter vector and returns scalar to minimize.
+            objective_function: Callable that takes parameter vector and
+                returns scalar to minimize.
             bounds: Array of [min, max] bounds for each parameter.
             max_iter: Maximum iterations.
             verbose: Verbosity level.
@@ -362,7 +363,9 @@ class SingleKernelTrainer:
             optimizer_kwargs=self.optimizer_kwargs,
         )
 
-    def _update_kernel_params(self, best_params: np.ndarray, num_transforms: int) -> None:
+    def _update_kernel_params(
+        self, best_params: np.ndarray, num_transforms: int
+    ) -> None:
         transform_columns = self._get_transform_columns()
         idx = 0
         for transform in range(1, num_transforms + 1):
@@ -445,7 +448,8 @@ class SingleKernelTrainer:
                 < self.early_stopping_threshold
             ):
                 logger.warning(
-                    "Last transformation added less than %s %% to R2 score. Terminating early.",
+                    "Last transformation added less than %s %% to R2 score."
+                    " Terminating early.",
                     self.early_stopping_threshold * 100,
                 )
                 break
@@ -503,7 +507,9 @@ class MultiKernelTrainer:
         self.optimizer_kwargs = optimizer_kwargs or {}
         self.all_results: dict[str, dict[int, dict[str, Any]]] = {}
 
-    def _train_kernel(self, kernel: ConvolutionKernel, max_iter: int) -> dict[int, dict[str, Any]]:
+    def _train_kernel(
+        self, kernel: ConvolutionKernel, max_iter: int
+    ) -> dict[int, dict[str, Any]]:
         trainer = SingleKernelTrainer(
             kernel=kernel,
             system_data=self.system_data,
