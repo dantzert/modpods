@@ -143,9 +143,12 @@ class ScipyOptimizer(OptimizerStrategy):
         verbose: Verbosity,
         optimizer_kwargs: dict,
     ) -> np.ndarray:
+        def negated_objective(x):
+            return -objective_function(x)
+
         return _run_scipy_optimizer(
             optimization_method=self.method,
-            objective_function=objective_function,
+            objective_function=negated_objective,
             bounds=bounds,
             max_iter=max_iter,
             verbose=verbose,
