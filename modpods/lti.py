@@ -11,7 +11,7 @@ from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped
 )
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
-from .kernels import ConvolutionKernel, get_kernel
+from .kernels import get_kernel
 from .model import _build_constraint_matrices
 from .train import delay_io_train
 
@@ -244,7 +244,6 @@ def lti_from_underdamped(zeta, omega_n, dt=0, desired_NSE=0.999, verbose="warnin
 
     omega_d = omega_n * np.sqrt(1.0 - zeta**2)
 
-    state_dim = 2
     A = np.array(
         [
             [0, 1],
@@ -385,7 +384,6 @@ def lti_from_bimodal_gamma(
         t, shape1, loc=loc1, scale=scale1
     ) + 0.5 * stats.gamma.pdf(t, shape2, loc=loc2, scale=scale2)
 
-    max_state_dim = 50
     result1 = lti_from_gamma(
         shape1,
         scale1,
