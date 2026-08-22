@@ -9,7 +9,7 @@ from sklearn.gaussian_process.kernels import Matern  # type: ignore
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from .kernels import ConvolutionKernel, get_kernel, list_kernels
-from .model import SINDY_delays_MI, SINDYModelFactory
+from .model import SINDY_delays_MI
 from .transforms import (
     _expected_improvement,
     _propose_location,
@@ -557,7 +557,6 @@ class MultiKernelTrainer:
                 logger.info("Running %s fit with kernel: %s", mode, name)
             k = get_kernel(name)
             if cheap:
-                cheap_kwargs = dict(self.optimizer_kwargs)
                 cheap_max_iter = max(5, self.max_iter // 10)
                 self.all_results[name] = self._train_kernel(k, cheap_max_iter)
             else:

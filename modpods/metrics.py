@@ -1,11 +1,7 @@
 import logging
-from abc import ABC, abstractmethod
 from typing import Any
 
 import numpy as np
-import pandas as pd
-
-from ._logging import Verbosity
 
 logger = logging.getLogger(__name__)
 
