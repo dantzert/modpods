@@ -1,6 +1,6 @@
 import logging
 import warnings
-from typing import cast
+from typing import Any, cast
 
 import networkx as nx
 import numpy as np
@@ -9,6 +9,7 @@ import pysindy as ps  # type: ignore
 from scipy.optimize import minimize
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from ._validation import validate_columns, validate_system_data
 from .kernels import get_kernel
 from .transforms import transform_inputs
 
@@ -858,3 +859,102 @@ def infer_causative_topology(  # noqa: F811
         "causative_topo": causative_topo,
         "total_graph": total_graph,
     }
+
+
+class TopologyInference:
+    """Topology inference estimator following scikit-learn conventions."""
+
+    def __init__(
+        self,
+        dependent_columns: list[str],
+        independent_columns: list[str],
+        graph_type: str = "Weak-Conn",
+        max_iter: int = 250,
+        kernel: str = "gamma",
+        verbose: Verbosity = "warnings",
+        sensor_locations: dict[str, dict[str, float]] | None = None,
+        init_neighbors: int = 3,
+    ) -> None:
+        self.dependent_columns = dependent_columns
+        self.independent_columns = independent_columns
+        self.graph_type = graph_type
+        self.max_iter = max_iter
+        self.kernel = kernel
+        self.verbose = verbose
+        self.sensor_locations = sensor_locations
+        self.init_neighbors = init_neighbors
+        self.causative_topo_: pd.DataFrame | None = None
+        self.total_graph_: pd.DataFrame | None = None
+        self.edges_: pd.DataFrame | None = None
+        self.best_params_: pd.DataFrame | None = None
+        self.r2_values_: pd.DataFrame | None = None
+        self.lead_lag_: pd.DataFrame | None = None
+
+    def fit(self, system_data: pd.DataFrame, **kwargs: Any) -> "TopologyInference":
+        validate_system_data(system_data)
+        validate_columns(system_data, self.dependent_columns, "dependent_columns")
+        validate_columns(system_data, self.independent_columns, "independent_columns")
+
+        result = infer_causative_topology(
+            system_data=system_data,
+            dependent_columns=self.dependent_columns,
+            independent_columns=self.independent_columns,
+            graph_type=self.graph_type,
+            max_iter=self.max_iter,
+            kernel=self.kernel,
+            verbose=self.verbose,
+            sensor_locations=self.sensor_locations,
+            init_neighbors=self.init_neighbors,
+            **kwargs,
+        )
+        self.causative_topo_ = result["causative_topo"]
+        self.total_graph_ = result["total_graph"]
+        self.edges_ = result["edges"]
+        self.best_params_ = result["best_params"]
+        self.r2_values_ = result["r2_values"]
+        self.lead_lag_ = result["lead_lag"]
+        return self
+
+    def predict(self, system_data: pd.DataFrame, **kwargs: Any) -> dict[str, Any]:
+        if self.causative_topo_ is None:
+            raise RuntimeError("Estimator has not been fitted yet.")
+        result = infer_causative_topology(
+            system_data=system_data,
+            dependent_columns=self.dependent_columns,
+            independent_columns=self.independent_columns,
+            graph_type=self.graph_type,
+            max_iter=self.max_iter,
+            kernel=self.kernel,
+            verbose=self.verbose,
+            sensor_locations=self.sensor_locations,
+            init_neighbors=self.init_neighbors,
+            **kwargs,
+        )
+        return cast(dict[str, Any], result)
+
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
+        return {
+            "dependent_columns": self.dependent_columns,
+            "independent_columns": self.independent_columns,
+            "graph_type": self.graph_type,
+            "max_iter": self.max_iter,
+            "kernel": self.kernel,
+            "verbose": self.verbose,
+            "sensor_locations": self.sensor_locations,
+            "init_neighbors": self.init_neighbors,
+        }
+
+    def set_params(self, **params: Any) -> "TopologyInference":
+        for key, value in params.items():
+            if not hasattr(self, key):
+                raise ValueError(f"Invalid parameter: {key}")
+            setattr(self, key, value)
+        return self
+
+    def __repr__(self) -> str:
+        return (
+            f"TopologyInference(dependent_columns={self.dependent_columns}, "
+            f"independent_columns={self.independent_columns}, "
+            f"graph_type={self.graph_type!r}, max_iter={self.max_iter}, "
+            f"kernel={self.kernel!r})"
+        )
