@@ -5,10 +5,10 @@ from typing import Any, cast
 import networkx as nx
 import numpy as np
 import pandas as pd
-import pysindy as ps  # type: ignore
 from scipy.optimize import minimize
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from ._system_id import SystemIdModel
 from ._validation import validate_columns, validate_system_data
 from .kernels import get_kernel
 from .transforms import transform_inputs
@@ -107,12 +107,9 @@ def find_topology_no_geo(
 
         # First, compute autocorrelation-only R² (no external forcing)
         # This tells us how much of the dynamics can be explained by the state alone
-        model = ps.SINDy(
-            differentiation_method=ps.FiniteDifference(order=10, drop_endpoints=True),
-            feature_library=ps.PolynomialLibrary(
-                degree=2, include_bias=False, include_interaction=False
-            ),
-            optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+        model = SystemIdModel(
+            poly_degree=2, include_bias=False, include_interaction=False,
+            fd_order=10, fd_drop_endpoints=True,
         )
         # Fit with no control input (u=None), just the state
         fit = model.fit(
@@ -182,16 +179,11 @@ def find_topology_no_geo(
                         (transformed_inputs, transformed[[forcing_col + "_tr_1"]]),
                         axis="columns",
                     )
-                    # build a sindy model with these inputs
+                    # build a system identification model with these inputs
                     feature_names = [dep_col, str(forcing_col + "_tr_1")]
-                    model = ps.SINDy(
-                        differentiation_method=ps.FiniteDifference(
-                            order=10, drop_endpoints=True
-                        ),
-                        feature_library=ps.PolynomialLibrary(
-                            degree=2, include_bias=False, include_interaction=False
-                        ),
-                        optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+                    model = SystemIdModel(
+                        poly_degree=2, include_bias=False, include_interaction=False,
+                        fd_order=10, fd_drop_endpoints=True,
                     )
                     fit = model.fit(
                         x=system_data.loc[:, dep_col],
@@ -253,14 +245,9 @@ def find_topology_no_geo(
             )
             _ = np.array(transformed[forcing_col + "_tr_1"].values)
             feature_names = [dep_col, forcing_col]
-            model = ps.SINDy(
-                differentiation_method=ps.FiniteDifference(
-                    order=10, drop_endpoints=True
-                ),
-                feature_library=ps.PolynomialLibrary(
-                    degree=2, include_bias=False, include_interaction=False
-                ),
-                optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+            model = SystemIdModel(
+                poly_degree=2, include_bias=False, include_interaction=False,
+                fd_order=10, fd_drop_endpoints=True,
             )
             fit = model.fit(
                 x=system_data.loc[:, dep_col],
@@ -578,14 +565,9 @@ def find_topology_no_geo(
                 )
             # build and fit the sindy model
             feature_names = [output_variable] + list(transformed_inputs.columns)
-            model = ps.SINDy(
-                differentiation_method=ps.FiniteDifference(
-                    order=10, drop_endpoints=True
-                ),
-                feature_library=ps.PolynomialLibrary(
-                    degree=2, include_bias=False, include_interaction=False
-                ),
-                optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+            model = SystemIdModel(
+                poly_degree=2, include_bias=False, include_interaction=False,
+                fd_order=10, fd_drop_endpoints=True,
             )
             fit = model.fit(
                 x=system_data.loc[:, output_variable],
@@ -685,12 +667,9 @@ def find_topology_no_geo(
                 (transformed_inputs, transformed), axis="columns"
             )
         feature_names = [output_variable] + list(transformed_inputs.columns)
-        model = ps.SINDy(
-            differentiation_method=ps.FiniteDifference(order=10, drop_endpoints=True),
-            feature_library=ps.PolynomialLibrary(
-                degree=2, include_bias=False, include_interaction=False
-            ),
-            optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+        model = SystemIdModel(
+            poly_degree=2, include_bias=False, include_interaction=False,
+            fd_order=10, fd_drop_endpoints=True,
         )
         fit = model.fit(
             x=system_data.loc[:, output_variable],

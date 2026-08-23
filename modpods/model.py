@@ -1,15 +1,14 @@
+from __future__ import annotations
+
 import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
 import numpy as np
 import pandas as pd
-import pysindy as ps  # type: ignore
-from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped]
-    ConstrainedSR3 as _ConstrainedSR3,
-)
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from ._system_id import SystemIdModel, _polynomial_feature_names
 from .kernels import ConvolutionKernel, get_kernel
 from .metrics import compute_detailed_metrics
 from .transforms import transform_inputs
@@ -81,7 +80,7 @@ def _build_constraint_matrices(
 
 
 class SINDYBuilder(ABC):
-    """Abstract base class for SINDy model builders."""
+    """Abstract base class for system-identification model builders."""
 
     @abstractmethod
     def build(
@@ -90,8 +89,8 @@ class SINDYBuilder(ABC):
         poly_degree: int,
         include_bias: bool,
         include_interaction: bool,
-    ) -> ps.SINDy:
-        """Build an unfitted SINDy model.
+    ) -> SystemIdModel:
+        """Build an unfitted model.
 
         Args:
             feature_names: Names for the feature columns.
@@ -100,13 +99,13 @@ class SINDYBuilder(ABC):
             include_interaction: Whether to include interaction terms.
 
         Returns:
-            An unfitted SINDy model instance.
+            An unfitted model instance.
         """
         ...
 
 
 class StandardSINDYBuilder(SINDYBuilder):
-    """Build a standard SINDy model with STLSQ optimizer."""
+    """Build a standard model with ordinary least squares."""
 
     def build(
         self,
@@ -114,20 +113,16 @@ class StandardSINDYBuilder(SINDYBuilder):
         poly_degree: int,
         include_bias: bool,
         include_interaction: bool,
-    ) -> ps.SINDy:
-        return ps.SINDy(
-            differentiation_method=ps.FiniteDifference(),
-            feature_library=ps.PolynomialLibrary(
-                degree=poly_degree,
-                include_bias=include_bias,
-                include_interaction=include_interaction,
-            ),
-            optimizer=ps.STLSQ(threshold=0),
+    ) -> SystemIdModel:
+        return SystemIdModel(
+            poly_degree=poly_degree,
+            include_bias=include_bias,
+            include_interaction=include_interaction,
         )
 
 
 class ConstrainedSINDYBuilder(SINDYBuilder):
-    """Build a SINDy model with constrained SR3 optimizer."""
+    """Build a model with constrained least squares."""
 
     def __init__(
         self,
@@ -145,21 +140,14 @@ class ConstrainedSINDYBuilder(SINDYBuilder):
         poly_degree: int,
         include_bias: bool,
         include_interaction: bool,
-    ) -> ps.SINDy:
-        return ps.SINDy(
-            differentiation_method=ps.FiniteDifference(),
-            feature_library=ps.PolynomialLibrary(
-                degree=poly_degree,
-                include_bias=include_bias,
-                include_interaction=include_interaction,
-            ),
-            optimizer=_ConstrainedSR3(
-                reg_weight_lam=0,
-                regularizer="l2",
-                constraint_lhs=self.constraint_lhs,
-                constraint_rhs=self.constraint_rhs,
-                inequality_constraints=self.inequality_constraints,
-            ),
+    ) -> SystemIdModel:
+        return SystemIdModel(
+            poly_degree=poly_degree,
+            include_bias=include_bias,
+            include_interaction=include_interaction,
+            constraint_lhs=self.constraint_lhs,
+            constraint_rhs=self.constraint_rhs,
+            inequality_constraints=self.inequality_constraints,
         )
 
 
@@ -231,23 +219,19 @@ class SINDYModelFactory:
 
     def _create_model_and_feature_names(
         self, forcing: pd.DataFrame
-    ) -> tuple[ps.SINDy, list[str], pd.DataFrame]:
-        """Create the SINDy model and determine feature names for fitting."""
+    ) -> tuple[SystemIdModel, list[str], pd.DataFrame]:
+        """Create the model and determine feature names for fitting."""
         if self.transform_dependent:
             return self._build_transform_dependent_model(forcing)
 
         feature_names = self.response.columns.tolist() + forcing.columns.tolist()
 
         if self.bibo_stable or self.forcing_coef_constraints or self.constraints:
-            library = ps.PolynomialLibrary(
-                degree=self.poly_degree,
-                include_bias=self.include_bias,
-                include_interaction=self.include_interaction,
-            )
-            total_train = pd.concat((self.response, forcing), axis="columns")
-            library.fit([ps.AxesArray(total_train, {"ax_sample": 0, "ax_coord": 1})])
-            poly_feature_names = library.get_feature_names(
-                input_features=total_train.columns
+            poly_feature_names = _polynomial_feature_names(
+                feature_names,
+                self.poly_degree,
+                self.include_bias,
+                self.include_interaction,
             )
             n_targets = len(self.response.columns)
             custom_lhs, custom_rhs, custom_inequality = self._build_constraint_matrices(
@@ -304,7 +288,7 @@ class SINDYModelFactory:
 
     def _build_transform_dependent_model(
         self, forcing: pd.DataFrame
-    ) -> tuple[ps.SINDy, list[str], pd.DataFrame]:
+    ) -> tuple[SystemIdModel, list[str], pd.DataFrame]:
         """Build model for transform_dependent mode."""
         total_train = pd.concat((self.response, forcing), axis="columns")
         total_train = transform_inputs(
@@ -316,15 +300,14 @@ class SINDYModelFactory:
         total_train = total_train.drop(columns=self.response.columns)
         feature_names = self.response.columns.tolist() + total_train.columns.tolist()
 
-        library = ps.PolynomialLibrary(
-            degree=self.poly_degree,
-            include_bias=self.include_bias,
-            include_interaction=self.include_interaction,
-        )
-        library_terms = pd.concat((total_train, self.response), axis="columns")
-        library.fit([ps.AxesArray(library_terms, {"ax_sample": 0, "ax_coord": 1})])
-        n_features = library.n_output_features_
         n_targets = self.response.shape[1]
+        poly_feature_names = _polynomial_feature_names(
+            feature_names,
+            self.poly_degree,
+            self.include_bias,
+            self.include_interaction,
+        )
+        n_features = len(poly_feature_names)
 
         constraint_rhs = np.zeros((n_targets,))
         constraint_lhs = np.zeros((n_targets, n_features * n_targets))
@@ -338,25 +321,20 @@ class SINDYModelFactory:
         for idx in range(n_targets):
             constraint_lhs[idx, (idx + 1) * n_features - n_targets + idx] = 1
 
-        model = ps.SINDy(
-            differentiation_method=ps.FiniteDifference(),
-            feature_library=library,
-            optimizer=_ConstrainedSR3(
-                reg_weight_lam=0,
-                regularizer="l0",
-                relax_coeff_nu=10e9,
-                initial_guess=initial_guess,
-                constraint_lhs=constraint_lhs,
-                constraint_rhs=constraint_rhs,
-                inequality_constraints=False,
-                max_iter=10000,
-            ),
+        model = SystemIdModel(
+            poly_degree=self.poly_degree,
+            include_bias=self.include_bias,
+            include_interaction=self.include_interaction,
+            constraint_lhs=constraint_lhs,
+            constraint_rhs=constraint_rhs,
+            inequality_constraints=False,
+            initial_guess=initial_guess,
         )
         return model, feature_names, total_train
 
     def _fit_and_score(
         self,
-        model: ps.SINDy,
+        model: SystemIdModel,
         forcing: pd.DataFrame,
         feature_names: list[str],
     ) -> tuple[float, Exception | None]:
@@ -379,7 +357,7 @@ class SINDYModelFactory:
             logger.warning("%s", e)
             return -1.0, e
 
-    def _error_result(self, model: ps.SINDy | None, r2: float = -1.0) -> dict[str, Any]:
+    def _error_result(self, model: SystemIdModel | None, r2: float = -1.0) -> dict[str, Any]:
         error_metrics = {
             "MAE": [False],
             "RMSE": [False],
