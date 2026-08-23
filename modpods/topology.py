@@ -918,7 +918,7 @@ class TopologyInference:
     def predict(self, system_data: pd.DataFrame, **kwargs: Any) -> dict[str, Any]:
         if self.causative_topo_ is None:
             raise RuntimeError("Estimator has not been fitted yet.")
-        return infer_causative_topology(
+        result = infer_causative_topology(
             system_data=system_data,
             dependent_columns=self.dependent_columns,
             independent_columns=self.independent_columns,
@@ -930,6 +930,7 @@ class TopologyInference:
             init_neighbors=self.init_neighbors,
             **kwargs,
         )
+        return cast(dict[str, Any], result)
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
         return {
