@@ -12,6 +12,7 @@ from .kernels import (
     register_kernel,
 )
 from .lti import (
+    LTISystem,
     lti_from_bimodal_gamma,
     lti_from_gamma,
     lti_from_kernel,
@@ -21,7 +22,7 @@ from .lti import (
 )
 from .model import SINDY_delays_MI
 from .predict import delay_io_predict
-from .topology import find_topology_no_geo, infer_causative_topology
+from .topology import TopologyInference, find_topology_no_geo, infer_causative_topology
 from .train import delay_io_train
 from .transforms import (
     TransformCache,
@@ -57,6 +58,8 @@ __all__ = [
     "lti_from_underdamped",
     "lti_from_kernel",
     "lti_system_gen",
+    "LTISystem",
     "find_topology_no_geo",
     "infer_causative_topology",
+    "TopologyInference",
 ]
