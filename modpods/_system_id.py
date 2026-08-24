@@ -25,6 +25,36 @@ import pandas as pd
 import scipy.signal
 from scipy.integrate import solve_ivp
 from scipy.interpolate import interp1d
+from scipy.ndimage import convolve1d
+
+try:
+    from numba import njit  # type: ignore[import-not-found]
+
+    _HAS_NUMBA = True
+except ImportError:
+    _HAS_NUMBA = False
+
+_JIT_THRESHOLD = 16
+
+_savgol_coeffs_cache: dict[tuple[int, int, float], np.ndarray] = {}
+
+
+def _get_savgol_coeffs(width: int, order: int, dt: float) -> np.ndarray:
+    """Return cached Savitzky-Golay first-derivative coefficients.
+
+    The coefficients depend only on (window_length, polyorder, delta) —
+    not the data — so caching avoids the expensive ``savgol_coeffs``
+    call (which internally does polyfit/polyval/lstsq) on every invocation.
+    """
+    key = (width, order, dt)
+    if key not in _savgol_coeffs_cache:
+        _savgol_coeffs_cache[key] = scipy.signal.savgol_coeffs(
+            window_length=width,
+            polyorder=order,
+            deriv=1,
+            delta=dt,
+        )
+    return _savgol_coeffs_cache[key]
 
 
 def _polynomial_feature_names(
@@ -88,6 +118,32 @@ def _n_polynomial_features(
     return total
 
 
+if _HAS_NUMBA:
+
+    @njit(cache=True)
+    def _expand_poly_no_interaction_numba(
+        data: np.ndarray, degree: int, include_bias: bool
+    ) -> np.ndarray:
+        n_samples, n_features = data.shape
+        n_cols = n_features * degree
+        total = n_cols + 1 if include_bias else n_cols
+        result = np.empty((n_samples, total))
+        col = 0
+        if include_bias:
+            for i in range(n_samples):
+                result[i, 0] = 1.0
+            col = 1
+        for d in range(1, degree + 1):
+            for j in range(n_features):
+                for i in range(n_samples):
+                    v = data[i, j]
+                    result[i, col] = v
+                    for _ in range(d - 1):
+                        result[i, col] *= v
+                col += 1
+        return result
+
+
 def _expand_polynomial(
     data: np.ndarray,
     degree: int,
@@ -95,6 +151,11 @@ def _expand_polynomial(
     include_interaction: bool,
 ) -> np.ndarray:
     """Expand *data* into polynomial features (matches PolynomialLibrary).
+
+    Uses numba JIT when available and the input is large enough to
+    amortise the ~1 µs Python→numba dispatch overhead. For small inputs
+    (e.g. the single-sample calls from ``simulate``'s per-step RHS),
+    vectorised numpy is faster.
 
     Args:
         data: shape (n_samples, n_input_features)
@@ -106,22 +167,29 @@ def _expand_polynomial(
         shape (n_samples, n_output_features)
     """
     n_samples, n_features = data.shape
-    columns: list[np.ndarray] = []
 
+    if not include_interaction:
+        if _HAS_NUMBA and n_samples > _JIT_THRESHOLD:
+            result = _expand_poly_no_interaction_numba(data, degree, include_bias)
+            return np.asarray(result)
+
+        col_indices = np.tile(np.arange(n_features), degree)
+        powers = np.repeat(np.arange(1, degree + 1), n_features)
+        cols = data[:, col_indices] ** powers
+        if include_bias:
+            cols = np.hstack([np.ones((n_samples, 1)), cols])
+        return np.asarray(cols)
+
+    # include_interaction=True
+    columns: list[np.ndarray] = []
     if include_bias:
         columns.append(np.ones((n_samples, 1)))
-
     for d in range(1, degree + 1):
-        if not include_interaction:
-            for j in range(n_features):
-                columns.append(data[:, [j]] ** d)
-        else:
-            for combo in combinations_with_replacement(range(n_features), d):
-                term = np.ones(n_samples)
-                for idx in combo:
-                    term = term * data[:, idx]
-                columns.append(term.reshape(-1, 1))
-
+        for combo in combinations_with_replacement(range(n_features), d):
+            term = np.ones(n_samples)
+            for idx in combo:
+                term = term * data[:, idx]
+            columns.append(term.reshape(-1, 1))
     if len(columns) == 0:
         return np.empty((n_samples, 0))
     return np.hstack(columns)
@@ -147,32 +215,31 @@ def _finite_difference(
 
     width = 2 * (order // 2) + 1
     half = width // 2
+    coeffs = _get_savgol_coeffs(width, order, dt)
 
     if x.shape[1] == 1:
-        deriv = np.asarray(
-            scipy.signal.savgol_filter(
-                x[:, 0],
-                window_length=width,
-                polyorder=order,
-                deriv=1,
-                delta=dt,
-                mode="interp",
+        deriv = np.empty_like(x, dtype=float)
+        deriv[:, 0] = convolve1d(x[:, 0], coeffs, mode="constant")
+        if half > 0 and not drop_endpoints:
+            p = np.polyfit(np.arange(width), x[:width, 0], order)
+            deriv[:half, 0] = np.polyval(np.polyder(p, 1), np.arange(0, half)) / dt
+            p = np.polyfit(np.arange(width), x[-width:, 0], order)
+            deriv[-half:, 0] = (
+                np.polyval(np.polyder(p, 1), np.arange(half + 1, width)) / dt
             )
-        )
         deriv = deriv.reshape(-1, 1)
     else:
         deriv = np.empty_like(x, dtype=float)
         for j in range(x.shape[1]):
-            deriv[:, j] = np.asarray(
-                scipy.signal.savgol_filter(
-                    x[:, j],
-                    window_length=width,
-                    polyorder=order,
-                    deriv=1,
-                    delta=dt,
-                    mode="interp",
+            col = x[:, j]
+            deriv[:, j] = convolve1d(col, coeffs, mode="constant")
+            if half > 0 and not drop_endpoints:
+                p = np.polyfit(np.arange(width), col[:width], order)
+                deriv[:half, j] = np.polyval(np.polyder(p, 1), np.arange(0, half)) / dt
+                p = np.polyfit(np.arange(width), col[-width:], order)
+                deriv[-half:, j] = (
+                    np.polyval(np.polyder(p, 1), np.arange(half + 1, width)) / dt
                 )
-            )
 
     if drop_endpoints:
         deriv[:half] = np.nan
@@ -284,6 +351,11 @@ class SystemIdModel:
         self._n_output_features: int = 0
         self._n_targets: int = 0
         self._is_fitted: bool = False
+        self._cached_x_hash: int | None = None
+        self._cached_t_hash: int | None = None
+        self._cached_x_dot: np.ndarray | None = None
+        self._cached_theta: np.ndarray | None = None
+        self._cached_valid: np.ndarray | None = None
 
     # -- public API mirroring pysindy.SINDy -------------------------------
 
@@ -399,6 +471,14 @@ class SystemIdModel:
 
         # Solve
         self._coef = self._solve(theta_valid, x_dot_valid)
+
+        # Cache computed arrays for potential reuse in score()
+        self._cached_x_hash = hash(x_arr.tobytes())
+        self._cached_t_hash = hash(t_arr.tobytes())
+        self._cached_x_dot = x_dot_arr
+        self._cached_theta = theta
+        self._cached_valid = valid
+
         self._is_fitted = True
         return self
 
@@ -477,20 +557,36 @@ class SystemIdModel:
 
         t_arr = self._to_time_array(t, x_arr.shape[0])
 
-        if u is not None:
-            u_arr = self._to_array(u)
-            if u_arr.ndim == 1:
-                u_arr = u_arr.reshape(-1, 1)
-            data = np.hstack([x_arr, u_arr])
+        # Reuse cached derivative & theta if inputs match the last fit()
+        x_hash = hash(x_arr.tobytes())
+        t_hash = hash(t_arr.tobytes())
+        if (
+            self._cached_x_hash == x_hash
+            and self._cached_t_hash == t_hash
+            and self._cached_x_dot is not None
+            and self._cached_theta is not None
+            and self._cached_valid is not None
+        ):
+            x_dot = self._cached_x_dot
+            theta = self._cached_theta
+            valid = self._cached_valid
         else:
-            data = x_arr
+            if u is not None:
+                u_arr = self._to_array(u)
+                if u_arr.ndim == 1:
+                    u_arr = u_arr.reshape(-1, 1)
+                data = np.hstack([x_arr, u_arr])
+            else:
+                data = x_arr
 
-        x_dot = _finite_difference(x_arr, t_arr, self.fd_order, self.fd_drop_endpoints)
-        theta = _expand_polynomial(
-            data, self.poly_degree, self.include_bias, self.include_interaction
-        )
+            x_dot = _finite_difference(
+                x_arr, t_arr, self.fd_order, self.fd_drop_endpoints
+            )
+            theta = _expand_polynomial(
+                data, self.poly_degree, self.include_bias, self.include_interaction
+            )
+            valid = ~np.isnan(x_dot).any(axis=1) & ~np.isnan(theta).any(axis=1)
 
-        valid = ~np.isnan(x_dot).any(axis=1) & ~np.isnan(theta).any(axis=1)
         x_dot_valid = x_dot[valid]
         theta_valid = theta[valid]
 
@@ -555,7 +651,7 @@ class SystemIdModel:
         if x0_flat.size == 1:
             x0_flat = x0_flat.reshape(1)
 
-        coef = self._coef  # (n_targets, n_feat)
+        coef_t = self._coef.T  # (n_feat, n_target) — pre-transposed
         poly_degree = self.poly_degree
         include_bias = self.include_bias
         include_interaction = self.include_interaction
@@ -576,16 +672,43 @@ class SystemIdModel:
 
         t_sim = t_arr[:-1]
 
-        def _rhs(t_val: float, x_arr: np.ndarray) -> np.ndarray:
+        if not include_interaction:
+            _degrees = np.arange(1, poly_degree + 1)
+
             if u_fun is not None:
-                u_t = u_fun(t_val).reshape(1, -1)
-                state = np.hstack([x_arr.reshape(1, -1), u_t])
+
+                def _rhs(t_val: float, x_arr: np.ndarray) -> np.ndarray:
+                    data = np.concatenate([x_arr.ravel(), u_fun(t_val).ravel()])
+                    terms = (data[:, None] ** _degrees).T.ravel()
+                    if include_bias:
+                        return np.asarray(
+                            (coef_t[0, :] + terms @ coef_t[1:, :]).ravel()
+                        )
+                    return np.asarray((terms @ coef_t).ravel())
+
             else:
-                state = x_arr.reshape(1, -1)
-            theta = _expand_polynomial(
-                state, poly_degree, include_bias, include_interaction
-            )
-            return np.asarray((theta @ coef.T).flatten())
+
+                def _rhs(t_val: float, x_arr: np.ndarray) -> np.ndarray:
+                    data = x_arr.ravel()
+                    terms = (data[:, None] ** _degrees).T.ravel()
+                    if include_bias:
+                        return np.asarray(
+                            (coef_t[0, :] + terms @ coef_t[1:, :]).ravel()
+                        )
+                    return np.asarray((terms @ coef_t).ravel())
+
+        else:
+
+            def _rhs(t_val: float, x_arr: np.ndarray) -> np.ndarray:
+                if u_fun is not None:
+                    u_t = u_fun(t_val).reshape(1, -1)
+                    state = np.hstack([x_arr.reshape(1, -1), u_t])
+                else:
+                    state = x_arr.reshape(1, -1)
+                theta = _expand_polynomial(
+                    state, poly_degree, include_bias, include_interaction
+                )
+                return np.asarray((theta @ coef_t).flatten())
 
         sol = solve_ivp(
             _rhs,
