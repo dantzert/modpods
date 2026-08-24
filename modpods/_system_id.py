@@ -128,7 +128,9 @@ def _expand_polynomial(
     return np.hstack(columns)
 
 
-def _finite_difference(x: np.ndarray, t: np.ndarray, order: int, drop_endpoints: bool) -> np.ndarray:
+def _finite_difference(
+    x: np.ndarray, t: np.ndarray, order: int, drop_endpoints: bool
+) -> np.ndarray:
     """Compute time derivatives via finite differences.
 
     - order=2 (default): centered differences via numpy.gradient
@@ -139,33 +141,45 @@ def _finite_difference(x: np.ndarray, t: np.ndarray, order: int, drop_endpoints:
     If drop_endpoints is True, endpoint rows are set to NaN so they are
     dropped before least-squares fitting (matching pysindy's behaviour).
     """
-    dt = float(np.diff(t)[0])
+    dt = float(np.asarray(np.diff(t))[0])
 
     if order == 2 and not drop_endpoints:
-        return np.gradient(x, dt, axis=0, edge_order=2)
+        return np.asarray(np.gradient(x, dt, axis=0, edge_order=2))
 
     width = 2 * (order // 2) + 1
     half = width // 2
 
     if x.shape[1] == 1:
-        deriv = scipy.signal.savgol_filter(
-            x[:, 0], window_length=width, polyorder=order,
-            deriv=1, delta=dt, mode="interp",
+        deriv = np.asarray(
+            scipy.signal.savgol_filter(
+                x[:, 0],
+                window_length=width,
+                polyorder=order,
+                deriv=1,
+                delta=dt,
+                mode="interp",
+            )
         )
         deriv = deriv.reshape(-1, 1)
     else:
         deriv = np.empty_like(x, dtype=float)
         for j in range(x.shape[1]):
-            deriv[:, j] = scipy.signal.savgol_filter(
-                x[:, j], window_length=width, polyorder=order,
-                deriv=1, delta=dt, mode="interp",
+            deriv[:, j] = np.asarray(
+                scipy.signal.savgol_filter(
+                    x[:, j],
+                    window_length=width,
+                    polyorder=order,
+                    deriv=1,
+                    delta=dt,
+                    mode="interp",
+                )
             )
 
     if drop_endpoints:
         deriv[:half] = np.nan
         deriv[-half:] = np.nan
 
-    return deriv
+    return np.asarray(deriv)
 
 
 def _active_set_qp(
@@ -218,7 +232,7 @@ def _active_set_qp(
         for i in to_remove:
             active.remove(i)
 
-    return w
+    return np.asarray(w)
 
 
 class SystemIdModel:
@@ -248,10 +262,14 @@ class SystemIdModel:
         self.fd_order = fd_order
         self.fd_drop_endpoints = fd_drop_endpoints
         self.constraint_lhs = (
-            np.array(constraint_lhs, dtype=float) if constraint_lhs is not None else None
+            np.array(constraint_lhs, dtype=float)
+            if constraint_lhs is not None
+            else None
         )
         self.constraint_rhs = (
-            np.array(constraint_rhs, dtype=float) if constraint_rhs is not None else None
+            np.array(constraint_rhs, dtype=float)
+            if constraint_rhs is not None
+            else None
         )
         self.inequality_constraints = inequality_constraints
         self.initial_guess = (
@@ -366,7 +384,9 @@ class SystemIdModel:
             if x_dot_arr.ndim == 1:
                 x_dot_arr = x_dot_arr.reshape(-1, 1)
         else:
-            x_dot_arr = _finite_difference(x_arr, t_arr, self.fd_order, self.fd_drop_endpoints)
+            x_dot_arr = _finite_difference(
+                x_arr, t_arr, self.fd_order, self.fd_drop_endpoints
+            )
 
         # Polynomial expansion
         theta = _expand_polynomial(
@@ -387,8 +407,8 @@ class SystemIdModel:
         """Return coefficient matrix of shape (n_targets, n_features)."""
         if self.constraint_lhs is None or self.constraint_rhs is None:
             # Unconstrained OLS (equivalent to STLSQ threshold=0, alpha=0)
-            coef = np.linalg.lstsq(theta, x_dot, rcond=None)[0]
-            return coef.T  # (n_targets, n_features)
+            coef = np.asarray(np.linalg.lstsq(theta, x_dot, rcond=None)[0])
+            return coef.T
         else:
             C = self.constraint_lhs
             d = self.constraint_rhs.flatten()
@@ -425,7 +445,7 @@ class SystemIdModel:
         mult = denom_inv @ (C @ w_ls_vec - d)
         w = w_ls_vec - kron_A_inv @ C.T @ mult
 
-        return w.reshape(n_targets, n_feat)
+        return np.asarray(w.reshape(n_targets, n_feat))
 
     def _solve_inequality_constrained(
         self, theta: np.ndarray, x_dot: np.ndarray, C: np.ndarray, d: np.ndarray
@@ -437,12 +457,12 @@ class SystemIdModel:
 
         if n_targets == 1:
             w = _active_set_qp(theta, x_dot_2d.flatten(), C, d)
-            return w.reshape(1, n_feat)
+            return np.asarray(w.reshape(1, n_feat))
 
         A = np.kron(np.eye(n_targets), theta)
         b = x_dot_2d.flatten(order="F")
         w = _active_set_qp(A, b, C, d)
-        return w.reshape(n_targets, n_feat)
+        return np.asarray(w.reshape(n_targets, n_feat))
 
     def score(
         self,
@@ -466,9 +486,7 @@ class SystemIdModel:
         else:
             data = x_arr
 
-        x_dot = _finite_difference(
-            x_arr, t_arr, self.fd_order, self.fd_drop_endpoints
-        )
+        x_dot = _finite_difference(x_arr, t_arr, self.fd_order, self.fd_drop_endpoints)
         theta = _expand_polynomial(
             data, self.poly_degree, self.include_bias, self.include_interaction
         )
@@ -478,9 +496,7 @@ class SystemIdModel:
         theta_valid = theta[valid]
 
         x_dot_pred = theta_valid @ self._coef.T
-        return float(
-            r2_score(x_dot_valid, x_dot_pred, multioutput="variance_weighted")
-        )
+        return float(r2_score(x_dot_valid, x_dot_pred, multioutput="variance_weighted"))
 
     def predict(
         self,
@@ -507,7 +523,7 @@ class SystemIdModel:
         theta = _expand_polynomial(
             data, self.poly_degree, self.include_bias, self.include_interaction
         )
-        return theta @ self._coef.T
+        return np.asarray(theta @ self._coef.T)
 
     def simulate(
         self,
@@ -544,7 +560,10 @@ class SystemIdModel:
             if u_arr.ndim == 1:
                 u_arr = u_arr.reshape(-1, 1)
             u_fun = interp1d(
-                t_arr, u_arr, axis=0, kind="cubic",
+                t_arr,
+                u_arr,
+                axis=0,
+                kind="cubic",
                 fill_value="extrapolate",
             )
         else:
@@ -558,8 +577,10 @@ class SystemIdModel:
                 state = np.hstack([x_arr.reshape(1, -1), u_t])
             else:
                 state = x_arr.reshape(1, -1)
-            theta = _expand_polynomial(state, poly_degree, include_bias, include_interaction)
-            return (theta @ coef.T).flatten()
+            theta = _expand_polynomial(
+                state, poly_degree, include_bias, include_interaction
+            )
+            return np.asarray((theta @ coef.T).flatten())
 
         sol = solve_ivp(
             _rhs,
@@ -570,7 +591,7 @@ class SystemIdModel:
             rtol=1e-12,
             atol=1e-12,
         )
-        return sol.y.T
+        return np.asarray(sol.y.T)
 
     def print(self, precision: int = 3) -> None:
         """Print the model equations in a human-readable format."""
@@ -593,13 +614,15 @@ class SystemIdModel:
     # -- helpers -----------------------------------------------------------
 
     @staticmethod
-    def _to_array(val: np.ndarray | pd.DataFrame | pd.Series | float | None) -> np.ndarray:
+    def _to_array(
+        val: np.ndarray | pd.DataFrame | pd.Series | float | None,
+    ) -> np.ndarray:
         if val is None:
             return np.empty((0, 0))
         if isinstance(val, pd.DataFrame):
-            return val.to_numpy(dtype=float)
+            return np.asarray(val.to_numpy(dtype=float))
         if isinstance(val, pd.Series):
-            return val.to_numpy(dtype=float).reshape(-1, 1)
+            return np.asarray(val.to_numpy(dtype=float).reshape(-1, 1))
         arr = np.asarray(val, dtype=float)
         if arr.ndim == 1:
             arr = arr.reshape(-1, 1)
@@ -608,5 +631,5 @@ class SystemIdModel:
     @staticmethod
     def _to_time_array(t: np.ndarray | float, n_samples: int) -> np.ndarray:
         if np.isscalar(t):
-            return np.arange(n_samples, dtype=float) * float(t)
+            return np.arange(n_samples, dtype=float) * float(np.asarray(t))
         return np.asarray(t, dtype=float).flatten()

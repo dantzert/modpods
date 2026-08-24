@@ -622,9 +622,7 @@ def lti_system_gen(
             # we can put immediate causation into the matrices A, B, and C now
 
             if bibo_stable:  # negative autocorrelatoin
-                n_features = _n_polynomial_features(
-                    len(feature_names), 1, False, False
-                )
+                n_features = _n_polynomial_features(len(feature_names), 1, False, False)
 
                 constraint_lhs = np.zeros((1, n_features))
                 constraint_rhs = np.zeros(1)

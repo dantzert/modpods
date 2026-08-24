@@ -357,7 +357,9 @@ class SINDYModelFactory:
             logger.warning("%s", e)
             return -1.0, e
 
-    def _error_result(self, model: SystemIdModel | None, r2: float = -1.0) -> dict[str, Any]:
+    def _error_result(
+        self, model: SystemIdModel | None, r2: float = -1.0
+    ) -> dict[str, Any]:
         error_metrics = {
             "MAE": [False],
             "RMSE": [False],
@@ -428,7 +430,7 @@ class SINDYModelFactory:
                 "diverged": False,
             }
 
-        simulated = False
+        simulated: Any = False
         try:
             if self.transform_dependent:
                 simulated = model.simulate(
