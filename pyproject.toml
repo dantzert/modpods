@@ -23,6 +23,9 @@ dependencies = [
     "types-networkx",
 ]
 
+[project.optional-dependencies]
+numba = ["numba>=0.58"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["modpods*"]

@@ -12,6 +12,9 @@ pandas-stubs
 scipy-stubs
 types-networkx
 
+# Optional acceleration (numba JIT for large-array polynomial expansion)
+numba>=0.58
+
 # Testing
 pytest>=7.0
 pytest-xdist>=3.0
