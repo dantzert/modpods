@@ -22,7 +22,7 @@ def _build_constraint_matrices(
     constraints: list[dict[str, Any]] | None,
     n_targets: int,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
-    """Build constraint matrices for SINDy optimization.
+    """Build constraint matrices for least-squares optimization.
 
     Args:
         feature_names: List of feature names.
@@ -152,7 +152,7 @@ class ConstrainedSINDYBuilder(SINDYBuilder):
 
 
 class SINDYModelFactory:
-    """Factory for training SINDy delay-IO models."""
+    """Factory for training polynomial regression delay-IO models."""
 
     def __init__(
         self,
@@ -383,7 +383,7 @@ class SINDYModelFactory:
         }
 
     def train(self, final_run: bool = False) -> dict[str, Any]:
-        """Train the SINDy model.
+        """Train the polynomial regression model.
 
         Args:
             final_run: If True, simulate and compute detailed metrics.
@@ -506,7 +506,7 @@ def SINDY_delays_MI(
     transform_cache=None,
     verbose: Verbosity = "warnings",
 ):
-    """Train a SINDy delay-IO model.
+    """Train a polynomial regression delay-IO model.
 
     .. deprecated::
         Use :class:`SINDYModelFactory` for new code. This function is preserved

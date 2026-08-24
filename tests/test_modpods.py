@@ -990,7 +990,7 @@ def test_infer_causative_topology_returns_dataframe(
             independent_columns=["u1", "u2"],
             verbose="warnings",
             max_iter=0,
-            method="sindy",
+            method="polynomial_regression",
         )
     assert isinstance(result, dict)
     assert "causative_topo" in result
@@ -1004,7 +1004,7 @@ def test_infer_causative_topology_returns_dataframe(
 def test_infer_causative_topology_identifies_u1_causes_x2(
     cascade_lti_system_data: pd.DataFrame,
 ) -> None:
-    """SINDy causality must identify u1 as a cause of x2 (delayed cascade)."""
+    """Polynomial regression causality must identify u1 as a cause of x2 (delayed cascade)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = modpods.infer_causative_topology(  # type: ignore[call-arg]
@@ -1013,7 +1013,7 @@ def test_infer_causative_topology_identifies_u1_causes_x2(
             independent_columns=["u1", "u2"],
             verbose="warnings",
             max_iter=0,
-            method="sindy",
+            method="polynomial_regression",
         )
     causative_topo = result["causative_topo"]
     assert (
@@ -1024,7 +1024,7 @@ def test_infer_causative_topology_identifies_u1_causes_x2(
 def test_infer_causative_topology_identifies_u2_causes_x8(
     cascade_lti_system_data: pd.DataFrame,
 ) -> None:
-    """SINDy causality must identify u2 as a cause of x8 (direct link)."""
+    """Polynomial regression causality must identify u2 as a cause of x8 (direct link)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         result = modpods.infer_causative_topology(  # type: ignore[call-arg]
@@ -1033,7 +1033,7 @@ def test_infer_causative_topology_identifies_u2_causes_x8(
             independent_columns=["u1", "u2"],
             verbose="warnings",
             max_iter=0,
-            method="sindy",
+            method="polynomial_regression",
         )
     causative_topo = result["causative_topo"]
     assert (
@@ -1053,7 +1053,7 @@ def test_infer_causative_topology_no_self_loops(
             independent_columns=["u1", "u2"],
             verbose="warnings",
             max_iter=0,
-            method="sindy",
+            method="polynomial_regression",
         )
     causative_topo = result["causative_topo"]
     for dep_var in ["x2", "x8", "x9"]:

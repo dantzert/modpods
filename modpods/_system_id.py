@@ -1,18 +1,16 @@
-"""Lightweight system identification model — replaces pysindy.SINDy.
+"""Lightweight system identification model.
 
-This module provides SystemIdModel, which replicates the subset of
-pysindy.SINDy functionality used by modpods:
-  - Polynomial feature expansion (matching PolynomialLibrary)
-  - Finite-difference time differentiation (matching FiniteDifference)
-  - Ordinary least squares (threshold=0, alpha=0 STLSQ reduces to pure OLS)
-  - Constrained least squares (reg_weight_lam=0 ConstrainedSR3 reduces to
-    constrained OLS — equality via closed-form Lagrange multipliers,
+This module provides SystemIdModel, which implements the core operations
+used by modpods:
+  - Polynomial feature expansion
+  - Finite-difference time differentiation
+  - Ordinary least squares
+  - Constrained least squares (equality via closed-form Lagrange multipliers,
     inequality via an active-set QP solver)
   - ODE simulation via scipy.integrate.solve_ivp
 
-By avoiding pysindy's overhead (AxesArray wrapping, sklearn validation,
-the STLSQ unbias / SR3 iteration loop, SampleConcatter), this yields
-~20–50x speedups on the operations that matter (fit+score, simulate).
+This lightweight implementation avoids external dependencies and yields
+significant speedups on the operations that matter (fit+score, simulate).
 """
 
 from __future__ import annotations
@@ -302,7 +300,7 @@ def _active_set_qp(
 
 
 class SystemIdModel:
-    """Lightweight ODE/transfer-function model (pysindy.SINDy replacement).
+    """Lightweight ODE/transfer-function model.
 
     Supports polynomial features, finite-difference differentiation,
     ordinary least squares, and constrained least squares.
@@ -357,7 +355,7 @@ class SystemIdModel:
         self._cached_theta: np.ndarray | None = None
         self._cached_valid: np.ndarray | None = None
 
-    # -- public API mirroring pysindy.SINDy -------------------------------
+    # -- public API ---------------------------------------------------------
 
     @property
     def feature_names(self) -> list[str]:
@@ -405,7 +403,7 @@ class SystemIdModel:
             feature_names: names for x and u columns.
 
         Returns:
-            self (for chaining, matching pysindy.SINDy.fit).
+            self (for chaining).
         """
         x_arr = self._to_array(x)
         if x_arr.ndim == 1:
@@ -633,7 +631,7 @@ class SystemIdModel:
         u: np.ndarray | pd.DataFrame | None = None,
         **kwargs: Any,
     ) -> np.ndarray:
-        """Integrate the ODE forward in time (matches pysindy's simulate).
+        """Integrate the ODE forward in time.
 
         Args:
             x0: Initial condition, shape (n_targets,) or (n_targets, 1).

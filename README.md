@@ -2,7 +2,7 @@
 
 Model Discovery in Partially Observable Dynamical Systems
 
-modpods discovers governing equations from time-series data using sparse regression with gamma-distribution convolution kernels. It is designed for
+modpods discovers governing equations from time-series data using polynomial regression with gamma-distribution convolution kernels. It is designed for
 practitioners who want to fit interpretable dynamical models to their data with
 minimal configuration.
 
@@ -63,7 +63,7 @@ Train a dynamical model from time-series data. The function:
 
 1. Applies gamma-distribution convolution transforms to input channels to capture
    delayed causation.
-2. Uses sparse regression to discover
+2. Uses polynomial regression to discover
    governing equations in the form `ẋ = f(x, u)`.
 3. Supports constrained optimization (e.g., enforcing that certain coefficients
    are negative or positive).

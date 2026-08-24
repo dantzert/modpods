@@ -99,7 +99,7 @@ A single fitted delay-io model returned by `DelayIO.fit()`.
 
 ## `modpods.delay_io_train`
 
-Train a sparse dynamical model from time-series data using sparse regression with
+Train a dynamical model from time-series data using polynomial regression with
 gamma-distribution convolution transforms.
 
 ```python
@@ -325,7 +325,7 @@ modpods.SINDY_delays_MI(
 ## `modpods.infer_causative_topology`
 
 Discover which input variables causally influence which output variables
-using sparse regression with gamma transforms.
+using polynomial regression with gamma transforms.
 
 ```python
 causative_topo, total_graph = modpods.infer_causative_topology(
@@ -336,7 +336,7 @@ causative_topo, total_graph = modpods.infer_causative_topology(
     verbose="warnings",
     max_iter=250,
     swmm=False,
-    method="sindy",
+    method="polynomial_regression",
     derivative=False,
     sensor_locations=None,
     init_neighbors=3,

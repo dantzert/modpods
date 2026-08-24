@@ -31,7 +31,7 @@ def find_topology_no_geo(
         configure_verbosity(verbose)
     kernel = get_kernel(kernel)
     """
-    Infer network topology from time series data using SINDy-based optimization.
+    Infer network topology from time series data using polynomial regression optimization.
 
     Args:
         system_data: pd.DataFrame with time series data, columns are variables
@@ -572,7 +572,7 @@ def find_topology_no_geo(
                 transformed_inputs = pd.concat(
                     (transformed_inputs, transformed), axis="columns"
                 )
-            # build and fit the sindy model
+            # build and fit the polynomial regression model
             feature_names = [output_variable] + list(transformed_inputs.columns)
             model = SystemIdModel(
                 poly_degree=2,
@@ -751,14 +751,14 @@ def infer_causative_topology(  # noqa: F811
     verbose: Verbosity = "warnings",
     max_iter=250,
     swmm=False,
-    method="sindy",  # Changed default from "granger" to "sindy"
+    method="polynomial_regression",  # only supported method
     derivative=False,
     sensor_locations=None,
     init_neighbors=3,
     kernel="gamma",
 ):
     """
-    Infer causative topology from time series data using SINDy-based optimization.
+    Infer causative topology from time series data using polynomial regression optimization.
 
     Args:
         system_data: pd.DataFrame with time series data
@@ -768,7 +768,7 @@ def infer_causative_topology(  # noqa: F811
         verbose: whether to print detailed output
         max_iter: maximum iterations for optimization
         swmm: whether this is for SWMM/pystorms data
-        method: inference method ('sindy' is the only supported method now)
+        method: inference method ('polynomial_regression' is the only supported method now)
         derivative: whether to use derivative of response
         sensor_locations: optional dict mapping column names to {"lat": float, "lon": float}
         init_neighbors: initial number of nearest neighbors to evaluate when sensor_locations is provided (default: 3)
@@ -788,14 +788,14 @@ def infer_causative_topology(  # noqa: F811
     if method in ("granger", "ccm", "transfer_entropy"):
         warnings.warn(
             f"Method '{method}' is deprecated. The Granger causality, CCM, and "
-            "Transfer Entropy methods have been replaced by the improved SINDy-based "
-            "topology inference (method='sindy'), which provides significantly better "
-            "results. Please use method='sindy' (the new default).",
+            "Transfer Entropy methods have been replaced by the improved polynomial regression-based "
+            "topology inference (method='polynomial_regression'), which provides significantly better "
+            "results. Please use method='polynomial_regression' (the new default).",
             DeprecationWarning,
             stacklevel=2,
         )
         # Fall back to new method
-        method = "sindy"
+        method = "polynomial_regression"
 
     if swmm:
         # do the same for dependent_columns and independent_columns
@@ -804,7 +804,7 @@ def infer_causative_topology(  # noqa: F811
         # do the same for the columns of system_data
         system_data.columns = system_data.columns.astype(str)
 
-    # Import and use the new SINDy-based topology inference
+    # Import and use the new polynomial regression-based topology inference
     # (using our local implementation)
     result = find_topology_no_geo(
         system_data=system_data,

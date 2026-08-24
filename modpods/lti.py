@@ -527,7 +527,7 @@ def lti_system_gen(
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
 
-    # cast the columns and indices of causative_topology to strings so sindy can run properly
+    # cast the columns and indices of causative_topology to strings so the regression model can run properly
     # We need the tuples to link the columns in system_data to the object names in the swmm model
     # so we'll cast these back to tuples once we're done
     if swmm:
@@ -937,7 +937,7 @@ def lti_system_gen(
             A_stab = A - np.eye(len(A)) * shift
             A = A_stab.copy(deep=True)
 
-    # sindy will scale the coefficients according to the timestep if the index is numeric
+    # the regression model will scale the coefficients according to the timestep if the index is numeric
     # so the whole system needs to be scaled by the timestep if its numeric
     try:
         pd.to_numeric(
