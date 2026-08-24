@@ -166,7 +166,7 @@ modpods.delay_io_train(
 ```python
 {
     "final_model": {
-        "model": pysindy.SINDy,
+        "model": SystemIdModel,
         "error_metrics": {
             "MAE", "RMSE", "NSE", "alpha", "beta",
             "HFV", "HFV10", "LFV", "FDC", "r2",
@@ -285,7 +285,7 @@ cache = modpods.TransformCache(max_entries=2000, quantization=1e-6)
 
 ## `modpods.SINDY_delays_MI`
 
-Build and fit a pysindy `SINDy` model with optional coefficient constraints
+Build and fit a system-identification model with optional coefficient constraints
 and gamma-transformed inputs.  This is the low-level function called by
 `delay_io_train`; most users should call `delay_io_train` instead.
 
@@ -315,7 +315,7 @@ modpods.SINDY_delays_MI(
 
 `dict` with keys:
 
-- `"model"` — fitted `pysindy.SINDy` object (or `None` on failure).
+- `"model"` — fitted `SystemIdModel` object (or `None` on failure).
 - `"error_metrics"` — dict of metric name → list of values (or `[False]` on failure).
 - `"r2"` — training R² (float).
 - `"simulated"`, `"response"`, `"forcing"`, `"index"`, `"diverged"`.

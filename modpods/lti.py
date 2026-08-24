@@ -4,13 +4,10 @@ from typing import Any, cast
 import control  # type: ignore
 import numpy as np
 import pandas as pd
-import pysindy as ps  # type: ignore
 import scipy.stats as stats
-from pysindy.optimizers._constrained_sr3 import (  # type: ignore[import-untyped]
-    ConstrainedSR3 as _ConstrainedSR3,
-)
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
+from ._system_id import SystemIdModel, _n_polynomial_features
 from ._validation import validate_columns, validate_system_data
 from .kernels import get_kernel
 from .model import _build_constraint_matrices
@@ -625,11 +622,7 @@ def lti_system_gen(
             # we can put immediate causation into the matrices A, B, and C now
 
             if bibo_stable:  # negative autocorrelatoin
-                library = ps.PolynomialLibrary(
-                    degree=1, include_bias=False, include_interaction=False
-                )
-                library.fit(np.zeros((2, len(feature_names))))
-                n_features = library.n_output_features_
+                n_features = _n_polynomial_features(len(feature_names), 1, False, False)
 
                 constraint_lhs = np.zeros((1, n_features))
                 constraint_rhs = np.zeros(1)
@@ -648,29 +641,22 @@ def lti_system_gen(
                 else:
                     all_inequality = True
 
-                model = ps.SINDy(
-                    differentiation_method=ps.FiniteDifference(),
-                    feature_library=ps.PolynomialLibrary(
-                        degree=1, include_bias=False, include_interaction=False
-                    ),
-                    optimizer=_ConstrainedSR3(
-                        reg_weight_lam=0,
-                        regularizer="l2",
-                        constraint_lhs=constraint_lhs,
-                        constraint_rhs=constraint_rhs,
-                        inequality_constraints=all_inequality,
-                    ),
+                model = SystemIdModel(
+                    poly_degree=1,
+                    include_bias=False,
+                    include_interaction=False,
+                    constraint_lhs=constraint_lhs,
+                    constraint_rhs=constraint_rhs,
+                    inequality_constraints=all_inequality,
                 )
 
-            else:  # unoconstrained
-                model = ps.SINDy(
-                    differentiation_method=ps.FiniteDifference(
-                        order=10, drop_endpoints=True
-                    ),
-                    feature_library=ps.PolynomialLibrary(
-                        degree=1, include_bias=False, include_interaction=False
-                    ),
-                    optimizer=ps.optimizers.STLSQ(threshold=0, alpha=0),
+            else:  # unconstrained
+                model = SystemIdModel(
+                    poly_degree=1,
+                    include_bias=False,
+                    include_interaction=False,
+                    fd_order=10,
+                    fd_drop_endpoints=True,
                 )
             if system_data.loc[
                 :, immediate_forcing

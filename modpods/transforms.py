@@ -1,4 +1,3 @@
-import warnings
 from collections import OrderedDict
 
 import numpy as np
@@ -8,11 +7,6 @@ import scipy.stats as stats
 from scipy.optimize import minimize
 
 from .kernels import ConvolutionKernel
-
-# Suppress the specific AxesWarning from pysindy after import
-warnings.filterwarnings(
-    "ignore", message=".*axes labeled for array with.*", module="pysindy"
-)
 
 
 # Bayesian optimization helper functions
