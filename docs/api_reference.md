@@ -36,11 +36,11 @@ pred = model.predict(system_data, n_transforms=1)
 | `windup_timesteps` | `int` | `0` | Number of initial rows to discard as spin-up. |
 | `init_transforms` | `int` | `1` | Minimum number of transforms to try. |
 | `max_transforms` | `int` | `4` | Maximum number of transforms to try. |
-| `poly_order` | `int` | `3` | Polynomial degree for the SINDy feature library. |
+| `poly_order` | `int` | `3` | Polynomial degree for the feature library. |
 | `transform_dependent` | `bool` | `False` | If `True`, transform **all** columns (outputs + inputs) instead of only inputs. |
 | `verbose` | `str` | `"warnings"` | Logging level: `"warnings"`, `"info"`, or `"debug"`. |
-| `include_bias` | `bool` | `False` | Include a constant term in the SINDy library. |
-| `include_interaction` | `bool` | `False` | Include interaction terms in the SINDy library. |
+| `include_bias` | `bool` | `False` | Include a constant term in the feature library. |
+| `include_interaction` | `bool` | `False` | Include interaction terms in the feature library. |
 | `bibo_stable` | `bool` | `False` | Constrain the highest-order output autocorrelation to be negative. |
 | `forcing_coef_constraints` | `dict` or `None` | `None` | Dict mapping input column names to constraint strengths. |
 | `constraints` | `list[dict]` or `None` | `None` | Custom coefficient constraints. |
@@ -99,7 +99,7 @@ A single fitted delay-io model returned by `DelayIO.fit()`.
 
 ## `modpods.delay_io_train`
 
-Train a sparse dynamical model from time-series data using SINDy with
+Train a sparse dynamical model from time-series data using sparse regression with
 gamma-distribution convolution transforms.
 
 ```python
@@ -136,11 +136,11 @@ modpods.delay_io_train(
 | `init_transforms` | `int` | `1` | Minimum number of gamma transforms to try. |
 | `max_transforms` | `int` | `4` | Maximum number of gamma transforms to try. |
 | `max_iter` | `int` | `250` | Iteration budget for the optimizer. Meaning varies by `optimization_method`. |
-| `poly_order` | `int` | `3` | Polynomial degree for the SINDy feature library. |
+| `poly_order` | `int` | `3` | Polynomial degree for the feature library. |
 | `transform_dependent` | `bool` | `False` | If `True`, transform **all** columns (outputs + inputs) instead of only inputs. |
 | `verbose` | `str` or `bool` | `"warnings"` | Logging level: `"warnings"`, `"info"`, or `"debug"`. |
-| `include_bias` | `bool` | `False` | Include a constant term in the SINDy library. |
-| `include_interaction` | `bool` | `False` | Include interaction terms in the SINDy library. |
+| `include_bias` | `bool` | `False` | Include a constant term in the feature library. |
+| `include_interaction` | `bool` | `False` | Include interaction terms in the feature library. |
 | `bibo_stable` | `bool` | `False` | Constrain the highest-order output autocorrelation to be negative. |
 | `transform_only` | `list[str]` or `None` | `None` | Subset of `independent_columns` to transform; the rest pass through untransformed. |
 | `forcing_coef_constraints` | `dict[str, float]` or `None` | `None` | Dict mapping input column names to constraint strengths. **Sign convention:** a positive value constrains the coefficient to be `<= -value`. |
@@ -325,7 +325,7 @@ modpods.SINDY_delays_MI(
 ## `modpods.infer_causative_topology`
 
 Discover which input variables causally influence which output variables
-using SINDy-based sparse regression with gamma transforms.
+using sparse regression with gamma transforms.
 
 ```python
 causative_topo, total_graph = modpods.infer_causative_topology(
