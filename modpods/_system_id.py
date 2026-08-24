@@ -25,7 +25,6 @@ import pandas as pd
 import scipy.signal
 from scipy.integrate import solve_ivp
 from scipy.interpolate import interp1d
-from sklearn.metrics import r2_score  # type: ignore[import-untyped]
 
 
 def _polynomial_feature_names(
@@ -496,7 +495,13 @@ class SystemIdModel:
         theta_valid = theta[valid]
 
         x_dot_pred = theta_valid @ self._coef.T
-        return float(r2_score(x_dot_valid, x_dot_pred, multioutput="variance_weighted"))
+        # Variance-weighted R² across targets
+        ss_res = np.sum((x_dot_valid - x_dot_pred) ** 2, axis=0)
+        ss_tot = np.sum((x_dot_valid - x_dot_valid.mean(axis=0)) ** 2, axis=0)
+        var_weights = ss_tot / ss_tot.sum()
+        return float(
+            1.0 - np.sum(var_weights * ss_res / np.where(ss_tot > 0, ss_tot, 1))
+        )
 
     def predict(
         self,
