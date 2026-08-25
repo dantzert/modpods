@@ -2,7 +2,7 @@
 
 Model Discovery in Partially Observable Dynamical Systems
 
-modpods discovers governing equations from time-series data using polynomial regression with gamma-distribution convolution kernels. It is designed for
+modpods discovers governing equations from time-series data using polynomial regression with pluggable convolution kernels (gamma, log-normal, bimodal gamma, underdamped oscillator). It is designed for
 practitioners who want to fit interpretable dynamical models to their data with
 minimal configuration.
 
@@ -34,6 +34,7 @@ dependent_columns = ["y1", "y2"]
 independent_columns = ["u1", "u2"]
 
 # Train a model: discover equations that explain y1, y2 from u1, u2
+# Use kernel="try-all" to automatically select the best kernel
 model = modpods.delay_io_train(
     system_data=data,
     dependent_columns=dependent_columns,
@@ -43,6 +44,7 @@ model = modpods.delay_io_train(
     max_transforms=2,
     max_iter=250,
     poly_order=2,
+    kernel="try-all",
     verbose=False,
 )
 
@@ -61,13 +63,14 @@ print(prediction["error_metrics"])
 
 Train a dynamical model from time-series data. The function:
 
-1. Applies gamma-distribution convolution transforms to input channels to capture
-   delayed causation.
+1. Applies convolution transforms to input channels to capture
+    delayed causation.
 2. Uses polynomial regression to discover
    governing equations in the form `ẋ = f(x, u)`.
 3. Supports constrained optimization (e.g., enforcing that certain coefficients
    are negative or positive).
-4. Returns a dictionary of trained models keyed by the number of transforms.
+4. Supports pluggable convolution kernels: `"gamma"`, `"lognormal"`, `"bimodal_gamma"`, `"underdamped"`, `"try-all"`, or `"run-all"`.
+5. Returns a dictionary of trained models keyed by the number of transforms.
 
 ### `delay_io_predict`
 
@@ -76,7 +79,7 @@ alpha, beta, HFV, HFV10, LFV, FDC).
 
 ### `transform_inputs`
 
-Apply gamma-distribution convolution to forcing inputs. Useful as a standalone
+Apply convolution transforms to forcing inputs. Useful as a standalone
 preprocessing step.
 
 ### `infer_causative_topology`
