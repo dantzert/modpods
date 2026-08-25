@@ -200,8 +200,9 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
     where omega_d = omega_n * sqrt(1 - zeta^2)
 
     Parameters are physical: zeta (damping ratio) and omega_n (natural frequency).
-    zeta is clamped to (0, 1) for underdamped response.  The kernel is truncated
-    to non-negative values for causality.
+    Positive zeta produces decaying oscillations; negative zeta produces growing
+    (unstable) oscillations.  The kernel is truncated to non-negative values for
+    causality when zeta >= 0.
 
     Note: This does NOT construct LTI state-space matrices.  It only uses the
     impulse response for convolution.  Arbitrary pole placements may be an
@@ -224,7 +225,7 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
     def default_bounds(self) -> np.ndarray:
         return np.array(
             [
-                [0.01, 0.99],
+                [-0.99, 0.99],
                 [0.1, 10.0],
             ]
         )
@@ -237,7 +238,50 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
         omega_d = omega_n * np.sqrt(1.0 - zeta**2)
         amplitude = omega_n / omega_d
         h = amplitude * np.exp(-zeta * omega_n * t) * np.sin(omega_d * t)
+        if zeta < 0:
+            return h  # type: ignore[no-any-return]
         return np.maximum(h, 0.0)  # type: ignore[no-any-return]
+
+
+class ExponentialGrowthKernel(ConvolutionKernel):
+    """Exponential growth impulse response.
+
+    h(t) = exp(rate * t) / sum(exp(rate * t))
+
+    The kernel is normalized so that the values sum to 1 over the simulation
+    time horizon.  rate > 0 produces monotonically increasing weights.
+
+    Parameters:
+        rate: Growth rate controlling how quickly the kernel increases with t.
+    """
+
+    @property
+    def name(self) -> str:
+        return "exponential_growth"
+
+    @property
+    def num_params(self) -> int:
+        return 1
+
+    @property
+    def param_names(self) -> List[str]:
+        return ["rate"]
+
+    @property
+    def default_bounds(self) -> np.ndarray:
+        return np.array(
+            [
+                [0.01, 5.0],
+            ]
+        )
+
+    @property
+    def default_init(self) -> np.ndarray:
+        return np.array([0.5])
+
+    def kernel_fn(self, t: np.ndarray, rate: float) -> np.ndarray:  # type: ignore[override]
+        h = np.exp(rate * t)
+        return h / np.sum(h)  # type: ignore[no-any-return]
 
 
 _KERNEL_REGISTRY: Dict[str, type] = {}
@@ -281,3 +325,4 @@ register_kernel(GammaKernel)
 register_kernel(LogNormalKernel)
 register_kernel(BimodalGammaKernel)
 register_kernel(UnderdampedOscillatorKernel)
+register_kernel(ExponentialGrowthKernel)

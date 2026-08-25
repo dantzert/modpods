@@ -177,6 +177,21 @@ def test_lti_from_underdamped_achieves_reasonable_nse() -> None:
     assert nse > 0.99, f"NSE {nse:.4f} is below the 0.99 threshold"
 
 
+def test_lti_from_underdamped_unstable() -> None:
+    """lti_from_underdamped should work with negative zeta (unstable)."""
+    result = modpods.lti_from_underdamped(zeta=-0.2, omega_n=2.0)
+    assert isinstance(result, dict)
+    for key in ("t", "target", "lti_approx_output", "lti_approx"):
+        assert key in result, f"missing key '{key}' in result"
+    target = result["target"]
+    lti_approx = result["lti_approx_output"]
+    nse = 1.0 - float(
+        np.sum(np.square(target - lti_approx))
+        / np.sum(np.square(target - np.mean(target)))
+    )
+    assert nse > 0.99, f"NSE {nse:.4f} is below the 0.99 threshold for unstable case"
+
+
 def test_lti_from_kernel_gamma() -> None:
     """lti_from_kernel should dispatch to lti_from_gamma for gamma kernel."""
     result = modpods.lti_from_kernel("gamma", {"shape": 5.0, "scale": 1.0, "loc": 0.0})
@@ -188,6 +203,47 @@ def test_lti_from_kernel_gamma() -> None:
 def test_lti_from_kernel_underdamped() -> None:
     """lti_from_kernel should dispatch to lti_from_underdamped for underdamped kernel."""
     result = modpods.lti_from_kernel("underdamped", {"zeta": 0.2, "omega_n": 2.0})
+    assert "lti_approx" in result
+    assert "t" in result
+    assert "target" in result
+
+
+def test_lti_from_exponential_growth_returns_required_keys() -> None:
+    """lti_from_exponential_growth must return a dict with the expected keys."""
+    result = modpods.lti_from_exponential_growth(rate=0.5)
+    assert isinstance(result, dict)
+    for key in ("t", "target", "lti_approx_output", "lti_approx"):
+        assert key in result, f"missing key '{key}' in result"
+
+
+def test_lti_from_exponential_growth_output_shapes_match() -> None:
+    """target and lti_approx_output must have the same length."""
+    result = modpods.lti_from_exponential_growth(rate=0.5)
+    assert result["target"].shape == result["lti_approx_output"].shape
+
+
+def test_lti_from_exponential_growth_is_first_order() -> None:
+    """Exponential growth LTI should have exactly 1 state."""
+    result = modpods.lti_from_exponential_growth(rate=0.5)
+    sys = result["lti_approx"]
+    assert sys.A.shape == (1, 1), f"expected 1x1 A, got {sys.A.shape}"
+
+
+def test_lti_from_exponential_growth_achieves_reasonable_nse() -> None:
+    """LTI approximation should match the exponential growth target."""
+    result = modpods.lti_from_exponential_growth(rate=0.5)
+    target = result["target"]
+    lti_approx = result["lti_approx_output"]
+    nse = 1.0 - float(
+        np.sum(np.square(target - lti_approx))
+        / np.sum(np.square(target - np.mean(target)))
+    )
+    assert nse > 0.95, f"NSE {nse:.4f} is below the 0.95 threshold"
+
+
+def test_lti_from_kernel_exponential_growth() -> None:
+    """lti_from_kernel should dispatch to lti_from_exponential_growth for exponential_growth kernel."""
+    result = modpods.lti_from_kernel("exponential_growth", {"rate": 0.5})
     assert "lti_approx" in result
     assert "t" in result
     assert "target" in result
@@ -544,6 +600,7 @@ def test_kernel_registry() -> None:
     assert "lognormal" in names
     assert "bimodal_gamma" in names
     assert "underdamped" in names
+    assert "exponential_growth" in names
 
 
 def test_get_kernel_by_name() -> None:
@@ -568,7 +625,7 @@ def test_underdamped_kernel_defaults() -> None:
     k = modpods.UnderdampedOscillatorKernel()
     assert k.num_params == 2
     assert k.param_names == ["zeta", "omega_n"]
-    assert k.default_bounds[0, 0] > 0
+    assert k.default_bounds[0, 0] < 0
     assert k.default_bounds[0, 1] < 1
 
 
@@ -583,13 +640,54 @@ def test_kernel_fn_shape() -> None:
 
 
 def test_underdamped_kernel_oscillatory() -> None:
-    """Underdamped kernel should produce non-zero values that decay."""
+    """Underdamped kernel with zeta > 0 should produce decaying non-negative values."""
     t = np.arange(0, 200, 1.0)
     k = modpods.UnderdampedOscillatorKernel()
     h = k.kernel_fn(t, 0.2, 2.0)
     assert h.max() > 0, "underdamped kernel should have positive peak"
     assert h[-1] < h.max() / 10, "underdamped kernel should decay"
     assert np.all(h >= 0), "underdamped kernel should be non-negative (causal)"
+
+
+def test_underdamped_kernel_unstable() -> None:
+    """Underdamped kernel with zeta < 0 should produce growing oscillations."""
+    t = np.arange(0, 200, 1.0)
+    k = modpods.UnderdampedOscillatorKernel()
+    h = k.kernel_fn(t, -0.2, 2.0)
+    assert h.max() > 0, "unstable oscillator should have positive peak"
+    peaks = [
+        h[i]
+        for i in range(1, len(h) - 1)
+        if h[i] > h[i - 1] and h[i] > h[i + 1]
+    ]
+    assert len(peaks) >= 2, "should have multiple peaks"
+    assert peaks[-1] > peaks[0], "peaks should grow for negative zeta"
+
+
+def test_exponential_growth_kernel_defaults() -> None:
+    """ExponentialGrowthKernel should have 1 param."""
+    k = modpods.ExponentialGrowthKernel()
+    assert k.num_params == 1
+    assert k.param_names == ["rate"]
+    assert k.default_bounds[0, 0] > 0
+    assert k.default_bounds[0, 1] > 0
+
+
+def test_exponential_growth_kernel_increasing() -> None:
+    """Exponential growth kernel should produce monotonically increasing values."""
+    t = np.arange(0, 100, 1.0)
+    k = modpods.ExponentialGrowthKernel()
+    h = k.kernel_fn(t, 0.5)
+    assert np.all(np.diff(h) > 0), "exponential growth kernel should be strictly increasing"
+    assert np.isclose(np.sum(h), 1.0), "kernel should sum to 1"
+
+
+def test_exponential_growth_kernel_shape() -> None:
+    """Exponential growth kernel output must have same length as input time array."""
+    t = np.arange(0, 100, 1.0)
+    k = modpods.ExponentialGrowthKernel()
+    h = k.kernel_fn(t, 0.5)
+    assert h.shape == t.shape
 
 
 def test_make_kernel_params() -> None:
