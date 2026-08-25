@@ -655,11 +655,7 @@ def test_underdamped_kernel_unstable() -> None:
     k = modpods.UnderdampedOscillatorKernel()
     h = k.kernel_fn(t, -0.2, 2.0)
     assert h.max() > 0, "unstable oscillator should have positive peak"
-    peaks = [
-        h[i]
-        for i in range(1, len(h) - 1)
-        if h[i] > h[i - 1] and h[i] > h[i + 1]
-    ]
+    peaks = [h[i] for i in range(1, len(h) - 1) if h[i] > h[i - 1] and h[i] > h[i + 1]]
     assert len(peaks) >= 2, "should have multiple peaks"
     assert peaks[-1] > peaks[0], "peaks should grow for negative zeta"
 
@@ -678,7 +674,9 @@ def test_exponential_growth_kernel_increasing() -> None:
     t = np.arange(0, 100, 1.0)
     k = modpods.ExponentialGrowthKernel()
     h = k.kernel_fn(t, 0.5)
-    assert np.all(np.diff(h) > 0), "exponential growth kernel should be strictly increasing"
+    assert np.all(
+        np.diff(h) > 0
+    ), "exponential growth kernel should be strictly increasing"
     assert np.isclose(np.sum(h), 1.0), "kernel should sum to 1"
 
 
