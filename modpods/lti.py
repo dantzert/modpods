@@ -236,6 +236,46 @@ def lti_from_gamma(
     }
 
 
+def lti_from_exponential_growth(rate, dt=0, desired_NSE=0.999, verbose="warnings"):
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
+
+    A = np.array([[rate]])
+    B = np.array([[1]])
+    C = np.array([[1]])
+
+    t = np.linspace(0, 10, num=200)
+    target = np.exp(rate * t)
+    target = target / np.sum(target)
+
+    lti_sys = control.ss(A, B, C, 0)
+    y = np.ndarray.flatten(control.impulse_response(lti_sys, t).y)
+    y = y / np.sum(y)
+
+    NSE = 1 - (
+        np.sum(np.square(target - y)) / np.sum(np.square(target - np.mean(target)))
+    )
+    if np.isnan(NSE):
+        NSE = -10e6
+
+    error = np.sum(np.abs(target - y))
+
+    if _normalize_verbose(verbose) != "warnings":
+        logger.info("LTI_from_exponential_growth final NSE: %s", NSE)
+        logger.info("A:\n%s", A)
+        logger.info("B:\n%s", B)
+        logger.info("C:\n%s", C)
+        logger.info("final error: %s", error)
+
+    return {
+        "lti_approx": lti_sys,
+        "lti_approx_output": y,
+        "error": error,
+        "t": t,
+        "target": target,
+    }
+
+
 def lti_from_underdamped(zeta, omega_n, dt=0, desired_NSE=0.999, verbose="warnings"):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
@@ -251,13 +291,18 @@ def lti_from_underdamped(zeta, omega_n, dt=0, desired_NSE=0.999, verbose="warnin
     B = np.array([[0], [1]])
     C = np.array([[omega_n, 0]])
 
-    t = np.linspace(0, 4 * np.pi / omega_d, num=200)
+    if zeta < 0:
+        t = np.linspace(0, 8 * np.pi / omega_d, num=200)
+    else:
+        t = np.linspace(0, 4 * np.pi / omega_d, num=200)
     target = (omega_n / omega_d) * np.exp(-zeta * omega_n * t) * np.sin(omega_d * t)
-    target = np.maximum(target, 0.0)
+    if zeta >= 0:
+        target = np.maximum(target, 0.0)
 
     lti_sys = control.ss(A, B, C, 0)
     y = np.ndarray.flatten(control.impulse_response(lti_sys, t).y)
-    y = np.maximum(y, 0.0)
+    if zeta >= 0:
+        y = np.maximum(y, 0.0)
 
     NSE = 1 - (
         np.sum(np.square(target - y)) / np.sum(np.square(target - np.mean(target)))
@@ -498,6 +543,15 @@ def lti_from_kernel(
             shape2,
             scale2,
             loc2,
+            dt=dt,
+            desired_NSE=desired_NSE,
+            verbose=verbose,
+        )
+
+    if kernel.name == "exponential_growth":
+        rate = params["rate"]
+        return lti_from_exponential_growth(
+            rate,
             dt=dt,
             desired_NSE=desired_NSE,
             verbose=verbose,

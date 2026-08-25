@@ -4,6 +4,7 @@ from .estimator import DelayIO, DelayIOModel
 from .kernels import (
     BimodalGammaKernel,
     ConvolutionKernel,
+    ExponentialGrowthKernel,
     GammaKernel,
     LogNormalKernel,
     UnderdampedOscillatorKernel,
@@ -14,6 +15,7 @@ from .kernels import (
 from .lti import (
     LTISystem,
     lti_from_bimodal_gamma,
+    lti_from_exponential_growth,
     lti_from_gamma,
     lti_from_kernel,
     lti_from_lognormal,
@@ -41,6 +43,7 @@ __all__ = [
     "GammaKernel",
     "LogNormalKernel",
     "BimodalGammaKernel",
+    "ExponentialGrowthKernel",
     "UnderdampedOscillatorKernel",
     "get_kernel",
     "list_kernels",
@@ -54,6 +57,7 @@ __all__ = [
     "delay_io_predict",
     "lti_from_gamma",
     "lti_from_bimodal_gamma",
+    "lti_from_exponential_growth",
     "lti_from_lognormal",
     "lti_from_underdamped",
     "lti_from_kernel",
