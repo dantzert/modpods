@@ -100,7 +100,7 @@ A single fitted delay-io model returned by `DelayIO.fit()`.
 ## `modpods.delay_io_train`
 
 Train a dynamical model from time-series data using polynomial regression with
-gamma-distribution convolution transforms.
+pluggable convolution transforms.
 
 ```python
 modpods.delay_io_train(
@@ -133,8 +133,8 @@ modpods.delay_io_train(
 | `dependent_columns` | `list[str]` | required | Output / state columns to model. |
 | `independent_columns` | `list[str]` | required | Input / forcing columns. |
 | `windup_timesteps` | `int` | `0` | Number of initial rows to discard as spin-up. |
-| `init_transforms` | `int` | `1` | Minimum number of gamma transforms to try. |
-| `max_transforms` | `int` | `4` | Maximum number of gamma transforms to try. |
+| `init_transforms` | `int` | `1` | Minimum number of transforms to try. |
+| `max_transforms` | `int` | `4` | Maximum number of transforms to try. |
 | `max_iter` | `int` | `250` | Iteration budget for the optimizer. Meaning varies by `optimization_method`. |
 | `poly_order` | `int` | `3` | Polynomial degree for the feature library. |
 | `transform_dependent` | `bool` | `False` | If `True`, transform **all** columns (outputs + inputs) instead of only inputs. |
@@ -227,7 +227,7 @@ modpods.delay_io_predict(
 
 ## `modpods.transform_inputs`
 
-Apply gamma-distribution convolution transforms to forcing inputs using
+Apply convolution transforms to forcing inputs using
 FFT-based convolution.
 
 ```python
@@ -246,9 +246,9 @@ modpods.transform_inputs(
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `shape_factors` | `pd.DataFrame` | Rows are transform indices (`1..N`), columns are variable names. Values are gamma shape parameters. |
-| `scale_factors` | `pd.DataFrame` | Same layout; gamma scale parameters. |
-| `loc_factors` | `pd.DataFrame` | Same layout; gamma location parameters. |
+| `shape_factors` | `pd.DataFrame` | Rows are transform indices (`1..N`), columns are variable names. Values are kernel-specific parameters. |
+| `scale_factors` | `pd.DataFrame` | Same layout; kernel-specific parameters. |
+| `loc_factors` | `pd.DataFrame` | Same layout; kernel-specific parameters. |
 | `index` | `pd.Index` | Time index (used for output length). |
 | `forcing` | `pd.DataFrame` | Raw forcing inputs. |
 | `cache` | `TransformCache` or `None` | Optional memoization cache. Near-identical parameter sets reuse cached results. |
@@ -261,7 +261,7 @@ modpods.transform_inputs(
 
 ## `modpods.TransformCache`
 
-LRU cache for gamma-transformed time series.  Keys are quantized so
+LRU cache for transformed time series.  Keys are quantized so
 near-identical parameter sets hit the same entry.
 
 ```python
@@ -277,7 +277,7 @@ cache = modpods.TransformCache(max_entries=2000, quantization=1e-6)
 
 ### Methods
 
-- `get(input_name, forcing_values, shape, scale, loc)` → `np.ndarray`
+- `get(input_name, forcing_values, kernel, params)` → `np.ndarray`
 - `clear()` — reset cache and counters.
 - `stats()` → `dict` with keys `hits`, `misses`, `total`, `hit_rate`, `size`, `max_entries`.
 
@@ -286,14 +286,13 @@ cache = modpods.TransformCache(max_entries=2000, quantization=1e-6)
 ## `modpods.SINDY_delays_MI`
 
 Build and fit a system-identification model with optional coefficient constraints
-and gamma-transformed inputs.  This is the low-level function called by
+and transformed inputs.  This is the low-level function called by
 `delay_io_train`; most users should call `delay_io_train` instead.
 
 ```python
 modpods.SINDY_delays_MI(
-    shape_factors,
-    scale_factors,
-    loc_factors,
+    kernel,
+    kernel_params,
     index,
     forcing,
     response,
@@ -325,7 +324,7 @@ modpods.SINDY_delays_MI(
 ## `modpods.infer_causative_topology`
 
 Discover which input variables causally influence which output variables
-using polynomial regression with gamma transforms.
+using polynomial regression with convolution transforms.
 
 ```python
 causative_topo, total_graph = modpods.infer_causative_topology(
@@ -373,7 +372,7 @@ result = modpods.find_topology_no_geo(
 `dict` with keys:
 
 - `"edges"` — `pd.DataFrame` adjacency matrix (`1` = edge, `0` = no edge).
-- `"best_params"` — `pd.DataFrame` of `(shape, scale, loc)` tuples.
+- `"best_params"` — `pd.DataFrame` of kernel-specific parameter tuples.
 - `"r2_values"` — `pd.DataFrame` of R² for each candidate edge.
 - `"lead_lag"` — `pd.DataFrame` of cross-correlation lags.
 
