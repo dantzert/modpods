@@ -774,7 +774,9 @@ def lti_system_gen(
 
                     lti_result = transformation_approximations[transform_key]
                     Agam = lti_result["lti_approx"].A
-                    Bgam = lti_result["lti_approx"].B
+                    Bgam = lti_result[
+                        "lti_approx"
+                    ].B  # only entry is unit impulse at top state
                     Cgam = lti_result["lti_approx"].C
 
                     tr_string = str("_tr_" + str(idx))
@@ -796,8 +798,8 @@ def lti_system_gen(
                         if tr_string in coef_key and coef_key.replace(
                             tr_string, ""
                         ) == transform_key.replace(tr_string, ""):
-                            Cgam = Cgam * coefficients[coef_key]
-                        else:
+                            Cgam = Cgam * coefficients[coef_key]  # scaling
+                        else:  # these are the immediate effects, insert them now
                             if coef_key in A.columns:
                                 A.loc[row, coef_key] = coefficients[coef_key]
                             elif coef_key in B.columns:
@@ -816,6 +818,9 @@ def lti_system_gen(
                         columns=[source_var],
                     )
                     Cgam = pd.DataFrame(Cgam, index=[row], columns=Agam_index)
+                    # insert these into the A, B, and C matrices
+                    # for Agam, the insertion row is immediately after the source (key)
+                    # the insertion column is also immediately after the source (key)
 
                     # Build new state list by inserting Agam states after the source variable
                     if source_var in A.index:
@@ -863,10 +868,17 @@ def lti_system_gen(
 
                     # Insert Bgam - connects source input to first state of cascade
                     # Bgam has shape (n_states, 1) with 1 at top state
+                    # If source_var is a state: goes in A at [delay_state, source_var]
+                    # If source_var is an input: goes in B at [delay_state, source_var]
                     for idx in Bgam.index:
                         for col in Bgam.columns:
-                            if idx in newA.index and col in newB.columns:
-                                newB.loc[idx, col] = Bgam.loc[idx, col]
+                            if idx in newA.index:
+                                if col in newA.columns:
+                                    # source_var is a state variable
+                                    newA.loc[idx, col] = Bgam.loc[idx, col]
+                                elif col in newB.columns:
+                                    # source_var is an input
+                                    newB.loc[idx, col] = Bgam.loc[idx, col]
 
                     # Copy existing B entries
                     for idx in newB.index:
@@ -880,11 +892,12 @@ def lti_system_gen(
                             if idx in C.index and col in C.columns:
                                 newC.loc[idx, col] = C.loc[idx, col]
 
-                    # Insert Cgam - outputs from cascade states to observed variable
+                    # Insert Cgam - connects delay states to dependent variable (row)
+                    # row is a state variable, so this goes in A at [row, delay_state]
                     for idx in Cgam.index:
                         for col in Cgam.columns:
-                            if idx in newC.index and col in newC.columns:
-                                newC.loc[idx, col] = Cgam.loc[idx, col]
+                            if idx in newA.index and col in newA.columns:
+                                newA.loc[idx, col] = Cgam.loc[idx, col]
 
                     A = newA.copy()
                     B = newB.copy()
