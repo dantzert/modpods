@@ -714,6 +714,15 @@ def lti_system_gen(
                     logger.warning("couldn't find a column for %s", feature_names[idx])
 
     original_A = A.copy(deep=True)
+
+    # Convert 'n', 'd', 'i' to numeric before parsing delay models
+    A.replace({"n": 0.0, "d": 0.0, "i": 0.0}, inplace=True)
+    B.replace({"n": 0.0, "d": 0.0, "i": 0.0}, inplace=True)
+    C.replace({"n": 0.0, "d": 0.0, "i": 0.0}, inplace=True)
+    A = A.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    B = B.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+    C = C.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+
     # now, parse the delay models into the A, B, and C matrices
     for row in original_A.index:
         if delay_models[row] is None:
@@ -881,16 +890,8 @@ def lti_system_gen(
                     B = newB.copy()
                     C = newC.copy()
 
-    A.replace("n", 0.0, inplace=True)
-    B.replace("n", 0.0, inplace=True)
-    C.replace("n", 0.0, inplace=True)
-
     if swmm:
         pass
-
-    A = A.apply(pd.to_numeric, errors="coerce").fillna(0.0)
-    B = B.apply(pd.to_numeric, errors="coerce").fillna(0.0)
-    C = C.apply(pd.to_numeric, errors="coerce").fillna(0.0)
 
     # if bibo_stable is specified and A not Hurwitz, make A Hurwitz by
     # subtracting I * shift from A so that max(real(eig(A))) < 0
