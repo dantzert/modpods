@@ -764,7 +764,7 @@ def lti_system_gen(
             for num_transforms in range(1, max_transforms + 1):
                 if num_transforms == 1:
                     optimal_number_transforms = num_transforms
-                elif (
+                elif num_transforms > 1 and (
                     delay_models[row][num_transforms]["final_model"]["error_metrics"][
                         "r2"
                     ]
@@ -900,7 +900,7 @@ def lti_system_gen(
                         )  # state dim expands by the number of rows in Agam
                         # include the current transform key in A because it's a state variable
                     # elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
-                    elif (
+                    elif num_transforms > 1 and (
                         transform_key.replace(tr_string, "") in B.columns
                     ):  # the transform key refers to a control input (u)
                         states = (
