@@ -663,6 +663,7 @@ def lti_system_gen(
                 verbose=verbose,
                 bibo_stable=bibo_stable,
                 forcing_coef_constraints=forcing_coef_constraints,
+                kernel=kernel,
                 constraints=constraints,
             )
             # we'll parse this delayed causation into the matrices A, B, and C later
@@ -760,10 +761,12 @@ def lti_system_gen(
         if delay_models[row] is None:
             pass
         else:  # we want the model with the most transformations where the last transformation added at least 0.5% to the R2 score
-            for num_transforms in range(1, max_transforms + 1):
+            # Get actual max transforms from delay_models (may be auto-limited for underdamped)
+            actual_max_transforms = max(delay_models[row].keys())
+            for num_transforms in range(1, actual_max_transforms + 1):
                 if num_transforms == 1:
                     optimal_number_transforms = num_transforms
-                elif (
+                elif num_transforms > 1 and (
                     delay_models[row][num_transforms]["final_model"]["error_metrics"][
                         "r2"
                     ]
@@ -906,6 +909,12 @@ def lti_system_gen(
                             before_index + Agam_index + after_index
                         )  # state dim expands by the number of rows in Agam
                         # don't include the current transform key in A because it's a control input, not a state variable
+                    else:
+                        logger.warning(
+                            "Source variable %s not found in A or B",
+                            transform_key.replace(tr_string, ""),
+                        )
+                        states = list(A.index) + Agam_index
 
                     newA = pd.DataFrame(index=states, columns=states)
                     newB = pd.DataFrame(

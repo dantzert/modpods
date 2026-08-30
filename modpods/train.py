@@ -224,6 +224,17 @@ def _run_scipy_optimizer(
     return result.x  # type: ignore[no-any-return]
 
 
+def _auto_max_transforms(kernel: ConvolutionKernel, max_transforms: int) -> int:
+    """Auto-adjust max_transforms based on kernel type.
+
+    Gamma-like kernels use cascades of first-order systems, needing many transforms.
+    Underdamped/2nd-order kernels naturally represent the dynamics in 1 transform.
+    """
+    if kernel.name == "underdamped":
+        return min(max_transforms, 1)
+    return max_transforms
+
+
 class SingleKernelTrainer:
     """Train a modpods model with a single kernel type."""
 
@@ -257,7 +268,7 @@ class SingleKernelTrainer:
         self.independent_columns = independent_columns
         self.windup_timesteps = windup_timesteps
         self.init_transforms = init_transforms
-        self.max_transforms = max_transforms
+        self.max_transforms = _auto_max_transforms(kernel, max_transforms)
         self.max_iter = max_iter
         self.poly_order = poly_order
         self.transform_dependent = transform_dependent
@@ -281,7 +292,7 @@ class SingleKernelTrainer:
             self.columns = system_data[independent_columns].columns.tolist()
 
         self.kernel_params = make_kernel_params(
-            kernel, self.columns, init_transforms, max_transforms
+            kernel, self.columns, init_transforms, self.max_transforms
         )
         self.results: dict[int, dict[str, Any]] = {}
 
@@ -609,6 +620,12 @@ def delay_io_train(
             - "run-all": expensive fit all kernels, return all results.
             - default "gamma" preserves backward compatibility.
 
+        max_transforms: Maximum number of transforms. For underdamped kernel,
+            this is automatically limited to 1 (since underdamped oscillator
+            naturally represents a 2nd-order system in a single transform).
+            For gamma/lognormal/bimodal_gamma/exponential_growth, cascades
+            of first-order systems are used, so more transforms may be needed.
+
     Returns:
         dict keyed by num_transforms.
     """
@@ -639,6 +656,20 @@ def delay_io_train(
         return trainer.train()
 
     k = get_kernel(kernel)
+    # Auto-limit transforms for underdamped kernel
+    auto_max_transforms = _auto_max_transforms(k, max_transforms)
+    if (
+        auto_max_transforms != max_transforms
+        and _normalize_verbose(verbose) != "warnings"
+    ):
+        logger.info(
+            "Auto-limiting max_transforms from %s to %s for '%s' kernel "
+            "(2nd-order systems don't need cascades)",
+            max_transforms,
+            auto_max_transforms,
+            k.name,
+        )
+
     single_trainer = SingleKernelTrainer(
         kernel=k,
         system_data=system_data,
@@ -646,7 +677,7 @@ def delay_io_train(
         independent_columns=independent_columns,
         windup_timesteps=windup_timesteps,
         init_transforms=init_transforms,
-        max_transforms=max_transforms,
+        max_transforms=auto_max_transforms,
         max_iter=max_iter,
         poly_order=poly_order,
         transform_dependent=transform_dependent,
