@@ -900,13 +900,19 @@ def lti_system_gen(
                         )  # state dim expands by the number of rows in Agam
                         # include the current transform key in A because it's a state variable
                     # elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
-                    elif num_transforms > 1 and (
+                    elif (
                         transform_key.replace(tr_string, "") in B.columns
                     ):  # the transform key refers to a control input (u)
                         states = (
                             before_index + Agam_index + after_index
                         )  # state dim expands by the number of rows in Agam
                         # don't include the current transform key in A because it's a control input, not a state variable
+                    else:
+                        logger.warning(
+                            "Source variable %s not found in A or B",
+                            transform_key.replace(tr_string, ""),
+                        )
+                        states = list(A.index) + Agam_index
 
                     newA = pd.DataFrame(index=states, columns=states)
                     newB = pd.DataFrame(
