@@ -8,6 +8,7 @@ import scipy.stats as stats
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from ._system_id import SystemIdModel, _n_polynomial_features
+from ._validation import validate_columns, validate_system_data
 from .kernels import get_kernel
 from .model import _build_constraint_matrices
 from .train import delay_io_train
@@ -811,6 +812,12 @@ def lti_system_gen(
                     if source_var in A.index:
                         # Source is a state variable - insert after it
                         source_loc = A.index.get_loc(source_var)
+                        if isinstance(source_loc, slice):
+                            source_loc = (
+                                source_loc.stop - 1
+                                if source_loc.stop
+                                else len(A.index) - 1
+                            )
                         before_states = list(A.index[: source_loc + 1])
                         after_states = list(A.index[source_loc + 1 :])
                         new_states = before_states + Agam_index + after_states
@@ -928,3 +935,114 @@ def lti_system_gen(
     )
 
     return {"system": lti_sys, "A": A, "B": B, "C": C}
+
+
+class LTISystem:
+    """LTI system estimator following scikit-learn conventions."""
+
+    def __init__(
+        self,
+        causative_topology: pd.DataFrame,
+        independent_columns: list[str],
+        dependent_columns: list[str],
+        max_iter: int = 250,
+        bibo_stable: bool = False,
+        max_transition_state_dim: int = 50,
+        max_transforms: int = 1,
+        early_stopping_threshold: float = 0.005,
+        verbose: Verbosity = "warnings",
+        forcing_coef_constraints: Any = None,
+        constraints: Any = None,
+        kernel: str = "gamma",
+    ) -> None:
+        self.causative_topology = causative_topology
+        self.independent_columns = independent_columns
+        self.dependent_columns = dependent_columns
+        self.max_iter = max_iter
+        self.bibo_stable = bibo_stable
+        self.max_transition_state_dim = max_transition_state_dim
+        self.max_transforms = max_transforms
+        self.early_stopping_threshold = early_stopping_threshold
+        self.verbose = verbose
+        self.forcing_coef_constraints = forcing_coef_constraints
+        self.constraints = constraints
+        self.kernel = kernel
+        self.system_: Any = None
+        self.A_: pd.DataFrame | None = None
+        self.B_: pd.DataFrame | None = None
+        self.C_: pd.DataFrame | None = None
+
+    def fit(self, system_data: pd.DataFrame, **kwargs: Any) -> "LTISystem":
+        validate_system_data(system_data)
+        validate_columns(system_data, self.dependent_columns, "dependent_columns")
+        validate_columns(system_data, self.independent_columns, "independent_columns")
+
+        result = lti_system_gen(
+            causative_topology=self.causative_topology,
+            system_data=system_data,
+            independent_columns=self.independent_columns,
+            dependent_columns=self.dependent_columns,
+            max_iter=self.max_iter,
+            bibo_stable=self.bibo_stable,
+            max_transition_state_dim=self.max_transition_state_dim,
+            max_transforms=self.max_transforms,
+            early_stopping_threshold=self.early_stopping_threshold,
+            verbose=self.verbose,
+            forcing_coef_constraints=self.forcing_coef_constraints,
+            constraints=self.constraints,
+            kernel=self.kernel,
+            **kwargs,
+        )
+        self.system_ = result["system"]
+        self.A_ = result["A"]
+        self.B_ = result["B"]
+        self.C_ = result["C"]
+        return self
+
+    def predict(
+        self,
+        system_data: pd.DataFrame,
+        u_new: pd.DataFrame | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        import control as ct  # type: ignore
+
+        if self.system_ is None:
+            raise RuntimeError("Estimator has not fitted yet.")
+        if u_new is None:
+            return self.system_
+        t = np.arange(len(u_new))
+        u_array = u_new.values.T if u_new.ndim > 1 else u_new.values.flatten()
+        yout, tout, xout = ct.forced_response(self.system_, T=t, U=u_array)
+        return {"yout": yout, "tout": tout, "xout": xout}
+
+    def get_params(self, deep: bool = True) -> dict[str, Any]:
+        return {
+            "causative_topology": self.causative_topology,
+            "independent_columns": self.independent_columns,
+            "dependent_columns": self.dependent_columns,
+            "max_iter": self.max_iter,
+            "bibo_stable": self.bibo_stable,
+            "max_transition_state_dim": self.max_transition_state_dim,
+            "max_transforms": self.max_transforms,
+            "early_stopping_threshold": self.early_stopping_threshold,
+            "verbose": self.verbose,
+            "forcing_coef_constraints": self.forcing_coef_constraints,
+            "constraints": self.constraints,
+            "kernel": self.kernel,
+        }
+
+    def set_params(self, **params: Any) -> "LTISystem":
+        for key, value in params.items():
+            if not hasattr(self, key):
+                raise ValueError(f"Invalid parameter: {key}")
+            setattr(self, key, value)
+        return self
+
+    def __repr__(self) -> str:
+        return (
+            f"LTISystem(dependent_columns={self.dependent_columns}, "
+            f"independent_columns={self.independent_columns}, "
+            f"max_iter={self.max_iter}, bibo_stable={self.bibo_stable}, "
+            f"kernel={self.kernel!r})"
+        )
