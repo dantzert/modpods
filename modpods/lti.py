@@ -80,9 +80,7 @@ def lti_from_gamma(
 
         og_was_best = True
 
-        for i in range(
-            C.shape[1] - 1, int(-1), int(-1)
-        ):
+        for i in range(C.shape[1] - 1, int(-1), int(-1)):
 
             og_approx = control.ss(A, B, C, 0)
             og_y = np.ndarray.flatten(control.impulse_response(og_approx, t).y)
@@ -163,9 +161,7 @@ def lti_from_gamma(
         NSE = og_NSE
         error = og_error
         iterations += 1
-        if (
-            og_was_best
-        ):
+        if og_was_best:
             speed_idx += 1
             if speed_idx > len(speeds) - 1:
                 break
@@ -677,9 +673,7 @@ def lti_system_gen(
                     fd_order=10,
                     fd_drop_endpoints=True,
                 )
-            if system_data.loc[
-                :, immediate_forcing
-            ].empty:
+            if system_data.loc[:, immediate_forcing].empty:
                 instant_fit = model.fit(
                     x=system_data.loc[:, row],
                     t=np.arange(0, len(system_data.index), 1),
@@ -752,9 +746,7 @@ def lti_system_gen(
                 "kernel_type", "gamma"
             )
             for transform_key in transformation_approximations.keys():
-                for idx in range(
-                    1, optimal_number_transforms + 1
-                ):
+                for idx in range(1, optimal_number_transforms + 1):
                     logger.info(
                         "variable = %s, transformation = %s", transform_key, idx
                     )
@@ -806,10 +798,8 @@ def lti_system_gen(
                     source_var = transform_key.replace(tr_string, "")
                     Agam_index = []
                     for agam_idx in range(Agam.shape[0]):
-                        Agam_index.append(
-                            f"{source_var}->{row}{tr_string}_{agam_idx}"
-                        )
-                    
+                        Agam_index.append(f"{source_var}->{row}{tr_string}_{agam_idx}")
+
                     Agam = pd.DataFrame(Agam, index=Agam_index, columns=Agam_index)
                     Bgam = pd.DataFrame(
                         Bgam,
@@ -822,19 +812,27 @@ def lti_system_gen(
                     if source_var in A.index:
                         # Source is a state variable - insert after it
                         source_loc = A.index.get_loc(source_var)
-                        before_states = list(A.index[:source_loc + 1])
-                        after_states = list(A.index[source_loc + 1:])
+                        before_states = list(A.index[: source_loc + 1])
+                        after_states = list(A.index[source_loc + 1 :])
                         new_states = before_states + Agam_index + after_states
                     elif source_var in B.columns:
                         # Source is an input - insert at beginning of state vector
                         new_states = Agam_index + list(A.index)
                     else:
-                        logger.warning("Source variable %s not found in A or B", source_var)
+                        logger.warning(
+                            "Source variable %s not found in A or B", source_var
+                        )
                         new_states = list(A.index) + Agam_index
 
-                    newA = pd.DataFrame(0.0, index=new_states, columns=new_states, dtype=float)
-                    newB = pd.DataFrame(0.0, index=new_states, columns=B.columns, dtype=float)
-                    newC = pd.DataFrame(0.0, index=C.index, columns=new_states, dtype=float)
+                    newA = pd.DataFrame(
+                        0.0, index=new_states, columns=new_states, dtype=float
+                    )
+                    newB = pd.DataFrame(
+                        0.0, index=new_states, columns=B.columns, dtype=float
+                    )
+                    newC = pd.DataFrame(
+                        0.0, index=C.index, columns=new_states, dtype=float
+                    )
 
                     # Copy existing A entries
                     for idx in newA.index:
@@ -897,7 +895,7 @@ def lti_system_gen(
             if max_real_eig >= -1e-12:
                 logger.warning(
                     "stabilizing unstable or marginally stable plant by shifting A (max real eig = %.6f)",
-                    max_real_eig
+                    max_real_eig,
                 )
                 epsilon = 1e-3
                 shift = max((1 + epsilon) * max_real_eig + epsilon, epsilon)
@@ -912,9 +910,7 @@ def lti_system_gen(
 
     # the regression model will scale the coefficients according to the timestep if the index is numeric
     try:
-        pd.to_numeric(
-            system_data.index, errors="raise"
-        )
+        pd.to_numeric(system_data.index, errors="raise")
         dt = system_data.index.values[1] - system_data.index.values[0]
         A = A / dt
         B = B / dt
