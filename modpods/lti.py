@@ -761,7 +761,9 @@ def lti_system_gen(
         if delay_models[row] is None:
             pass
         else:  # we want the model with the most transformations where the last transformation added at least 0.5% to the R2 score
-            for num_transforms in range(1, max_transforms + 1):
+            # Get actual max transforms from delay_models (may be auto-limited for underdamped)
+            actual_max_transforms = max(delay_models[row].keys())
+            for num_transforms in range(1, actual_max_transforms + 1):
                 if num_transforms == 1:
                     optimal_number_transforms = num_transforms
                 elif num_transforms > 1 and (
