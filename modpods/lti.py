@@ -822,6 +822,7 @@ def lti_system_gen(
                     # for Agam, the insertion row is immediately after the source (key)
                     # the insertion column is also immediately after the source (key)
 
+                    # if transform_key.replace("_tr_1","") in A.index: # the transform key refers to a state (x)
                     # Build new state list by inserting Agam states after the source variable
                     if source_var in A.index:
                         # Source is a state variable - insert after it
@@ -835,9 +836,12 @@ def lti_system_gen(
                         before_states = list(A.index[: source_loc + 1])
                         after_states = list(A.index[source_loc + 1 :])
                         new_states = before_states + Agam_index + after_states
+                        # include the current transform key in A because it's a state variable
+                    # elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
                     elif source_var in B.columns:
                         # Source is an input - insert at beginning of state vector
                         new_states = Agam_index + list(A.index)
+                        # don't include the current transform key in A because it's a control input, not a state variable
                     else:
                         logger.warning(
                             "Source variable %s not found in A or B", source_var
@@ -854,6 +858,7 @@ def lti_system_gen(
                         0.0, index=C.index, columns=new_states, dtype=float
                     )
 
+                    # fill in newA with the corresponding entries from A
                     # Copy existing A entries
                     for idx in newA.index:
                         for col in newA.columns:
@@ -870,6 +875,7 @@ def lti_system_gen(
                     # Bgam has shape (n_states, 1) with 1 at top state
                     # If source_var is a state: goes in A at [delay_state, source_var]
                     # If source_var is an input: goes in B at [delay_state, source_var]
+                    # the input to the cascade is a state
                     for idx in Bgam.index:
                         for col in Bgam.columns:
                             if idx in newA.index:
@@ -881,6 +887,7 @@ def lti_system_gen(
                                     newB.loc[idx, col] = Bgam.loc[idx, col]
 
                     # Copy existing B entries
+                    # the input to the cascade is a forcing term
                     for idx in newB.index:
                         for col in newB.columns:
                             if idx in B.index and col in B.columns:
