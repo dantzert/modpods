@@ -8,7 +8,6 @@ import scipy.stats as stats
 
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from ._system_id import SystemIdModel, _n_polynomial_features
-from ._validation import validate_columns, validate_system_data
 from .kernels import get_kernel
 from .model import _build_constraint_matrices
 from .train import delay_io_train
