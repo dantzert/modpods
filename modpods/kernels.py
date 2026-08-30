@@ -237,7 +237,12 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
     def kernel_fn(self, t: np.ndarray, zeta: float, omega_n: float) -> np.ndarray:  # type: ignore[override]
         omega_d = omega_n * np.sqrt(1.0 - zeta**2)
         amplitude = omega_n / omega_d
-        h = amplitude * np.exp(-zeta * omega_n * t) * np.sin(omega_d * t)
+        # For numerical stability, clip the exponent
+        exponent = -zeta * omega_n * t
+        # Clip exponent to prevent overflow (exp(700) ~ 1e304, near float64 max)
+        max_exponent = 700.0
+        exponent = np.clip(exponent, -max_exponent, max_exponent)
+        h = amplitude * np.exp(exponent) * np.sin(omega_d * t)
         if zeta < 0:
             return h  # type: ignore[no-any-return]
         return np.maximum(h, 0.0)  # type: ignore[no-any-return]
