@@ -1,5 +1,5 @@
 import logging
-from typing import Any, cast
+from typing import Any
 
 import control  # type: ignore
 import numpy as np
