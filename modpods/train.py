@@ -658,7 +658,10 @@ def delay_io_train(
     k = get_kernel(kernel)
     # Auto-limit transforms for underdamped kernel
     auto_max_transforms = _auto_max_transforms(k, max_transforms)
-    if auto_max_transforms != max_transforms and _normalize_verbose(verbose) != "warnings":
+    if (
+        auto_max_transforms != max_transforms
+        and _normalize_verbose(verbose) != "warnings"
+    ):
         logger.info(
             "Auto-limiting max_transforms from %s to %s for '%s' kernel "
             "(2nd-order systems don't need cascades)",
