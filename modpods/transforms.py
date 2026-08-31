@@ -91,6 +91,18 @@ class TransformCache:
             kernel_name,
         ) + tuple(self._quantize(p) for p in params)
 
+    def _convolve_time_domain(self, forcing_values: np.ndarray, kernel_values: np.ndarray) -> np.ndarray:
+        """Time-domain convolution to avoid FFT overflow for growing kernels."""
+        n = len(forcing_values)
+        result = np.zeros(n)
+        kernel_len = len(kernel_values)
+        for i in range(n):
+            # Convolve: result[i] = sum(forcing_values[i-j] * kernel_values[j]) for j=0..min(i, kernel_len-1)
+            max_j = min(i, kernel_len - 1)
+            if max_j >= 0:
+                result[i] = np.dot(forcing_values[i - max_j:i + 1], kernel_values[max_j::-1])
+        return result
+
     def get(
         self,
         input_name: str,
@@ -113,7 +125,13 @@ class TransformCache:
         self.misses += 1
         shape_time = np.arange(0, n, 1)
         kernel_values = kernel.kernel_fn(shape_time, *params)
-        result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[:n]
+
+        # Use time-domain convolution for growing kernels (zeta < 0) to avoid FFT overflow
+        is_growing = kernel.name == "underdamped" and params[0] < 0
+        if is_growing:
+            result = self._convolve_time_domain(forcing_values, kernel_values)
+        else:
+            result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[:n]
 
         self._cache[key] = result
 
@@ -263,9 +281,22 @@ def transform_inputs(
             else:
                 shape_time = np.arange(0, n, 1)
                 kernel_values = kernel.kernel_fn(shape_time, *params)
-                result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[
-                    :n
-                ]
+
+                # Use time-domain convolution for growing kernels to avoid FFT overflow
+                is_growing = kernel.name == "underdamped" and params[0] < 0
+                if is_growing:
+                    # Time-domain convolution
+                    result = np.zeros(n)
+                    kernel_len = len(kernel_values)
+                    for i in range(n):
+                        max_j = min(i, kernel_len - 1)
+                        if max_j >= 0:
+                            result[i] = np.dot(
+                                forcing_values[i - max_j:i + 1],
+                                kernel_values[max_j::-1]
+                            )
+                else:
+                    result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[:n]
 
             forcing.loc[:, col_name] = result
 
