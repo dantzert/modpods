@@ -201,7 +201,7 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
 
     Parameters are physical: zeta (damping ratio) and omega_n (natural frequency).
     Positive zeta produces decaying oscillations; negative zeta produces growing
-    (unstable) oscillations.  The kernel is truncated to non-negative values for
+    (unstable) oscillations. The kernel is truncated to non-negative values for
     causality when zeta >= 0.
 
     Note: This does NOT construct LTI state-space matrices.  It only uses the
@@ -225,8 +225,8 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
     def default_bounds(self) -> np.ndarray:
         return np.array(
             [
-                [-0.99, 0.99],
-                [0.1, 10.0],
+                [-0.99, 5.0],   # zeta: wide bounds allowing underdamped, critically damped, and overdamped (excluding -1.0 singularity)
+                [0.001, 50.0],   # omega_n: wide frequency range
             ]
         )
 
@@ -235,14 +235,30 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
         return np.array([0.1, 2.0])
 
     def kernel_fn(self, t: np.ndarray, zeta: float, omega_n: float) -> np.ndarray:  # type: ignore[override]
-        omega_d = omega_n * np.sqrt(1.0 - zeta**2)
-        amplitude = omega_n / omega_d
-        # For numerical stability, clip the exponent
-        exponent = -zeta * omega_n * t
-        # Clip exponent to prevent overflow (exp(700) ~ 1e304, near float64 max)
-        max_exponent = 700.0
-        exponent = np.clip(exponent, -max_exponent, max_exponent)
-        h = amplitude * np.exp(exponent) * np.sin(omega_d * t)
+        # Handle different damping regimes
+        if zeta < -1.0:
+            # Unstable real poles (zeta < -1): pure exponential growth
+            # Poles are at -zeta*omega_n +/- omega_n*sqrt(zeta^2 - 1)
+            # The dominant pole has growth rate = -zeta*omega_n + omega_n*sqrt(zeta^2 - 1)
+            s = omega_n * np.sqrt(zeta**2 - 1.0)
+            growth_rate = -zeta * omega_n + s
+            h = growth_rate * np.exp(growth_rate * t)
+        elif -1.0 <= zeta < 1.0:
+            # Underdamped or growing oscillatory (-1 < zeta < 1)
+            omega_d = omega_n * np.sqrt(1.0 - zeta**2)
+            amplitude = omega_n / omega_d
+            exponent = -zeta * omega_n * t
+            # Clip exponent to prevent overflow (exp(700) ~ 1e304, near float64 max)
+            max_exponent = 700.0
+            exponent = np.clip(exponent, -max_exponent, max_exponent)
+            h = amplitude * np.exp(exponent) * np.sin(omega_d * t)
+        elif zeta == 1.0:
+            # Critically damped: h(t) = omega_n^2 * t * exp(-omega_n * t)
+            h = omega_n**2 * t * np.exp(-omega_n * t)
+        else:
+            # Overdamped: hyperbolic form
+            s = omega_n * np.sqrt(zeta**2 - 1.0)
+            h = omega_n * np.exp(-zeta * omega_n * t) * np.sinh(s * t) / s
         if zeta < 0:
             return h  # type: ignore[no-any-return]
         return np.maximum(h, 0.0)  # type: ignore[no-any-return]
@@ -289,6 +305,87 @@ class ExponentialGrowthKernel(ConvolutionKernel):
         return h / np.sum(h)  # type: ignore[no-any-return]
 
 
+class ExponentialDecayKernel(ConvolutionKernel):
+    """Exponential decay kernel (positive lambda = decay).
+
+    h(t) = lambda * exp(-lambda * t)
+
+    This is the standard exponential decay kernel, equivalent to a first-order
+    low-pass filter. Useful for modeling simple delay dynamics.
+
+    Note: The kernel is normalized such that integral = 1 (for lambda > 0).
+    """
+
+    @property
+    def name(self) -> str:
+        return "exponential_decay"
+
+    @property
+    def num_params(self) -> int:
+        return 1
+
+    @property
+    def param_names(self) -> List[str]:
+        return ["lambda"]
+
+    @property
+    def default_bounds(self) -> np.ndarray:
+        return np.array(
+            [
+                [0.01, 20.0],  # lambda > 0 for decay
+            ]
+        )
+
+    @property
+    def default_init(self) -> np.ndarray:
+        return np.array([1.0])
+
+    def kernel_fn(self, t: np.ndarray, lam: float) -> np.ndarray:  # type: ignore[override]
+        return lam * np.exp(-lam * t)  # type: ignore[no-any-return]
+
+
+class ExponentialKernel(ConvolutionKernel):
+    """Exponential growth/decay impulse response (unnormalized).
+
+    h(t) = lambda * exp(lambda * t) for t >= 0
+
+    This models pure exponential growth (lambda > 0) or decay (lambda < 0).
+    Useful for capturing unstable poles in system identification.
+
+    Note: The kernel is NOT normalized to integrate to 1, as exponential
+    growth does not have a finite integral. The growth rate is captured
+    by the lambda parameter directly.
+    """
+
+    @property
+    def name(self) -> str:
+        return "exponential"
+
+    @property
+    def num_params(self) -> int:
+        return 1
+
+    @property
+    def param_names(self) -> List[str]:
+        return ["lambda"]
+
+    @property
+    def default_bounds(self) -> np.ndarray:
+        return np.array(
+            [
+                [-10.0, 10.0],  # lambda: negative for decay, positive for growth
+            ]
+        )
+
+    @property
+    def default_init(self) -> np.ndarray:
+        return np.array([1.0])
+
+    def kernel_fn(self, t: np.ndarray, lam: float) -> np.ndarray:  # type: ignore[override]
+        h = lam * np.exp(lam * t)
+        return np.maximum(h, 0.0)  # type: ignore[no-any-return]
+
+
 _KERNEL_REGISTRY: Dict[str, type] = {}
 
 
@@ -331,3 +428,5 @@ register_kernel(LogNormalKernel)
 register_kernel(BimodalGammaKernel)
 register_kernel(UnderdampedOscillatorKernel)
 register_kernel(ExponentialGrowthKernel)
+register_kernel(ExponentialDecayKernel)
+register_kernel(ExponentialKernel)

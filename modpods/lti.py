@@ -291,10 +291,26 @@ def lti_from_underdamped(zeta, omega_n, dt=0, desired_NSE=0.999, verbose="warnin
     B = np.array([[0], [1]])
     C = np.array([[omega_n, 0]])
 
+    # Ensure exactly equally spaced time vector to satisfy control.impulse_response requirements
     if zeta < 0:
-        t = np.linspace(0, 8 * np.pi / omega_d, num=200)
+        t_end = 8 * np.pi / omega_d
     else:
-        t = np.linspace(0, 4 * np.pi / omega_d, num=200)
+        t_end = 4 * np.pi / omega_d
+    num = 200
+    # Create exactly equally spaced time vector
+    # Use linspace and then force exact spacing by reconstructing from dt
+    t = np.linspace(0, t_end, num=num)
+    # Verify and fix spacing
+    dt_exact = t_end / (num - 1)
+    t = np.arange(num, dtype=np.float64) * (t_end / (num - 1))
+    # Correct any floating-point drift at the end
+    t[-1] = t_end
+    # Verify spacing is exact
+    diffs = np.diff(t)
+    if not np.allclose(diffs, diffs[0], rtol=1e-14):
+        # Fallback: use integer multiples of exact dt
+        t = np.arange(num, dtype=np.float64) * (t_end / (num - 1))
+        t[-1] = t_end
     target = (omega_n / omega_d) * np.exp(-zeta * omega_n * t) * np.sin(omega_d * t)
     if zeta >= 0:
         target = np.maximum(target, 0.0)

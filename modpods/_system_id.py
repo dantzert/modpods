@@ -253,6 +253,7 @@ def _active_set_qp(
     d: np.ndarray,
     max_iter: int = 50,
     tol: float = 1e-8,
+    ridge_lambda: float = 1e-8,
 ) -> np.ndarray:
     """Solve  min ||A w - b||^2  s.t.  C w <= d  via the active-set method.
 
@@ -261,7 +262,10 @@ def _active_set_qp(
     available — cvxpy is an explicit dependency already.
     """
     n = A.shape[1]
-    w = np.linalg.lstsq(A, b, rcond=None)[0]
+    # Use regularized least squares for better numerical stability
+    AtA = A.T @ A + ridge_lambda * np.eye(n)
+    Atb = A.T @ b
+    w = np.linalg.solve(AtA, Atb)
     active: set[int] = set()
 
     for _ in range(max_iter):
@@ -277,10 +281,10 @@ def _active_set_qp(
         d_active = d[list(active)]
 
         # Equality-constrained least-squares via Lagrange multipliers
-        AtA = A.T @ A + np.eye(n) * 1e-10
-        Atb = A.T @ b
-        w_ls = np.linalg.solve(AtA, Atb)
-        A_inv = np.linalg.inv(AtA)
+        AtA_reg = A.T @ A + ridge_lambda * np.eye(n)
+        Atb_reg = A.T @ b
+        w_ls = np.linalg.solve(AtA_reg, Atb_reg)
+        A_inv = np.linalg.inv(AtA_reg)
         CAt = C_active @ A_inv
         denom = CAt @ C_active.T
         if denom.size == 1:
@@ -467,7 +471,7 @@ class SystemIdModel:
         theta_valid = theta[valid]
         x_dot_valid = x_dot_arr[valid]
 
-        # Solve
+        # Solve with regularization
         self._coef = self._solve(theta_valid, x_dot_valid)
 
         # Cache computed arrays for potential reuse in score()
@@ -483,8 +487,12 @@ class SystemIdModel:
     def _solve(self, theta: np.ndarray, x_dot: np.ndarray) -> np.ndarray:
         """Return coefficient matrix of shape (n_targets, n_features)."""
         if self.constraint_lhs is None or self.constraint_rhs is None:
-            # Unconstrained OLS (equivalent to STLSQ threshold=0, alpha=0)
-            coef = np.asarray(np.linalg.lstsq(theta, x_dot, rcond=None)[0])
+            # Regularized OLS (ridge regression) for better numerical stability
+            # This avoids SVD convergence issues with ill-conditioned matrices
+            ridge_lambda = 1e-8
+            AtA = theta.T @ theta + ridge_lambda * np.eye(theta.shape[1])
+            Atb = theta.T @ x_dot
+            coef = np.linalg.solve(AtA, Atb)
             return coef.T
         else:
             C = self.constraint_lhs
@@ -506,7 +514,9 @@ class SystemIdModel:
         n_targets = x_dot.shape[1] if x_dot.ndim > 1 else 1
         x_dot_2d = x_dot.reshape(-1, 1) if x_dot.ndim == 1 else x_dot
 
-        AtA = theta.T @ theta + np.eye(n_feat) * 1e-10
+        # Add regularization for numerical stability
+        ridge_lambda = 1e-8
+        AtA = theta.T @ theta + ridge_lambda * np.eye(n_feat)
         Atb = theta.T @ x_dot_2d  # (n_feat, n_targets)
         w_ls = np.linalg.solve(AtA, Atb)  # (n_feat, n_targets)
         A_inv = np.linalg.inv(AtA)

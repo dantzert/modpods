@@ -351,6 +351,9 @@ class SINDYModelFactory:
                 t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
                 u=forcing.values[self.windup_timesteps :, :],
             )
+            if np.isnan(r2):
+                logger.warning("R² is NaN, returning -1.0")
+                return -1.0, None
             return r2, None
         except Exception as e:
             logger.warning("Exception in model fitting, returning r2=-1")

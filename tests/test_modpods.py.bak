@@ -626,7 +626,7 @@ def test_underdamped_kernel_defaults() -> None:
     assert k.num_params == 2
     assert k.param_names == ["zeta", "omega_n"]
     assert k.default_bounds[0, 0] < 0
-    assert k.default_bounds[0, 1] > 1  # Now allows overdamped (zeta > 1)
+    assert k.default_bounds[0, 1] < 1
 
 
 def test_kernel_fn_shape() -> None:

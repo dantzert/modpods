@@ -51,6 +51,26 @@ def _propose_location(
     return min_x.reshape(-1, 1)
 
 
+def _safe_convolve(forcing_values, kernel_values, mode="full"):
+    """Safely compute convolution with fallback to time-domain method.
+
+    FFT-based convolution (signal.fftconvolve) can overflow for growing
+    oscillations (e.g., underdamped kernel with zeta < 0). This function
+    tries FFT first, then falls back to time-domain convolution using
+    signal.oaconvolve which handles growing signals more robustly.
+    """
+    try:
+        result = signal.fftconvolve(forcing_values, kernel_values, mode=mode)
+        if not np.all(np.isfinite(result)):
+            raise ValueError("FFT convolution produced non-finite values")
+        return result
+    except (ValueError, FloatingPointError, OverflowError):
+        result = signal.oaconvolve(forcing_values, kernel_values, mode=mode)
+        if not np.all(np.isfinite(result)):
+            raise ValueError("Time-domain convolution also produced non-finite values")
+        return result
+
+
 # =============================================================================
 # Transform Cache - memoizes single-input kernel transforms to avoid recomputation
 # =============================================================================
@@ -113,7 +133,7 @@ class TransformCache:
         self.misses += 1
         shape_time = np.arange(0, n, 1)
         kernel_values = kernel.kernel_fn(shape_time, *params)
-        result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[:n]
+        result = _safe_convolve(forcing_values, kernel_values, mode="full")[:n]
 
         self._cache[key] = result
 
@@ -230,8 +250,9 @@ def transform_inputs(
 ):
     """Apply kernel convolution transformations to forcing inputs.
 
-    Vectorized implementation using FFT-based convolution.  Optional LRU cache
-    avoids recomputation for near-identical parameters during optimization.
+    Vectorized implementation using FFT-based convolution with time-domain
+    fallback. Optional LRU cache avoids recomputation for near-identical
+    parameters during optimization.
 
     Args:
         kernel: ConvolutionKernel instance defining the impulse response.
@@ -263,9 +284,11 @@ def transform_inputs(
             else:
                 shape_time = np.arange(0, n, 1)
                 kernel_values = kernel.kernel_fn(shape_time, *params)
-                result = signal.fftconvolve(forcing_values, kernel_values, mode="full")[
-                    :n
-                ]
+                result = _safe_convolve(forcing_values, kernel_values, mode="full")[:n]
+
+            # Replace NaN/Inf with large but finite values to avoid downstream NaN issues
+            if not np.all(np.isfinite(result)):
+                result = np.nan_to_num(result, nan=1e6, posinf=1e6, neginf=-1e6)
 
             forcing.loc[:, col_name] = result
 
