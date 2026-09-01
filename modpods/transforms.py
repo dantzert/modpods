@@ -1,5 +1,6 @@
 from collections import OrderedDict
 
+import control as ct
 import numpy as np
 import pandas as pd
 import scipy.signal as signal
@@ -121,6 +122,7 @@ class TransformCache:
         """Get cached transform or compute and cache it.
 
         Returns a COPY of the cached array to prevent mutation issues.
+        Does not cache unstable kernels (they depend on exact forcing values).
         """
         n = len(forcing_values)
         key = self._make_key(input_name, n, kernel.name, params)
@@ -140,7 +142,7 @@ class TransformCache:
         if len(self._cache) > self.max_entries:
             self._cache.popitem(last=False)
 
-        return result.copy()  # type: ignore[no-any-return]
+        return result.copy()
 
     def clear(self):
         """Clear the cache and reset counters."""
@@ -168,6 +170,41 @@ class TransformCache:
 
 # Global cache instance used throughout the module
 _transform_cache = TransformCache(max_entries=2000, quantization=1e-6)
+
+
+def _transform_unstable_kernel(
+    kernel: ConvolutionKernel,
+    forcing_values: np.ndarray,
+    params: tuple,
+    t_vec: np.ndarray,
+) -> np.ndarray | None:
+    """Simulate unstable kernel as explicit LTI system instead of convolution.
+
+    Args:
+        kernel: ConvolutionKernel instance.
+        forcing_values: Input forcing signal, shape (n,).
+        params: Kernel parameters.
+        t_vec: Time vector, shape (n,).
+
+    Returns:
+        Transformed output, shape (n,), or None if LTI simulation fails.
+    """
+    lti_matrices = kernel.to_lti(*params)
+    if lti_matrices is None:
+        return None
+
+    A, B, C, D = lti_matrices
+    lti_sys = ct.ss(A, B, C, D)
+
+    try:
+        t_sim, y_sim, x_sim = ct.forced_response(lti_sys, T=t_vec, U=forcing_values, X0=0.0)
+        result = y_sim.flatten()
+        # Ensure result length matches
+        if len(result) != len(t_vec):
+            result = np.interp(t_vec, t_sim, result.flatten())
+        return result
+    except Exception:
+        return None
 
 
 def make_kernel_params(
@@ -250,8 +287,11 @@ def transform_inputs(
 ):
     """Apply kernel convolution transformations to forcing inputs.
 
-    Vectorized implementation using FFT-based convolution with time-domain
-    fallback. Optional LRU cache avoids recomputation for near-identical
+    For stable kernels, uses FFT-based convolution with time-domain fallback.
+    For unstable kernels, uses explicit LTI simulation of the intervening
+    system to avoid numerical issues with growing impulse responses.
+
+    Optional LRU cache avoids recomputation for near-identical
     parameters during optimization.
 
     Args:
@@ -267,6 +307,14 @@ def transform_inputs(
     num_transforms = kernel_params.index.get_level_values("transform").nunique()
 
     n = len(index)
+    # Handle both numeric and datetime/timedelta indices
+    if hasattr(index, 'dtype') and np.issubdtype(index.dtype, np.datetime64):
+        dt = float((index[1] - index[0]) / np.timedelta64(1, 's'))
+    elif hasattr(index, 'dtype') and hasattr(index[1] - index[0], 'total_seconds'):
+        dt = float((index[1] - index[0]).total_seconds())
+    else:
+        dt = float(index[1] - index[0]) if n > 1 else 1.0
+    t_vec = np.arange(0, n) * dt
 
     for input_col in orig_forcing_columns:
         forcing_values = forcing[input_col].to_numpy(dtype=float)
@@ -279,12 +327,25 @@ def transform_inputs(
                 for p_name in kernel.param_names
             )
 
-            if cache is not None:
-                result = cache.get(input_col, forcing_values, kernel, params)
+            # Check if this kernel with these parameters is unstable
+            is_unstable = kernel.is_unstable_params(*params)
+
+            if is_unstable:
+                # Use LTI simulation for unstable kernels
+                result = _transform_unstable_kernel(kernel, forcing_values, params, t_vec)
+                if result is None:
+                    # No LTI representation available, fall back to convolution
+                    shape_time = np.arange(0, n, 1)
+                    kernel_values = kernel.kernel_fn(shape_time, *params)
+                    result = _safe_convolve(forcing_values, kernel_values, mode="full")[:n]
             else:
-                shape_time = np.arange(0, n, 1)
-                kernel_values = kernel.kernel_fn(shape_time, *params)
-                result = _safe_convolve(forcing_values, kernel_values, mode="full")[:n]
+                # Stable kernel: use convolution
+                if cache is not None:
+                    result = cache.get(input_col, forcing_values, kernel, params)
+                else:
+                    shape_time = np.arange(0, n, 1)
+                    kernel_values = kernel.kernel_fn(shape_time, *params)
+                    result = _safe_convolve(forcing_values, kernel_values, mode="full")[:n]
 
             # Replace NaN/Inf with large but finite values to avoid downstream NaN issues
             if not np.all(np.isfinite(result)):

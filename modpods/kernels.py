@@ -65,6 +65,44 @@ class ConvolutionKernel(ABC):
         """
         ...
 
+    @property
+    def is_unstable(self) -> bool:
+        """Whether this kernel represents an unstable impulse response.
+
+        Unstable kernels have impulse responses that grow without bound,
+        making convolution numerically problematic. They should be handled
+        via explicit LTI simulation instead of convolution.
+        """
+        return False
+
+    def is_unstable_params(self, *params: float) -> bool:
+        """Check if the kernel is unstable for the given parameters.
+
+        Args:
+            *params: Kernel parameters in the order defined by param_names.
+
+        Returns:
+            True if the kernel is unstable for these parameters.
+        """
+        return self.is_unstable
+
+    def to_lti(self, *params: float) -> tuple:
+        """Convert kernel parameters to intervening LTI system (A, B, C, D).
+
+        This method creates the intervening LTI system that generates the
+        kernel's impulse response. For unstable kernels, this LTI system
+        should be simulated explicitly instead of using convolution.
+
+        Args:
+            *params: Kernel parameters in the order defined by param_names.
+
+        Returns:
+            Tuple of (A, B, C, D) matrices for the intervening LTI system.
+            Returns None if the kernel cannot be represented as an LTI system
+            or if it's stable (should use convolution instead).
+        """
+        return None
+
     def make_kwargs(self, params: np.ndarray) -> dict:
         """Convert flat parameter array to a kwargs dict keyed by param_names."""
         return dict(zip(self.param_names, params.tolist()))
@@ -107,6 +145,10 @@ class GammaKernel(ConvolutionKernel):
     ) -> np.ndarray:
         return stats.gamma.pdf(t, shape, scale=scale, loc=loc)  # type: ignore[no-any-return]
 
+    @property
+    def is_unstable(self) -> bool:
+        return False
+
 
 class LogNormalKernel(ConvolutionKernel):
     """Log-normal distribution kernel.
@@ -141,6 +183,10 @@ class LogNormalKernel(ConvolutionKernel):
 
     def kernel_fn(self, t: np.ndarray, mu: float, sigma: float) -> np.ndarray:  # type: ignore[override]
         return stats.lognorm.pdf(t, sigma, scale=np.exp(mu))  # type: ignore[no-any-return]
+
+    @property
+    def is_unstable(self) -> bool:
+        return False
 
 
 class BimodalGammaKernel(ConvolutionKernel):
@@ -191,6 +237,10 @@ class BimodalGammaKernel(ConvolutionKernel):
         k1 = stats.gamma.pdf(t, shape1, scale=scale1, loc=loc1)
         k2 = stats.gamma.pdf(t, shape2, scale=scale2, loc=loc2)
         return 0.5 * (k1 + k2)  # type: ignore[no-any-return]
+
+    @property
+    def is_unstable(self) -> bool:
+        return False
 
 
 class UnderdampedOscillatorKernel(ConvolutionKernel):
@@ -256,12 +306,46 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
             # Critically damped: h(t) = omega_n^2 * t * exp(-omega_n * t)
             h = omega_n**2 * t * np.exp(-omega_n * t)
         else:
-            # Overdamped: hyperbolic form
+            # Overdamped (zeta > 1): numerically stable form using difference of exponentials
+            # h(t) = (omega_n/(2*s)) * [exp((-zeta*omega_n + s)*t) - exp((-zeta*omega_n - s)*t)]
+            # where s = omega_n*sqrt(zeta^2 - 1)
             s = omega_n * np.sqrt(zeta**2 - 1.0)
-            h = omega_n * np.exp(-zeta * omega_n * t) * np.sinh(s * t) / s
+            decay1 = -zeta * omega_n + s
+            decay2 = -zeta * omega_n - s
+            # Clip exponents to prevent overflow
+            max_exponent = 700.0
+            decay1 = np.clip(decay1, -max_exponent, max_exponent)
+            decay2 = np.clip(decay2, -max_exponent, max_exponent)
+            h = (omega_n / (2.0 * s)) * (np.exp(decay1 * t) - np.exp(decay2 * t))
         if zeta < 0:
             return h  # type: ignore[no-any-return]
         return np.maximum(h, 0.0)  # type: ignore[no-any-return]
+
+    @property
+    def is_unstable(self) -> bool:
+        # This kernel can be unstable depending on parameters
+        return True
+
+    def is_unstable_params(self, zeta: float, omega_n: float) -> bool:
+        return zeta < 0
+
+    def to_lti(self, zeta: float, omega_n: float) -> tuple:
+        """Convert underdamped oscillator parameters to intervening LTI system.
+
+        The underdamped oscillator corresponds to a 2nd-order LTI system:
+        A = [[0, 1], [-omega_n^2, -2*zeta*omega_n]]
+        B = [[0], [1]]
+        C = [[omega_n, 0]]  (for the standard impulse response)
+        D = [[0]]
+        """
+        A = np.array([
+            [0.0, 1.0],
+            [-(omega_n**2), -2.0 * zeta * omega_n]
+        ])
+        B = np.array([[0.0], [1.0]])
+        C = np.array([[omega_n, 0.0]])
+        D = np.array([[0.0]])
+        return A, B, C, D
 
 
 class ExponentialGrowthKernel(ConvolutionKernel):
@@ -304,6 +388,28 @@ class ExponentialGrowthKernel(ConvolutionKernel):
         h = np.exp(rate * t)
         return h / np.sum(h)  # type: ignore[no-any-return]
 
+    @property
+    def is_unstable(self) -> bool:
+        return True
+
+    def is_unstable_params(self, rate: float) -> bool:
+        return rate > 0
+
+    def to_lti(self, rate: float) -> tuple:
+        """Convert exponential growth kernel to intervening LTI system.
+
+        The exponential growth kernel corresponds to a 1st-order LTI system:
+        A = [[rate]]
+        B = [[1]]
+        C = [[rate]]  (so impulse response is rate * exp(rate * t))
+        D = [[0]]
+        """
+        A = np.array([[rate]])
+        B = np.array([[1.0]])
+        C = np.array([[rate]])
+        D = np.array([[0.0]])
+        return A, B, C, D
+
 
 class ExponentialDecayKernel(ConvolutionKernel):
     """Exponential decay kernel (positive lambda = decay).
@@ -342,6 +448,25 @@ class ExponentialDecayKernel(ConvolutionKernel):
 
     def kernel_fn(self, t: np.ndarray, lam: float) -> np.ndarray:  # type: ignore[override]
         return lam * np.exp(-lam * t)  # type: ignore[no-any-return]
+
+    @property
+    def is_unstable(self) -> bool:
+        return False
+
+    def to_lti(self, lam: float) -> tuple:
+        """Convert exponential decay kernel to intervening LTI system.
+
+        The exponential decay kernel corresponds to a 1st-order LTI system:
+        A = [[-lam]]
+        B = [[1]]
+        C = [[lam]]  (so impulse response is lam * exp(-lam * t))
+        D = [[0]]
+        """
+        A = np.array([[-lam]])
+        B = np.array([[1.0]])
+        C = np.array([[lam]])
+        D = np.array([[0.0]])
+        return A, B, C, D
 
 
 class ExponentialKernel(ConvolutionKernel):
@@ -384,6 +509,28 @@ class ExponentialKernel(ConvolutionKernel):
     def kernel_fn(self, t: np.ndarray, lam: float) -> np.ndarray:  # type: ignore[override]
         h = lam * np.exp(lam * t)
         return np.maximum(h, 0.0)  # type: ignore[no-any-return]
+
+    @property
+    def is_unstable(self) -> bool:
+        return True
+
+    def is_unstable_params(self, lam: float) -> bool:
+        return lam > 0
+
+    def to_lti(self, lam: float) -> tuple:
+        """Convert exponential kernel to intervening LTI system.
+
+        The exponential kernel corresponds to a 1st-order LTI system:
+        A = [[lam]]
+        B = [[1]]
+        C = [[lam]]  (so impulse response is lam * exp(lam * t))
+        D = [[0]]
+        """
+        A = np.array([[lam]])
+        B = np.array([[1.0]])
+        C = np.array([[lam]])
+        D = np.array([[0.0]])
+        return A, B, C, D
 
 
 _KERNEL_REGISTRY: Dict[str, type] = {}
