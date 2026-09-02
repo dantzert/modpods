@@ -343,9 +343,30 @@ class SingleKernelTrainer:
                     # NSE = 1 - (sum of squared errors / sum of squared deviations from mean)
                     # NSE = 1 is perfect, NSE = 0 is as good as mean, NSE < 0 is worse than mean
                     nse = result["error_metrics"].get("nse", -1.0)
+                    
+                    # Get the identified model to check eigenvalues
+                    model = result.get("model")
+                    eigenval_penalty = 0.0
+                    if model is not None and hasattr(model, 'A'):
+                        try:
+                            A = np.array(model.A)
+                            eigvals = np.linalg.eigvals(A)
+                            max_real = np.max(np.real(eigvals))
+                            # Penalize extreme eigenvalues (true unstable pole is ~4.35)
+                            # Penalize both too large (>50) and too small (<0.1) unstable poles
+                            if max_real > 50.0:
+                                eigenval_penalty = (max_real - 50.0) / 50.0  # Linear penalty for too large
+                            elif max_real > 0 and max_real < 0.1:
+                                eigenval_penalty = (0.1 - max_real) / 0.1  # Penalty for too small
+                        except Exception:
+                            pass
+                    
+                    # Penalized NSE: reward good fit, penalize extreme eigenvalues
+                    penalized_nse = nse - eigenval_penalty
+                    
                     if _normalize_verbose(self.verbose) != "warnings":
-                        logger.debug("  NSE = %.6f", nse)
-                    return nse
+                        logger.debug("  NSE = %.6f, eigval_penalty = %.6f, penalized = %.6f", nse, eigenval_penalty, penalized_nse)
+                    return penalized_nse
                 else:
                     # Stable kernels: use immediate SINDy regression R² (fast)
                     result = SINDY_delays_MI(
