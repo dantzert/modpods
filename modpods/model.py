@@ -376,14 +376,65 @@ class SINDYModelFactory:
             "r2": r2,
         }
         return {
-            "error_metrics": error_metrics,
+            "error_metrics": {"r2": r2},
             "model": model,
             "simulated": False,
             "response": self.response,
-            "forcing": self.forcing,
+            "forcing": forcing,
             "index": self.index,
             "diverged": False,
         }
+
+    def _simulate_with_divergence_handling(
+        self, model, fit_forcing: pd.DataFrame, windup: int
+    ) -> np.ndarray | None:
+        """Simulate step-by-step with divergence detection.
+
+        For unstable systems, simulates step-by-step and stops before
+        numerical overflow. Returns simulation up to divergence point.
+        """
+        t = np.arange(0, len(self.index), 1)[windup:]
+        u = fit_forcing.values[windup:, :]
+        x0 = self.response.values[windup, :]
+
+        # Check if system is unstable (has eigenvalues with positive real part)
+        A = np.array(model.A)
+        eigvals = np.linalg.eigvals(A)
+        is_unstable = np.any(np.real(eigvals) > 1e-10)
+
+        if not is_unstable:
+            # Stable system: use standard simulation
+            return model.simulate(x0, t, u).y.T
+
+        # Unstable system: simulate step-by-step with divergence detection
+        dt = t[1] - t[0] if len(t) > 1 else 1.0
+        n_steps = len(t)
+        n_states = A.shape[0]
+        n_outputs = model.C.shape[0]
+
+        # Discretize the continuous-time system
+        Ad = np.eye(n_states) + A * dt
+        Bd = model.B * dt
+        C = model.C
+        D = model.D
+
+        x = x0.copy()
+        y_sim = np.zeros((n_steps, n_outputs))
+        y_sim[0] = (C @ x0 + D @ u[0]).flatten()
+
+        divergence_threshold = 1e10
+
+        for i in range(1, n_steps):
+            x = Ad @ x + Bd @ u[i]
+            y = C @ x + D @ u[i]
+            y_sim[i] = y.flatten()
+
+            # Check for divergence
+            if np.any(np.abs(x) > divergence_threshold) or not np.all(np.isfinite(x)):
+                logger.warning(f"Divergence detected at step {i}, stopping simulation")
+                return y_sim[:i+1]
+
+        return y_sim
 
     def train(self, final_run: bool = False) -> dict[str, Any]:
         """Train the polynomial regression model.
@@ -455,29 +506,45 @@ class SINDYModelFactory:
             )
             error_metrics["r2"] = r2
         except Exception as e:
-            logger.warning("Exception in simulation")
-            logger.warning("%s", e)
-            error_metrics = {
-                "MAE": [np.nan],
-                "RMSE": [np.nan],
-                "NSE": [np.nan],
-                "alpha": [np.nan],
-                "beta": [np.nan],
-                "HFV": [np.nan],
-                "HFV10": [np.nan],
-                "LFV": [np.nan],
-                "FDC": [np.nan],
-                "r2": r2,
-            }
-            return {
-                "error_metrics": error_metrics,
-                "model": model,
-                "simulated": self.response[1:],
-                "response": self.response,
-                "forcing": forcing,
-                "index": self.index,
-                "diverged": True,
-            }
+            logger.warning("Exception in simulation: %s", e)
+            # Try step-by-step simulation with divergence detection for unstable systems
+            try:
+                simulated = self._simulate_with_divergence_handling(
+                    model, fit_forcing, self.windup_timesteps
+                )
+                if simulated is not None:
+                    error_metrics = compute_detailed_metrics(
+                        self.response.values[self.windup_timesteps + 1 : self.windup_timesteps + 1 + len(simulated), :],
+                        simulated,
+                        self.index,
+                        self.windup_timesteps,
+                    )
+                    error_metrics["r2"] = r2
+                else:
+                    raise
+            except Exception as e2:
+                logger.warning("Step-by-step simulation also failed: %s", e2)
+                error_metrics = {
+                    "MAE": [np.nan],
+                    "RMSE": [np.nan],
+                    "NSE": [np.nan],
+                    "alpha": [np.nan],
+                    "beta": [np.nan],
+                    "HFV": [np.nan],
+                    "HFV10": [np.nan],
+                    "LFV": [np.nan],
+                    "FDC": [np.nan],
+                    "r2": r2,
+                }
+                return {
+                    "error_metrics": error_metrics,
+                    "model": model,
+                    "simulated": self.response[1:],
+                    "response": self.response,
+                    "forcing": forcing,
+                    "index": self.index,
+                    "diverged": True,
+                }
 
         return {
             "error_metrics": error_metrics,
