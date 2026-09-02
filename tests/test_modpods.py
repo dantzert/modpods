@@ -625,8 +625,8 @@ def test_underdamped_kernel_defaults() -> None:
     k = modpods.UnderdampedOscillatorKernel()
     assert k.num_params == 2
     assert k.param_names == ["zeta", "omega_n"]
-    assert k.default_bounds[0, 0] < 0
-    assert k.default_bounds[0, 1] > 1  # Now allows overdamped (zeta > 1)
+    assert k.default_bounds[0, 0] > 0  # Now strictly positive for stable delay dynamics
+    assert k.default_bounds[0, 1] > 1  # Allows overdamped (zeta > 1)
 
 
 def test_kernel_fn_shape() -> None:
@@ -665,18 +665,19 @@ def test_exponential_growth_kernel_defaults() -> None:
     k = modpods.ExponentialGrowthKernel()
     assert k.num_params == 1
     assert k.param_names == ["rate"]
-    assert k.default_bounds[0, 0] > 0
-    assert k.default_bounds[0, 1] > 0
+    assert k.default_bounds[0, 0] < 0  # Negative for stable delay dynamics
+    assert k.default_bounds[0, 1] < 0  # Negative for stable delay dynamics
 
 
 def test_exponential_growth_kernel_increasing() -> None:
-    """Exponential growth kernel should produce monotonically increasing values."""
+    """Exponential growth kernel should produce monotonically decreasing values for stable delay (rate < 0)."""
     t = np.arange(0, 100, 1.0)
     k = modpods.ExponentialGrowthKernel()
-    h = k.kernel_fn(t, 0.5)
+    # Use negative rate for stable delay dynamics
+    h = k.kernel_fn(t, -0.5)
     assert np.all(
-        np.diff(h) > 0
-    ), "exponential growth kernel should be strictly increasing"
+        np.diff(h) < 0
+    ), "exponential growth kernel with negative rate should be strictly decreasing for stable delay"
     assert np.isclose(np.sum(h), 1.0), "kernel should sum to 1"
 
 
