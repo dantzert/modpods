@@ -60,16 +60,35 @@ def _safe_convolve(forcing_values, kernel_values, mode="full"):
     tries FFT first, then falls back to time-domain convolution using
     signal.oaconvolve which handles growing signals more robustly.
     """
+    # Scale inputs to prevent overflow in convolution
+    max_forcing = np.max(np.abs(forcing_values))
+    max_kernel = np.max(np.abs(kernel_values))
+    scale = max(1.0, max_forcing * max_kernel / 1e10)
+    if scale > 1.0:
+        forcing_values = forcing_values / scale
+        kernel_values = kernel_values / scale
+
     try:
         result = signal.fftconvolve(forcing_values, kernel_values, mode=mode)
         if not np.all(np.isfinite(result)):
             raise ValueError("FFT convolution produced non-finite values")
+        if scale > 1.0:
+            result = result * scale
         return result
     except (ValueError, FloatingPointError, OverflowError):
-        result = signal.oaconvolve(forcing_values, kernel_values, mode=mode)
-        if not np.all(np.isfinite(result)):
+        # Try time-domain convolution with scaled inputs
+        if scale > 1.0:
+            forcing_values = forcing_values / scale
+            kernel_values = kernel_values / scale
+        try:
+            result = signal.oaconvolve(forcing_values, kernel_values, mode=mode)
+            if not np.all(np.isfinite(result)):
+                raise ValueError("Time-domain convolution also produced non-finite values")
+            if scale > 1.0:
+                result = result * scale
+            return result
+        except (ValueError, FloatingPointError, OverflowError):
             raise ValueError("Time-domain convolution also produced non-finite values")
-        return result
 
 
 # =============================================================================

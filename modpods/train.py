@@ -313,29 +313,65 @@ class SingleKernelTrainer:
                     self.init_transforms,
                     num_transforms,
                 )
-                result = SINDY_delays_MI(
-                    self.kernel,
-                    opt_params,
-                    self.system_data.index,
-                    self.system_data[self.independent_columns],
-                    self.system_data[self.dependent_columns],
-                    False,
-                    self.poly_order,
-                    self.include_bias,
-                    self.include_interaction,
-                    self.windup_timesteps,
-                    self.bibo_stable,
-                    self.transform_dependent,
-                    self.transform_only,
-                    self.forcing_coef_constraints,
-                    self.constraints,
-                    transform_cache=_transform_cache,
-                    verbose=self.verbose,
-                )
-                r2 = result["error_metrics"]["r2"]
-                if _normalize_verbose(self.verbose) != "warnings":
-                    logger.debug("  R² = %.6f", r2)
-                return r2
+
+                # For unstable kernels, optimize for full system prediction accuracy (NSE)
+                # instead of just immediate SINDy regression R²
+                is_unstable = self.kernel.is_unstable_params(*params_vector)
+
+                if is_unstable:
+                    # Use full system simulation for unstable kernels
+                    result = SINDY_delays_MI(
+                        self.kernel,
+                        opt_params,
+                        self.system_data.index,
+                        self.system_data[self.independent_columns],
+                        self.system_data[self.dependent_columns],
+                        True,  # final_run=True: compute full system simulation metrics
+                        self.poly_order,
+                        self.include_bias,
+                        self.include_interaction,
+                        self.windup_timesteps,
+                        self.bibo_stable,
+                        self.transform_dependent,
+                        self.transform_only,
+                        self.forcing_coef_constraints,
+                        self.constraints,
+                        transform_cache=_transform_cache,
+                        verbose=self.verbose,
+                    )
+                    # Use NSE (Nash-Sutcliffe Efficiency) as the metric for full system accuracy
+                    # NSE = 1 - (sum of squared errors / sum of squared deviations from mean)
+                    # NSE = 1 is perfect, NSE = 0 is as good as mean, NSE < 0 is worse than mean
+                    nse = result["error_metrics"].get("nse", -1.0)
+                    if _normalize_verbose(self.verbose) != "warnings":
+                        logger.debug("  NSE = %.6f", nse)
+                    return nse
+                else:
+                    # Stable kernels: use immediate SINDy regression R² (fast)
+                    result = SINDY_delays_MI(
+                        self.kernel,
+                        opt_params,
+                        self.system_data.index,
+                        self.system_data[self.independent_columns],
+                        self.system_data[self.dependent_columns],
+                        False,
+                        self.poly_order,
+                        self.include_bias,
+                        self.include_interaction,
+                        self.windup_timesteps,
+                        self.bibo_stable,
+                        self.transform_dependent,
+                        self.transform_only,
+                        self.forcing_coef_constraints,
+                        self.constraints,
+                        transform_cache=_transform_cache,
+                        verbose=self.verbose,
+                    )
+                    r2 = result["error_metrics"]["r2"]
+                    if _normalize_verbose(self.verbose) != "warnings":
+                        logger.debug("  R² = %.6f", r2)
+                    return r2
+
             except Exception as e:
                 if _normalize_verbose(self.verbose) != "warnings":
                     logger.debug("  Evaluation failed: %s", e)
