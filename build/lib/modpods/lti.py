@@ -575,20 +575,6 @@ def lti_from_kernel(
             verbose=verbose,
         )
 
-    if kernel.name == "canonical_lti":
-        # For canonical LTI, we directly use the kernel's to_lti method
-        # The kernel parameters are already in the right format
-        params_list = []
-        for i in range(1, 6):
-            params_list.append(params.get(f"a{i}", 0.0))
-        for i in range(1, 6):
-            params_list.append(params.get(f"c{i}", 0.0))
-        params_list.append(params.get("d", 0.0))
-        
-        A, B, C, D = kernel.to_lti(*params_list)
-        lti_sys = control.ss(A, B, C, D, dt=dt)
-        return {"lti_approx": lti_sys}
-
     raise ValueError(f"Unsupported kernel: {kernel.name}")
 
 
