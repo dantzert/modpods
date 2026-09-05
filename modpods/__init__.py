@@ -3,8 +3,12 @@ from ._validation import ValidationError
 from .estimator import DelayIO, DelayIOModel
 from .kernels import (
     BimodalGammaKernel,
+    CanonicalLTIKernel,
     ConvolutionKernel,
+    DirectLTISystem,
+    ExponentialDecayKernel,
     ExponentialGrowthKernel,
+    ExponentialKernel,
     GammaKernel,
     LogNormalKernel,
     UnderdampedOscillatorKernel,
@@ -25,7 +29,7 @@ from .lti import (
 from .model import SINDY_delays_MI
 from .predict import delay_io_predict
 from .topology import TopologyInference, find_topology_no_geo, infer_causative_topology
-from .train import delay_io_train
+from .train import decoupled_lti_train, delay_io_train
 from .transforms import (
     TransformCache,
     make_kernel_params,
@@ -40,10 +44,14 @@ __all__ = [
     "DelayIO",
     "DelayIOModel",
     "ConvolutionKernel",
+    "CanonicalLTIKernel",
+    "DirectLTISystem",
     "GammaKernel",
     "LogNormalKernel",
     "BimodalGammaKernel",
+    "ExponentialDecayKernel",
     "ExponentialGrowthKernel",
+    "ExponentialKernel",
     "UnderdampedOscillatorKernel",
     "get_kernel",
     "list_kernels",
@@ -53,6 +61,8 @@ __all__ = [
     "params_vector_to_dataframe",
     "transform_inputs",
     "delay_io_train",
+    "decoupled_lti_train",
+    "direct_lti_train",
     "SINDY_delays_MI",
     "delay_io_predict",
     "lti_from_gamma",

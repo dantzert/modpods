@@ -313,29 +313,95 @@ class SingleKernelTrainer:
                     self.init_transforms,
                     num_transforms,
                 )
-                result = SINDY_delays_MI(
-                    self.kernel,
-                    opt_params,
-                    self.system_data.index,
-                    self.system_data[self.independent_columns],
-                    self.system_data[self.dependent_columns],
-                    False,
-                    self.poly_order,
-                    self.include_bias,
-                    self.include_interaction,
-                    self.windup_timesteps,
-                    self.bibo_stable,
-                    self.transform_dependent,
-                    self.transform_only,
-                    self.forcing_coef_constraints,
-                    self.constraints,
-                    transform_cache=_transform_cache,
-                    verbose=self.verbose,
-                )
-                r2 = result["error_metrics"]["r2"]
-                if _normalize_verbose(self.verbose) != "warnings":
-                    logger.debug("  R² = %.6f", r2)
-                return r2
+
+                # For unstable kernels, optimize for full system prediction accuracy (NSE)
+                # instead of just immediate SINDy regression R²
+                is_unstable = self.kernel.is_unstable_params(*params_vector)
+
+                if is_unstable:
+                    # Use full system simulation for unstable kernels
+                    result = SINDY_delays_MI(
+                        self.kernel,
+                        opt_params,
+                        self.system_data.index,
+                        self.system_data[self.independent_columns],
+                        self.system_data[self.dependent_columns],
+                        True,  # final_run=True: compute full system simulation metrics
+                        self.poly_order,
+                        self.include_bias,
+                        self.include_interaction,
+                        self.windup_timesteps,
+                        self.bibo_stable,
+                        self.transform_dependent,
+                        self.transform_only,
+                        self.forcing_coef_constraints,
+                        self.constraints,
+                        transform_cache=_transform_cache,
+                        verbose=self.verbose,
+                    )
+                    # Use NSE (Nash-Sutcliffe Efficiency) as the metric for full system accuracy
+                    # NSE = 1 - (sum of squared errors / sum of squared deviations from mean)
+                    # NSE = 1 is perfect, NSE = 0 is as good as mean, NSE < 0 is worse than mean
+                    nse = result["error_metrics"].get("nse", -1.0)
+
+                    # Get the identified model to check eigenvalues
+                    model = result.get("model")
+                    eigenval_penalty = 0.0
+                    if model is not None and hasattr(model, "A"):
+                        try:
+                            A = np.array(model.A)
+                            eigvals = np.linalg.eigvals(A)
+                            max_real = np.max(np.real(eigvals))
+                            # Penalize extreme eigenvalues (true unstable pole is ~4.35)
+                            # Penalize both too large (>50) and too small (<0.1) unstable poles
+                            if max_real > 50.0:
+                                eigenval_penalty = (
+                                    max_real - 50.0
+                                ) / 50.0  # Linear penalty for too large
+                            elif max_real > 0 and max_real < 0.1:
+                                eigenval_penalty = (
+                                    0.1 - max_real
+                                ) / 0.1  # Penalty for too small
+                        except Exception:
+                            pass
+
+                    # Penalized NSE: reward good fit, penalize extreme eigenvalues
+                    penalized_nse = nse - eigenval_penalty
+
+                    if _normalize_verbose(self.verbose) != "warnings":
+                        logger.debug(
+                            "  NSE = %.6f, eigval_penalty = %.6f, penalized = %.6f",
+                            nse,
+                            eigenval_penalty,
+                            penalized_nse,
+                        )
+                    return penalized_nse
+                else:
+                    # Stable kernels: use immediate SINDy regression R² (fast)
+                    result = SINDY_delays_MI(
+                        self.kernel,
+                        opt_params,
+                        self.system_data.index,
+                        self.system_data[self.independent_columns],
+                        self.system_data[self.dependent_columns],
+                        False,
+                        self.poly_order,
+                        self.include_bias,
+                        self.include_interaction,
+                        self.windup_timesteps,
+                        self.bibo_stable,
+                        self.transform_dependent,
+                        self.transform_only,
+                        self.forcing_coef_constraints,
+                        self.constraints,
+                        transform_cache=_transform_cache,
+                        verbose=self.verbose,
+                    )
+                    r2 = result["error_metrics"]["r2"]
+                    if _normalize_verbose(self.verbose) != "warnings":
+                        logger.debug("  R² = %.6f", r2)
+                    return r2
+
             except Exception as e:
                 if _normalize_verbose(self.verbose) != "warnings":
                     logger.debug("  Evaluation failed: %s", e)
@@ -609,15 +675,19 @@ def delay_io_train(
     early_stopping_threshold=0.005,
     optimization_method="bayesian",
     kernel="gamma",
+    max_states=5,
     seed=None,
     **optimizer_kwargs,
 ):
     """Train a delay-IO model with pluggable convolution kernels.
 
     Args:
-        kernel: ConvolutionKernel instance, kernel name string, "try-all", or "run-all".
+        kernel: ConvolutionKernel instance, kernel name string, "try-all", "run-all",
+            "canonical_lti", or "canonical_lti_incremental".
             - "try-all": cheap fit all kernels, pick best R², refit expensively.
             - "run-all": expensive fit all kernels, return all results.
+            - "canonical_lti": single canonical LTI with fixed max_states.
+            - "canonical_lti_incremental": incremental state dimension canonical LTI.
             - default "gamma" preserves backward compatibility.
 
         max_transforms: Maximum number of transforms. For underdamped kernel,
@@ -625,6 +695,8 @@ def delay_io_train(
             naturally represents a 2nd-order system in a single transform).
             For gamma/lognormal/bimodal_gamma/exponential_growth, cascades
             of first-order systems are used, so more transforms may be needed.
+
+        max_states: Maximum state dimension for canonical LTI kernels (default 5).
 
     Returns:
         dict keyed by num_transforms.
@@ -654,6 +726,68 @@ def delay_io_train(
             optimizer_kwargs=optimizer_kwargs,
         )
         return trainer.train()
+
+    if kernel in ("canonical_lti", "canonical_lti_incremental"):
+        max_states = optimizer_kwargs.get("max_states", 5)
+        if kernel == "canonical_lti_incremental":
+            k = get_kernel("canonical_lti_incremental")
+            if hasattr(k, "max_states"):
+                k.max_states = max_states
+        else:
+            k = get_kernel("canonical_lti")
+            if hasattr(k, "max_states"):
+                k.max_states = max_states
+
+        auto_max_transforms = 1  # Canonical LTI doesn't use multiple transforms
+        if _normalize_verbose(verbose) != "warnings":
+            logger.info(
+                "Using canonical LTI kernel with max_states=%s (no transforms needed)",
+                max_states,
+            )
+
+        single_trainer = SingleKernelTrainer(
+            kernel=k,
+            system_data=system_data,
+            dependent_columns=dependent_columns,
+            independent_columns=independent_columns,
+            windup_timesteps=windup_timesteps,
+            init_transforms=1,
+            max_transforms=1,
+            max_iter=max_iter,
+            poly_order=poly_order,
+            transform_dependent=transform_dependent,
+            verbose=verbose,
+            include_bias=include_bias,
+            include_interaction=include_interaction,
+            bibo_stable=bibo_stable,
+            transform_only=transform_only,
+            forcing_coef_constraints=forcing_coef_constraints,
+            constraints=constraints,
+            early_stopping_threshold=early_stopping_threshold,
+            optimization_method=optimization_method,
+            seed=seed,
+            optimizer_kwargs=optimizer_kwargs,
+        )
+        return single_trainer.train()
+
+    if kernel == "decoupled_lti":
+        max_states = optimizer_kwargs.get("max_states", 5)
+        k = get_kernel("decoupled_lti")
+        if hasattr(k, "max_states"):
+            k.max_states = max_states
+
+        return decoupled_lti_train(
+            system_data=system_data,
+            dependent_columns=dependent_columns,
+            independent_columns=independent_columns,
+            windup_timesteps=windup_timesteps,
+            max_states=max_states,
+            max_iter=max_iter,
+            verbose=verbose,
+            optimization_method=optimization_method,
+            seed=seed,
+            **optimizer_kwargs,
+        )
 
     k = get_kernel(kernel)
     # Auto-limit transforms for underdamped kernel
@@ -694,3 +828,265 @@ def delay_io_train(
         optimizer_kwargs=optimizer_kwargs,
     )
     return single_trainer.train()
+
+
+class DecoupledLTITrainer:
+    """Direct LTI optimization bypassing delay-model architecture.
+
+    Optimizes A, B, C, D matrices directly for each output using
+    controllable canonical form. Uses NSE (full system simulation accuracy)
+    as objective instead of SINDy R².
+    """
+
+    def __init__(
+        self,
+        system_data: pd.DataFrame,
+        dependent_columns: list[str],
+        independent_columns: list[str],
+        windup_timesteps: int = 0,
+        max_states: int = 5,
+        max_iter: int = 250,
+        verbose: Verbosity = "warnings",
+        optimization_method: str = "bayesian",
+        seed: int | None = None,
+        optimizer_kwargs: dict | None = None,
+    ) -> None:
+        self.system_data = system_data
+        self.dependent_columns = dependent_columns
+        self.independent_columns = independent_columns
+        self.windup_timesteps = windup_timesteps
+        self.max_states = max_states
+        self.max_iter = max_iter
+        self.verbose = verbose
+        self.optimization_method = optimization_method
+        self.seed = seed
+        self.optimizer_kwargs = optimizer_kwargs or {}
+        self.index = system_data.index
+        self.n_samples = len(system_data)
+
+        if hasattr(self.index, "dtype") and np.issubdtype(
+            self.index.dtype, np.datetime64  # type: ignore[arg-type]
+        ):
+            self.dt = float((self.index[1] - self.index[0]) / np.timedelta64(1, "s"))
+        elif hasattr(self.index, "dtype") and hasattr(
+            self.index[1] - self.index[0], "total_seconds"
+        ):
+            self.dt = float((self.index[1] - self.index[0]).total_seconds())
+        else:
+            self.dt = (
+                float(self.index[1] - self.index[0]) if self.n_samples > 1 else 1.0
+            )
+        self.t_vec = np.arange(0, self.n_samples) * self.dt
+
+    def _build_lti(self, params: np.ndarray, n_states: int):
+        a = params[:n_states]
+        params[n_states : 2 * n_states]
+        params[2 * n_states]
+
+        A = np.zeros((n_states, n_states))
+        A[-1, :] = -np.array(a)
+        for i in range(n_states - 1):
+            A[i, i + 1] = 1.0
+
+        B = np.zeros((n_states, 1))
+        B[-1, 0] = 1.0
+
+        C = np.array([params[n_states : 2 * n_states]])
+        D = np.array([[params[2 * n_states]]])
+
+        return A, B, C, D
+
+    def _simulate_with_divergence_handling(
+        self, A, B, C, D, u: np.ndarray
+    ) -> np.ndarray | None:
+        """Simulate step-by-step with divergence detection."""
+        n_steps = len(u)
+        n_states = A.shape[0]
+        n_outputs = C.shape[0]
+
+        Ad = np.eye(n_states) + A * self.dt
+        Bd = B * self.dt
+
+        x0 = np.zeros(n_states)
+        x = x0.copy()
+        y_sim = np.zeros((n_steps, n_outputs))
+        y_sim[0] = (C @ x0 + D @ u[0]).flatten()
+
+        divergence_threshold = 1e10
+
+        for i in range(1, n_steps):
+            x = Ad @ x + Bd @ u[i]
+            y = C @ x + D @ u[i]
+            y_sim[i] = y.flatten()
+
+            if np.any(np.abs(x) > divergence_threshold) or not np.all(np.isfinite(x)):
+                logger.warning(f"Divergence detected at step {i}, stopping simulation")
+                return y_sim[: i + 1]
+
+        return y_sim
+
+    def _objective_single_output(
+        self,
+        params: np.ndarray,
+        y_true: np.ndarray,
+        u: np.ndarray,
+        n_states: int,
+    ) -> float:
+        A, B, C, D = self._build_lti(params, n_states)
+
+        eigvals = np.linalg.eigvals(A)
+        penalty = 0.0
+        penalty += np.sum(np.maximum(np.real(eigvals) - 50.0, 0.0) ** 2) * 1e6
+        penalty += np.sum(np.maximum(0.1 - np.real(eigvals), 0.0) ** 2) * 1e6
+
+        try:
+            y_sim = self._simulate_with_divergence_handling(A, B, C, D, u)
+            if y_sim is None or len(y_sim) == 0:
+                return 1e6
+
+            y_sim = y_sim.flatten()
+            y_eval = y_true[: len(y_sim)]
+            nse = 1.0 - np.sum((y_eval - y_sim) ** 2) / np.sum(
+                (y_eval - np.mean(y_eval)) ** 2
+            )
+            if np.isnan(nse):
+                nse = -1e6
+            return float(-nse + penalty)  # type: ignore[no-any-return]
+        except Exception:
+            return 1e6
+
+    def _train_single_output(self, output_col: str) -> dict[str, Any]:
+        n_states = self.max_states
+        y_true = np.asarray(
+            self.system_data[output_col].values[self.windup_timesteps :], dtype=float
+        )
+        u = np.asarray(
+            self.system_data[self.independent_columns].values[self.windup_timesteps :],
+            dtype=float,
+        )
+
+        n_params = 2 * n_states + 1
+        bounds = np.array([[-50.0, 50.0]] * n_params)
+
+        init = np.zeros(n_params)
+        for i in range(n_states):
+            init[i] = -0.5 * (0.5**i)
+        init[n_states] = 1.0
+        init[-1] = 0.0
+
+        import scipy.optimize as opt
+
+        def objective(params):
+            return self._objective_single_output(params, y_true, u, n_states)
+
+        result = opt.differential_evolution(
+            objective,
+            bounds=bounds,
+            maxiter=self.max_iter,
+            popsize=15,
+            mutation=(0.5, 1.5),
+            recombination=0.7,
+            seed=42 if self.seed is None else self.seed,
+            updating="deferred",
+        )
+
+        best_params = result.x
+        A, B, C, D = self._build_lti(best_params, n_states)
+
+        try:
+            y_sim = self._simulate_with_divergence_handling(A, B, C, D, u)
+            if y_sim is None or len(y_sim) == 0:
+                y_sim = np.zeros_like(y_true)
+                nse = -1.0
+                r2 = -1.0
+            else:
+                y_sim = y_sim.flatten()
+                y_eval = y_true[: len(y_sim)]
+                nse = 1.0 - np.sum((y_eval - y_sim) ** 2) / np.sum(
+                    (y_eval - np.mean(y_eval)) ** 2
+                )
+                r2 = nse
+                if len(y_sim) < len(y_true):
+                    padded = np.full_like(y_true, np.nan)
+                    padded[: len(y_sim)] = y_sim
+                    y_sim = padded
+        except Exception:
+            y_sim = np.zeros_like(y_true)
+            nse = -1.0
+            r2 = -1.0
+
+        return {
+            "A": A,
+            "B": B,
+            "C": C,
+            "D": D,
+            "params": best_params,
+            "nse": nse,
+            "r2": r2,
+            "simulated": y_sim,
+            "response": self.system_data[[output_col]],
+            "forcing": self.system_data[self.independent_columns],
+            "index": self.index,
+            "diverged": False,
+        }
+
+    def train(self) -> dict[int, dict[str, Any]]:
+        results = {}
+        for idx, output_col in enumerate(self.dependent_columns, start=1):
+            if _normalize_verbose(self.verbose) != "warnings":
+                logger.info("Training decoupled LTI for output: %s", output_col)
+            results[idx] = self._train_single_output(output_col)
+        return results
+
+
+def decoupled_lti_train(
+    system_data,
+    dependent_columns,
+    independent_columns,
+    windup_timesteps=0,
+    max_states=5,
+    max_iter=250,
+    verbose: Verbosity = "warnings",
+    optimization_method="differential_evolution",
+    seed=None,
+    **optimizer_kwargs,
+):
+    """Train a direct LTI model bypassing the delay-model architecture.
+
+    Directly optimizes A, B, C, D matrices for each output using
+    controllable canonical form. Uses NSE (full system simulation accuracy)
+    as objective instead of SINDy R².
+
+    Args:
+        system_data: DataFrame with time index, inputs, and outputs.
+        dependent_columns: Output column names.
+        independent_columns: Input column names.
+        windup_timesteps: Number of initial timesteps to discard.
+        max_states: State dimension for each output's LTI system.
+        max_iter: Maximum optimization iterations.
+        verbose: Verbosity level.
+        optimization_method: scipy.optimize method name.
+        seed: Random seed for reproducibility.
+
+    Returns:
+        dict keyed by output index (1-based), each containing:
+            - A, B, C, D matrices
+            - nse, r2 scores
+            - simulated output
+    """
+    if _normalize_verbose(verbose) != "warnings":
+        configure_verbosity(verbose)
+
+    trainer = DecoupledLTITrainer(
+        system_data=system_data,
+        dependent_columns=dependent_columns,
+        independent_columns=independent_columns,
+        windup_timesteps=windup_timesteps,
+        max_states=max_states,
+        max_iter=max_iter,
+        verbose=verbose,
+        optimization_method=optimization_method,
+        seed=seed,
+        optimizer_kwargs=optimizer_kwargs,
+    )
+    return trainer.train()
