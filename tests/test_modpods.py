@@ -783,7 +783,7 @@ def test_delay_io_train_nse_above_zero(simple_lti_data: pd.DataFrame) -> None:
             windup_timesteps=0,
             init_transforms=1,
             max_transforms=1,
-            max_iter=10,
+            max_iter=20,
             poly_order=1,
             verbose="warnings",
             seed=42,
@@ -1529,3 +1529,155 @@ def test_dual_annealing_reproducible_with_seed(
         model2[1]["kernel_params"].loc[(1, "shape"), :].values, dtype=float
     ).flatten()
     np.testing.assert_allclose(shape_1, shape_2, rtol=1e-10)
+
+
+def test_decoupled_lti_stabilizes_unstable_system() -> None:
+    """decoupled_lti_train should identify an unstable pole without diverging."""
+    np.random.seed(42)
+    n, dt = 500, 0.05
+    T = np.arange(0, n * dt, dt)
+
+    A_true = np.array([[0, 1, 0], [-16, 4.7, 0], [0, 0, -1]])
+    B_true = np.array([[0], [1], [0]])
+    C_true = np.array([[1, 0, 0]])
+    sys_true = ct.ss(A_true, B_true, C_true, 0)
+
+    u = np.zeros((n, 1))
+    u[100:150, 0] = 1.0
+    response = ct.forced_response(sys_true, T, np.transpose(u))
+    u_arr = np.asarray(response.inputs).flatten()
+    y_arr = np.asarray(response.outputs).flatten()
+
+    df = pd.DataFrame(index=T, data={"u": u_arr, "x": y_arr})
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.decoupled_lti_train(
+            df,
+            dependent_columns=["x"],
+            independent_columns=["u"],
+            windup_timesteps=20,
+            max_states=3,
+            max_iter=50,
+            verbose="warnings",
+            optimization_method="differential_evolution",
+            seed=42,
+        )
+
+    assert isinstance(model, dict)
+    assert 1 in model
+    result = model[1]
+    assert "A" in result
+    assert "nse" in result
+    assert result["nse"] > 0.5, "NSE {:.4f} is too low for unstable system".format(
+        result["nse"]
+    )
+    eigvals = np.linalg.eigvals(result["A"])
+    assert np.any(np.real(eigvals) > 0), "Expected at least one unstable eigenvalue"
+
+
+def test_observer_compensator_stabilizes_unstable_system() -> None:
+    """decoupled_lti_train + observer-based compensator should stabilize the spring pushcart."""
+    np.random.seed(42)
+    n, dt = 500, 0.05
+    T = np.arange(0, n * dt, dt)
+
+    A_true = np.array([[0, 1, 0], [-16, 4.7, 0], [0, 0, -1]])
+    B_true = np.array([[0], [1], [0]])
+    C_true = np.array([[1, 0, 0]])
+    sys_true = ct.ss(A_true, B_true, C_true, 0)
+
+    u = np.zeros((n, 1))
+    u[100:150, 0] = 1.0
+    response = ct.forced_response(sys_true, T, np.transpose(u))
+    u_arr = np.asarray(response.inputs).flatten()
+    y_arr = np.asarray(response.outputs).flatten()
+
+    df = pd.DataFrame(index=T, data={"u": u_arr, "x": y_arr})
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model = modpods.decoupled_lti_train(
+            df,
+            dependent_columns=["x"],
+            independent_columns=["u"],
+            windup_timesteps=20,
+            max_states=3,
+            max_iter=50,
+            verbose="warnings",
+            optimization_method="differential_evolution",
+            seed=42,
+        )
+
+    assert isinstance(model, dict)
+    assert 1 in model
+    result = model[1]
+    A_id = result["A"]
+    B_id = result["B"]
+    C_id = result["C"]
+    D_id = result["D"]
+
+    A_id = np.asarray(A_id, dtype=float)
+    B_id = np.asarray(B_id, dtype=float)
+    C_id = np.asarray(C_id, dtype=float)
+    D_id = np.asarray(D_id, dtype=float)
+
+    # Ensure we have 2D arrays
+    if A_id.ndim == 1:
+        n_states = int(np.sqrt(len(A_id)))
+        A_id = A_id.reshape(n_states, n_states)
+    if B_id.ndim == 1:
+        B_id = B_id.reshape(-1, 1)
+    if C_id.ndim == 1:
+        C_id = C_id.reshape(1, -1)
+    if D_id.ndim == 1:
+        D_id = D_id.reshape(1, -1)
+
+    n_states = A_id.shape[0]
+    assert A_id.shape == (n_states, n_states)
+    assert B_id.shape == (n_states, 1)
+    assert C_id.shape == (1, n_states)
+    assert D_id.shape == (1, 1)
+
+    Q = np.eye(n_states)
+    R = np.eye(1)
+
+    try:
+        K, S, E = ct.lqr(ct.ss(A_id, B_id, C_id, D_id), Q, R)
+        K = np.asarray(K, dtype=float).reshape(1, -1)
+
+        desired_poles = np.array([-4.0, -3.0 + 2.0j, -3.0 - 2.0j])
+        if len(desired_poles) != n_states:
+            desired_poles = np.concatenate(
+                [desired_poles, np.full(n_states - len(desired_poles), -5.0)]
+            )[:n_states]
+
+        try:
+            L = ct.place(C_id.T, A_id.T, desired_poles).T
+            L = np.asarray(L, dtype=float)
+        except Exception:
+            try:
+                _, L, _ = ct.lqe(
+                    ct.ss(A_id, B_id, C_id, 0.01 * np.eye(n_states)),
+                    0.1 * np.eye(n_states),
+                    1e-4 * np.eye(1),
+                )
+                L = np.asarray(L, dtype=float).reshape(-1, 1)
+            except Exception:
+                L = np.zeros((n_states, 1))
+
+        A_cl = np.block(
+            [
+                [A_id - B_id @ K, B_id @ K],
+                [L @ C_id, A_id - B_id @ K - L @ C_id],
+            ]
+        )
+
+        cl_eigvals = np.linalg.eigvals(A_cl)
+        max_real_part = float(np.max(np.real(cl_eigvals)))
+        assert max_real_part < -0.01, (
+            f"Observer-based compensator failed to stabilize the system. "
+            f"Max closed-loop eigenvalue real part: {max_real_part:.4f}"
+        )
+    except Exception as e:
+        raise AssertionError(f"Observer-based compensator design failed: {e}")

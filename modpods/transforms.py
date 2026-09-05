@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-import control as ct
+import control as ct  # type: ignore[import-untyped]
 import numpy as np
 import pandas as pd
 import scipy.signal as signal
@@ -83,10 +83,12 @@ def _safe_convolve(forcing_values, kernel_values, mode="full"):
         try:
             result = signal.oaconvolve(forcing_values, kernel_values, mode=mode)
             if not np.all(np.isfinite(result)):
-                raise ValueError("Time-domain convolution also produced non-finite values")
+                raise ValueError(
+                    "Time-domain convolution also produced non-finite values"
+                )
             if scale > 1.0:
                 result = result * scale
-            return result
+            return result  # type: ignore[no-any-return]
         except (ValueError, FloatingPointError, OverflowError):
             raise ValueError("Time-domain convolution also produced non-finite values")
 
@@ -161,7 +163,7 @@ class TransformCache:
         if len(self._cache) > self.max_entries:
             self._cache.popitem(last=False)
 
-        return result.copy()
+        return result.copy()  # type: ignore[no-any-return]
 
     def clear(self):
         """Clear the cache and reset counters."""
@@ -216,14 +218,16 @@ def _transform_unstable_kernel(
     lti_sys = ct.ss(A, B, C, D)
 
     try:
-        t_sim, y_sim, x_sim = ct.forced_response(lti_sys, T=t_vec, U=forcing_values, X0=0.0)
+        t_sim, y_sim, x_sim = ct.forced_response(
+            lti_sys, T=t_vec, U=forcing_values, X0=0.0
+        )
         result = y_sim.flatten()
         # Ensure result length matches
         if len(result) != len(t_vec):
             result = np.interp(t_vec, t_sim, result.flatten())
-        return result
+        return result  # type: ignore[no-any-return]
     except Exception:
-        return None
+        return None  # type: ignore[no-any-return]
 
 
 def make_kernel_params(
@@ -327,9 +331,9 @@ def transform_inputs(
 
     n = len(index)
     # Handle both numeric and datetime/timedelta indices
-    if hasattr(index, 'dtype') and np.issubdtype(index.dtype, np.datetime64):
-        dt = float((index[1] - index[0]) / np.timedelta64(1, 's'))
-    elif hasattr(index, 'dtype') and hasattr(index[1] - index[0], 'total_seconds'):
+    if hasattr(index, "dtype") and np.issubdtype(index.dtype, np.datetime64):
+        dt = float((index[1] - index[0]) / np.timedelta64(1, "s"))
+    elif hasattr(index, "dtype") and hasattr(index[1] - index[0], "total_seconds"):
         dt = float((index[1] - index[0]).total_seconds())
     else:
         dt = float(index[1] - index[0]) if n > 1 else 1.0
@@ -351,12 +355,16 @@ def transform_inputs(
 
             if is_unstable:
                 # Use LTI simulation for unstable kernels
-                result = _transform_unstable_kernel(kernel, forcing_values, params, t_vec)
+                result = _transform_unstable_kernel(
+                    kernel, forcing_values, params, t_vec
+                )
                 if result is None:
                     # No LTI representation available, fall back to convolution
                     shape_time = np.arange(0, n, 1)
                     kernel_values = kernel.kernel_fn(shape_time, *params)
-                    result = _safe_convolve(forcing_values, kernel_values, mode="full")[:n]
+                    result = _safe_convolve(forcing_values, kernel_values, mode="full")[
+                        :n
+                    ]
             else:
                 # Stable kernel: use convolution
                 if cache is not None:
@@ -364,7 +372,9 @@ def transform_inputs(
                 else:
                     shape_time = np.arange(0, n, 1)
                     kernel_values = kernel.kernel_fn(shape_time, *params)
-                    result = _safe_convolve(forcing_values, kernel_values, mode="full")[:n]
+                    result = _safe_convolve(forcing_values, kernel_values, mode="full")[
+                        :n
+                    ]
 
             # Replace NaN/Inf with large but finite values to avoid downstream NaN issues
             if not np.all(np.isfinite(result)):

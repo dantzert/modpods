@@ -269,13 +269,13 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
     def is_unstable(self) -> bool:
         return True
 
-    def is_unstable_params(self, zeta: float, omega_n: float) -> bool:
+    def is_unstable_params(self, zeta: float, omega_n: float) -> bool:  # type: ignore[override]
         return zeta < 0
 
-    def is_stable_delay(self, zeta: float, omega_n: float) -> bool:
+    def is_stable_delay(self, zeta: float, omega_n: float) -> bool:  # type: ignore[override]
         return zeta > 0
 
-    def to_lti(self, zeta: float, omega_n: float) -> tuple:
+    def to_lti(self, zeta: float, omega_n: float) -> tuple:  # type: ignore[override]
         A = np.array(
             [
                 [0.0, 1.0],
@@ -316,13 +316,13 @@ class ExponentialGrowthKernel(ConvolutionKernel):
     def default_bounds(self) -> np.ndarray:
         return np.array(
             [
-                [0.01, 5.0],
+                [-5.0, -0.01],
             ]
         )
 
     @property
     def default_init(self) -> np.ndarray:
-        return np.array([0.5])
+        return np.array([-0.5])
 
     def kernel_fn(self, t: np.ndarray, rate: float) -> np.ndarray:  # type: ignore[override]
         h = np.exp(rate * t)
@@ -332,13 +332,13 @@ class ExponentialGrowthKernel(ConvolutionKernel):
     def is_unstable(self) -> bool:
         return True
 
-    def is_unstable_params(self, rate: float) -> bool:
+    def is_unstable_params(self, rate: float) -> bool:  # type: ignore[override]
         return rate > 0
 
-    def is_stable_delay(self, rate: float) -> bool:
+    def is_stable_delay(self, rate: float) -> bool:  # type: ignore[override]
         return rate < 0
 
-    def to_lti(self, rate: float) -> tuple:
+    def to_lti(self, rate: float) -> tuple:  # type: ignore[override]
         A = np.array([[rate]])
         B = np.array([[1.0]])
         C = np.array([[rate]])
@@ -388,10 +388,10 @@ class ExponentialDecayKernel(ConvolutionKernel):
     def is_unstable(self) -> bool:
         return False
 
-    def is_stable_delay(self, lam: float) -> bool:
+    def is_stable_delay(self, lam: float) -> bool:  # type: ignore[override]
         return lam > 0
 
-    def to_lti(self, lam: float) -> tuple:
+    def to_lti(self, lam: float) -> tuple:  # type: ignore[override]
         A = np.array([[-lam]])
         B = np.array([[1.0]])
         C = np.array([[lam]])
@@ -444,13 +444,13 @@ class ExponentialKernel(ConvolutionKernel):
     def is_unstable(self) -> bool:
         return True
 
-    def is_unstable_params(self, lam: float) -> bool:
+    def is_unstable_params(self, lam: float) -> bool:  # type: ignore[override]
         return lam > 0
 
-    def is_stable_delay(self, lam: float) -> bool:
+    def is_stable_delay(self, lam: float) -> bool:  # type: ignore[override]
         return lam < 0
 
-    def to_lti(self, lam: float) -> tuple:
+    def to_lti(self, lam: float) -> tuple:  # type: ignore[override]
         A = np.array([[lam]])
         B = np.array([[1.0]])
         C = np.array([[lam]])
@@ -519,25 +519,24 @@ class CanonicalLTIKernel(ConvolutionKernel):
     def default_init(self) -> np.ndarray:
         init = np.zeros(2 * self.max_states + 1)
         for i in range(self.max_states):
-            init[i] = -0.5 * (0.5 ** i)
+            init[i] = -0.5 * (0.5**i)
         init[self.max_states] = 1.0
         init[-1] = 0.0
         return init
 
     def kernel_fn(self, t: np.ndarray, *params: float) -> np.ndarray:
         n = self.max_states
-        A, B, C, D = self._build_lti(params, self.max_states)
+        A, B, C, D = self._build_lti(np.asarray(params, dtype=float), self.max_states)
 
         # Check if A has eigenvalues outside unit circle (discrete-time stability)
         try:
             eigvals = np.linalg.eigvals(A)
             if np.any(np.abs(eigvals) > 1.0):
                 return np.zeros_like(t)
-        except:
+        except Exception:
             pass
 
-        from scipy.linalg import expm
-        n_states = A.shape[0]
+        A.shape[0]
         h = np.zeros_like(t)
 
         for i, ti in enumerate(t):
@@ -569,8 +568,8 @@ class CanonicalLTIKernel(ConvolutionKernel):
 
     def _build_lti(self, params: np.ndarray, n: int):
         a = params[:n]
-        c = params[n:2*n]
-        d = params[2*n]
+        params[n : 2 * n]
+        params[2 * n]
 
         A = np.zeros((n, n))
         A[-1, :] = -np.array(a)
@@ -580,19 +579,13 @@ class CanonicalLTIKernel(ConvolutionKernel):
         B = np.zeros((n, 1))
         B[-1, 0] = 1.0
 
-        C = np.array([params[n:2*n]])
-        D = np.array([[params[2*n]]])
+        C = np.array([params[n : 2 * n]])
+        D = np.array([[params[2 * n]]])
 
         return A, B, C, D
 
-    def is_unstable_params(self, *params: float) -> bool:
-        return True
-
-    def is_stable_delay(self, *params: float) -> bool:
-        return False
-
     def to_lti(self, *params: float) -> tuple:
-        return self._build_lti(params, self.max_states)
+        return self._build_lti(np.asarray(params, dtype=float), self.max_states)  # type: ignore[no-any-return]
 
 
 class DirectLTISystem(ConvolutionKernel):
@@ -645,24 +638,23 @@ class DirectLTISystem(ConvolutionKernel):
     def default_init(self) -> np.ndarray:
         init = np.zeros(2 * self.max_states + 1)
         for i in range(self.max_states):
-            init[i] = -0.5 * (0.5 ** i)
+            init[i] = -0.5 * (0.5**i)
         init[self.max_states] = 1.0
         init[-1] = 0.0
         return init
 
     def kernel_fn(self, t: np.ndarray, *params: float) -> np.ndarray:
         n = self.max_states
-        A, B, C, D = self._build_lti(params, self.max_states)
+        A, B, C, D = self._build_lti(np.asarray(params, dtype=float), self.max_states)
 
         try:
             eigvals = np.linalg.eigvals(A)
             if np.any(np.abs(eigvals) > 1.0):
                 return np.zeros_like(t)
-        except:
+        except Exception:
             pass
 
-        from scipy.linalg import expm
-        n_states = A.shape[0]
+        A.shape[0]
         h = np.zeros_like(t)
 
         for i, ti in enumerate(t):
@@ -694,8 +686,8 @@ class DirectLTISystem(ConvolutionKernel):
 
     def _build_lti(self, params: np.ndarray, n: int):
         a = params[:n]
-        c = params[n:2*n]
-        d = params[2*n]
+        params[n : 2 * n]
+        params[2 * n]
 
         A = np.zeros((n, n))
         A[-1, :] = -np.array(a)
@@ -705,28 +697,22 @@ class DirectLTISystem(ConvolutionKernel):
         B = np.zeros((n, 1))
         B[-1, 0] = 1.0
 
-        C = np.array([params[n:2*n]])
-        D = np.array([[params[2*n]]])
+        C = np.array([params[n : 2 * n]])
+        D = np.array([[params[2 * n]]])
 
         return A, B, C, D
 
-    def is_unstable_params(self, *params: float) -> bool:
-        return True
-
-    def is_stable_delay(self, *params: float) -> bool:
-        return False
-
     def to_lti(self, *params: float) -> tuple:
-        return self._build_lti(params, self.max_states)
+        return self._build_lti(np.asarray(params, dtype=float), self.max_states)  # type: ignore[no-any-return]
 
 
 class DecoupledLTISystem(ConvolutionKernel):
     """Decoupled LTI system in controllable canonical form.
-    
+
     The system has the form:
         x_lti' = A_lti * x_lti + B_lti * u
         y_lti   = C_lti * x_lti + D_lti * u
-    
+
     where:
         A_lti = [[-a1, -a2, ..., -an],
                  [ 1,   0, ...,  0 ],
@@ -735,23 +721,23 @@ class DecoupledLTISystem(ConvolutionKernel):
         B_lti = [[1], [0], ..., [0]]
         C_lti = [[c1, c2, ..., cn]]
         D_lti = [[d]]
-    
+
     Parameters: [a1...an, c1...cn, d] (2n + 1 parameters per output)
     """
-    
+
     def __init__(self, n_states: int = 5, n_inputs: int = 1, n_outputs: int = 1):
         self.max_states = n_states
         self.n_inputs = n_inputs
         self.n_outputs = n_outputs
-        
+
     @property
     def name(self) -> str:
         return "decoupled_lti"
-    
+
     @property
     def num_params(self) -> int:
         return (2 * self.max_states + 1) * self.n_outputs * self.n_inputs
-    
+
     @property
     def param_names(self) -> List[str]:
         names = []
@@ -763,7 +749,7 @@ class DecoupledLTISystem(ConvolutionKernel):
                     names.append(f"c_{inp}_{out}_{i+1}")
                 names.append(f"d_{inp}_{out}")
         return names
-    
+
     @property
     def default_bounds(self) -> np.ndarray:
         bounds = []
@@ -774,37 +760,38 @@ class DecoupledLTISystem(ConvolutionKernel):
                 bounds.append([-50.0, 50.0])  # c coefficients
             bounds.append([-10.0, 10.0])  # d
         return np.array(bounds)
-    
+
     @property
     def default_init(self) -> np.ndarray:
         init = np.zeros(self.num_params)
-        n = self.max_states
         for out in range(self.n_outputs):
             for inp in range(self.n_inputs):
                 base = (out * self.n_inputs + inp) * (2 * self.max_states + 1)
                 for i in range(self.max_states):
-                    init[base + i] = -0.5 * (0.5 ** i)  # decaying coefficients
+                    init[base + i] = -0.5 * (0.5**i)  # decaying coefficients
                 init[base + self.max_states] = 1.0  # c1 = 1
                 init[base + 2 * self.max_states] = 0.0  # d = 0
         return init
-    
+
     def kernel_fn(self, t: np.ndarray, *params: float) -> np.ndarray:
         n = self.max_states * self.n_outputs * self.n_inputs
         # Use single output for impulse response computation
-        A, B, C, D = self._build_single_lti(params[:2*self.max_states+1])
-        
+        A, B, C, D = self._build_single_lti(
+            np.asarray(params[: 2 * self.max_states + 1], dtype=float)
+        )
+
         # Check if A has eigenvalues outside unit circle (discrete-time stability)
         try:
             eigvals = np.linalg.eigvals(A)
             if np.any(np.abs(eigvals) > 1.0):
                 return np.zeros_like(t)
-        except:
+        except Exception:
             pass
-        
+
         # Compute impulse response
-        from scipy.linalg import expm
+
         h = np.zeros_like(t)
-        
+
         for i, ti in enumerate(t):
             if ti == 0:
                 h[i] = 0.0
@@ -816,49 +803,53 @@ class DecoupledLTISystem(ConvolutionKernel):
                     h[i] = (C @ expAt @ B_vec).item()
                 except (OverflowError, ValueError, RuntimeError):
                     h[i] = 0.0
-        
+
         h_sum = np.sum(h)
         if h_sum != 0:
             h = h / h_sum
         return h
-    
+
     @property
     def is_unstable(self) -> bool:
         return True
-    
+
     def is_unstable_params(self, *params: float) -> bool:
         return True
-    
+
     def is_stable_delay(self, *params: float) -> bool:
         return False
-    
+
     def _build_single_lti(self, params: np.ndarray) -> tuple:
         """Build LTI for a single input-output pair."""
         n = self.max_states
         a = params[:n]
-        c = params[n:2*n]
-        d = params[2*n]
-        
+        params[n : 2 * n]
+        params[2 * n]
+
         A = np.zeros((n, n))
         A[-1, :] = -np.array(a)
         for i in range(n - 1):
             A[i, i + 1] = 1.0
-        
+
         B = np.zeros((n, 1))
         B[-1, 0] = 1.0
-        
-        C = np.array([params[n:2*n]])
-        D = np.array([[params[2*n]]])
-        
+
+        C = np.array([params[n : 2 * n]])
+        D = np.array([[params[2 * n]]])
+
         return A, B, C, D
-    
+
     def _build_lti(self, params: np.ndarray, n: int):
         """Build LTI matrices from parameters."""
         # For backward compatibility, use the first input-output pair
-        return self._build_single_lti(params[:2*self.max_states+1])
-    
+        return self._build_single_lti(
+            np.asarray(params[: 2 * self.max_states + 1], dtype=float)
+        )
+
     def to_lti(self, *params: float) -> tuple:
-        return self._build_single_lti(params[:2*self.max_states+1])
+        return self._build_single_lti(
+            np.asarray(params[: 2 * self.max_states + 1], dtype=float)
+        )
 
 
 _KERNEL_REGISTRY: Dict[str, type] = {}

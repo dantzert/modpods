@@ -363,24 +363,12 @@ class SINDYModelFactory:
     def _error_result(
         self, model: SystemIdModel | None, r2: float = -1.0
     ) -> dict[str, Any]:
-        error_metrics = {
-            "MAE": [False],
-            "RMSE": [False],
-            "NSE": [False],
-            "alpha": [False],
-            "beta": [False],
-            "HFV": [False],
-            "HFV10": [False],
-            "LFV": [False],
-            "FDC": [False],
-            "r2": r2,
-        }
         return {
             "error_metrics": {"r2": r2},
             "model": model,
             "simulated": False,
             "response": self.response,
-            "forcing": forcing,
+            "forcing": self.forcing,
             "index": self.index,
             "diverged": False,
         }
@@ -404,7 +392,7 @@ class SINDYModelFactory:
 
         if not is_unstable:
             # Stable system: use standard simulation
-            return model.simulate(x0, t, u).y.T
+            return model.simulate(x0, t, u).y.T  # type: ignore[no-any-return]
 
         # Unstable system: simulate step-by-step with divergence detection
         dt = t[1] - t[0] if len(t) > 1 else 1.0
@@ -432,7 +420,7 @@ class SINDYModelFactory:
             # Check for divergence
             if np.any(np.abs(x) > divergence_threshold) or not np.all(np.isfinite(x)):
                 logger.warning(f"Divergence detected at step {i}, stopping simulation")
-                return y_sim[:i+1]
+                return y_sim[: i + 1]
 
         return y_sim
 
@@ -514,7 +502,13 @@ class SINDYModelFactory:
                 )
                 if simulated is not None:
                     error_metrics = compute_detailed_metrics(
-                        self.response.values[self.windup_timesteps + 1 : self.windup_timesteps + 1 + len(simulated), :],
+                        self.response.values[
+                            self.windup_timesteps
+                            + 1 : self.windup_timesteps
+                            + 1
+                            + len(simulated),
+                            :,
+                        ],
                         simulated,
                         self.index,
                         self.windup_timesteps,

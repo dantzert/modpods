@@ -9,7 +9,7 @@ import scipy.stats as stats
 from ._logging import Verbosity, _normalize_verbose, configure_verbosity
 from ._system_id import SystemIdModel, _n_polynomial_features
 from ._validation import validate_columns, validate_system_data
-from .kernels import get_kernel, DirectLTISystem, DecoupledLTISystem
+from .kernels import DecoupledLTISystem, DirectLTISystem, get_kernel
 from .model import _build_constraint_matrices
 from .train import delay_io_train
 
@@ -299,7 +299,7 @@ def lti_from_underdamped(zeta, omega_n, dt=0, desired_NSE=0.999, verbose="warnin
     num = 200
     # Create exactly equally spaced time vector using integer arithmetic
     # to avoid floating-point precision issues with control.impulse_response
-    dt_exact = t_end / (num - 1)
+    t_end / (num - 1)
     # Use integer indexing to avoid accumulated floating-point error
     indices = np.arange(num, dtype=np.float64)
     t = indices * (t_end / (num - 1))
@@ -584,7 +584,7 @@ def lti_from_kernel(
         for i in range(1, 6):
             params_list.append(params.get(f"c{i}", 0.0))
         params_list.append(params.get("d", 0.0))
-        
+
         A, B, C, D = kernel.to_lti(*params_list)
         lti_sys = control.ss(A, B, C, D, dt=dt)
         return {"lti_approx": lti_sys}
@@ -599,11 +599,13 @@ def lti_from_kernel(
         for i in range(1, n_states + 1):
             params_list.append(params.get(f"c{i}", 0.0))
         params_list.append(params.get("d", 0.0))
-        
-        A, B, C, D = DirectLTISystem(max_states=n_states)._build_lti(np.array(params_list), n_states)
+
+        A, B, C, D = DirectLTISystem(max_states=n_states)._build_lti(
+            np.array(params_list), n_states
+        )
         lti_sys = control.ss(A, B, C, D, dt=dt)
         return {"lti_approx": lti_sys}
-    
+
     if kernel.name == "decoupled_lti":
         n_states = 5
         params_list = []
@@ -612,8 +614,10 @@ def lti_from_kernel(
         for i in range(1, n_states + 1):
             params_list.append(params.get(f"c{i}", 0.0))
         params_list.append(params.get("d", 0.0))
-        
-        A, B, C, D = DecoupledLTISystem(n_states=n_states)._build_lti(np.array(params_list), n_states)
+
+        A, B, C, D = DecoupledLTISystem(n_states=n_states)._build_lti(
+            np.array(params_list), n_states
+        )
         lti_sys = control.ss(A, B, C, D, dt=dt)
         return {"lti_approx": lti_sys}
 
