@@ -94,16 +94,20 @@ def compute_detailed_metrics(
             )
             / np.sum(np.sort(y_true[:, col_idx])[-int(0.3 * len(index)) :])
         )
+        y_pred_sorted = np.sort(y_pred[:, col_idx])
+        y_true_sorted = np.sort(y_true[:, col_idx])
+        y_pred_safe = np.maximum(y_pred_sorted, 1e-12)
+        y_true_safe = np.maximum(y_true_sorted, 1e-12)
         fdc.append(
             100
             * (
-                np.log10(np.sort(y_pred[:, col_idx])[int(0.2 * len(y_pred))])
-                - np.log10(np.sort(y_pred[:, col_idx])[int(0.7 * len(y_pred))])
-                - np.log10(np.sort(y_true[:, col_idx])[int(0.2 * len(y_true))])
-                + np.log10(np.sort(y_true[:, col_idx])[int(0.7 * len(y_true))])
+                np.log10(y_pred_safe[int(0.2 * len(y_pred_safe))])
+                - np.log10(y_pred_safe[int(0.7 * len(y_pred_safe))])
+                - np.log10(y_true_safe[int(0.2 * len(y_true_safe))])
+                + np.log10(y_true_safe[int(0.7 * len(y_true_safe))])
             )
-            / np.log10(np.sort(y_true[:, col_idx])[int(0.2 * len(y_true))])
-            - np.log10(np.sort(y_true[:, col_idx])[int(0.7 * len(y_true))])
+            / np.log10(y_true_safe[int(0.2 * len(y_true_safe))])
+            - np.log10(y_true_safe[int(0.7 * len(y_true_safe))])
         )
 
     logger.info("MAE = %s", mae)
