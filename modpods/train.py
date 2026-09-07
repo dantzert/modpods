@@ -67,8 +67,17 @@ class BayesianOptimizer(OptimizerStrategy):
             configure_verbosity(verbose)
             logger.info("Using Bayesian optimization...")
 
-        bayesian_max_iter = min(max_iter * 4, 200)
-        n_initial = min(30, max(20, int(bayesian_max_iter * 0.6)))
+        # Allow callers to override the Bayesian optimization budget directly.
+        # Defaults keep backward compatibility with the previous behavior
+        # (bayesian_max_iter = min(max_iter * 4, 200)).
+        bayesian_max_iter = int(optimizer_kwargs.get("n_calls", min(max_iter * 4, 200)))
+        n_initial = int(
+            optimizer_kwargs.get(
+                "n_initial_points",
+                min(30, max(20, int(bayesian_max_iter * 0.6))),
+            )
+        )
+        n_initial = min(n_initial, bayesian_max_iter)
 
         rng = np.random.default_rng(self.seed) if self.seed is not None else None
         X_sample_list: list[Any] = []
@@ -261,6 +270,7 @@ class SingleKernelTrainer:
         optimization_method: str = "bayesian",
         seed: int | None = None,
         optimizer_kwargs: dict | None = None,
+        fast_mode: bool = False,
     ) -> None:
         self.kernel = kernel
         self.system_data = system_data
@@ -269,7 +279,30 @@ class SingleKernelTrainer:
         self.windup_timesteps = windup_timesteps
         self.init_transforms = init_transforms
         self.max_transforms = _auto_max_transforms(kernel, max_transforms)
-        self.max_iter = max_iter
+        # fast_mode trades accuracy for speed: use a cheaper optimizer budget and
+        # cap the number of transforms (2 is sufficient for most physical systems).
+        self.fast_mode = fast_mode
+        if self.fast_mode:
+            self.max_transforms = min(self.max_transforms, 2)
+            if optimization_method == "bayesian":
+                self.optimization_method = "differential_evolution"
+            else:
+                self.optimization_method = optimization_method
+            self.max_iter = max(1, max_iter // 10)
+            self.optimizer_kwargs = dict(optimizer_kwargs or {})
+            self.optimizer_kwargs.setdefault("maxiter", self.max_iter)
+            self.optimizer_kwargs.setdefault("popsize", 5)
+        else:
+            self.max_iter = max_iter
+            self.optimization_method = optimization_method
+            self.optimizer_kwargs = dict(optimizer_kwargs or {})
+        # Bayesian-specific kwargs are consumed by BayesianOptimizer and must
+        # not be forwarded to scipy optimizers (they would raise TypeError).
+        self._bayesian_kwargs = {
+            k: self.optimizer_kwargs.pop(k)
+            for k in ("n_calls", "n_initial_points")
+            if k in self.optimizer_kwargs
+        }
         self.poly_order = poly_order
         self.transform_dependent = transform_dependent
         self.verbose = verbose
@@ -280,9 +313,7 @@ class SingleKernelTrainer:
         self.forcing_coef_constraints = forcing_coef_constraints
         self.constraints = constraints
         self.early_stopping_threshold = early_stopping_threshold
-        self.optimization_method = optimization_method
         self.seed = seed
-        self.optimizer_kwargs = optimizer_kwargs or {}
 
         if transform_dependent:
             self.columns = system_data.columns.tolist()
@@ -435,12 +466,17 @@ class SingleKernelTrainer:
         )
         objective = self._create_objective(transform_columns, num_transforms)
         optimizer = self._get_optimizer()
+        # Bayesian-specific kwargs (n_calls, n_initial_points) are merged in
+        # only for the Bayesian optimizer; scipy optimizers ignore them.
+        kwargs = dict(self.optimizer_kwargs)
+        if self.optimization_method == "bayesian":
+            kwargs.update(self._bayesian_kwargs)
         return optimizer.optimize(
             objective_function=objective,
             bounds=bounds,
             max_iter=self.max_iter,
             verbose=self.verbose,
-            optimizer_kwargs=self.optimizer_kwargs,
+            optimizer_kwargs=kwargs,
         )
 
     def _update_kernel_params(
@@ -563,6 +599,7 @@ class MultiKernelTrainer:
         optimization_method: str = "bayesian",
         seed: int | None = None,
         optimizer_kwargs: dict | None = None,
+        fast_mode: bool = False,
     ) -> None:
         self.system_data = system_data
         self.dependent_columns = dependent_columns
@@ -585,6 +622,7 @@ class MultiKernelTrainer:
         self.optimization_method = optimization_method
         self.seed = seed
         self.optimizer_kwargs = optimizer_kwargs or {}
+        self.fast_mode = fast_mode
         self.all_results: dict[str, dict[int, dict[str, Any]]] = {}
 
     def _train_kernel(
@@ -612,6 +650,7 @@ class MultiKernelTrainer:
             optimization_method=self.optimization_method,
             seed=self.seed,
             optimizer_kwargs=self.optimizer_kwargs,
+            fast_mode=self.fast_mode,
         )
         return trainer.train()
 
@@ -677,7 +716,9 @@ def delay_io_train(
     kernel="gamma",
     max_states=5,
     seed=None,
-    **optimizer_kwargs,
+    fast_mode=False,
+    optimizer_kwargs=None,
+    **extra_kwargs,
 ):
     """Train a delay-IO model with pluggable convolution kernels.
 
@@ -698,9 +739,21 @@ def delay_io_train(
 
         max_states: Maximum state dimension for canonical LTI kernels (default 5).
 
+        fast_mode: When True, trades accuracy for speed by:
+            - Using a cheaper optimizer budget (max_iter // 10, popsize 5)
+            - Capping max_transforms at 2 (sufficient for most physical systems)
+            - Using differential_evolution instead of Bayesian optimization
+            Recommended for parameter sweeps and grid searches.
+
+        optimizer_kwargs: Optional dict of extra optimizer-specific keyword
+            arguments. For Bayesian optimization this may include `n_calls`
+            and `n_initial_points` to control the optimization budget.
+
     Returns:
         dict keyed by num_transforms.
     """
+    optimizer_kwargs = dict(optimizer_kwargs or {})
+    optimizer_kwargs.update(extra_kwargs)
     if kernel in ("try-all", "run-all"):
         trainer = MultiKernelTrainer(
             system_data=system_data,
@@ -724,11 +777,12 @@ def delay_io_train(
             optimization_method=optimization_method,
             seed=seed,
             optimizer_kwargs=optimizer_kwargs,
+            fast_mode=fast_mode,
         )
         return trainer.train()
 
     if kernel in ("canonical_lti", "canonical_lti_incremental"):
-        max_states = optimizer_kwargs.get("max_states", 5)
+        max_states = optimizer_kwargs.pop("max_states", 5)
         if kernel == "canonical_lti_incremental":
             k = get_kernel("canonical_lti_incremental")
             if hasattr(k, "max_states"):
@@ -767,11 +821,12 @@ def delay_io_train(
             optimization_method=optimization_method,
             seed=seed,
             optimizer_kwargs=optimizer_kwargs,
+            fast_mode=fast_mode,
         )
         return single_trainer.train()
 
     if kernel == "decoupled_lti":
-        max_states = optimizer_kwargs.get("max_states", 5)
+        max_states = optimizer_kwargs.pop("max_states", 5)
         k = get_kernel("decoupled_lti")
         if hasattr(k, "max_states"):
             k.max_states = max_states
@@ -826,6 +881,7 @@ def delay_io_train(
         optimization_method=optimization_method,
         seed=seed,
         optimizer_kwargs=optimizer_kwargs,
+        fast_mode=fast_mode,
     )
     return single_trainer.train()
 
@@ -981,12 +1037,12 @@ class DecoupledLTITrainer:
 
         result = opt.differential_evolution(
             objective,
-            bounds=bounds,
+            bounds=bounds,  # type: ignore[arg-type]
             maxiter=self.max_iter,
             popsize=15,
             mutation=(0.5, 1.5),
             recombination=0.7,
-            seed=42 if self.seed is None else self.seed,
+            seed=42 if self.seed is None else self.seed,  # type: ignore[call-arg]
             updating="deferred",
         )
 

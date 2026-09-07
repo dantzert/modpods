@@ -642,6 +642,8 @@ def lti_system_gen(
     constraints=None,
     kernel="gamma",
     max_states=5,
+    fast_mode=False,
+    optimizer_kwargs=None,
 ):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
@@ -731,6 +733,8 @@ def lti_system_gen(
                 kernel=kernel,
                 max_states=max_states,
                 constraints=constraints,
+                fast_mode=fast_mode,
+                optimizer_kwargs=optimizer_kwargs or {},
             )
             # we'll parse this delayed causation into the matrices A, B, and C later
         else:
@@ -1110,6 +1114,8 @@ class LTISystem:
         forcing_coef_constraints: Any = None,
         constraints: Any = None,
         kernel: str = "gamma",
+        fast_mode: bool = False,
+        optimizer_kwargs: dict | None = None,
     ) -> None:
         self.causative_topology = causative_topology
         self.independent_columns = independent_columns
@@ -1123,6 +1129,8 @@ class LTISystem:
         self.forcing_coef_constraints = forcing_coef_constraints
         self.constraints = constraints
         self.kernel = kernel
+        self.fast_mode = fast_mode
+        self.optimizer_kwargs = optimizer_kwargs or {}
         self.system_: Any = None
         self.A_: pd.DataFrame | None = None
         self.B_: pd.DataFrame | None = None
@@ -1145,8 +1153,9 @@ class LTISystem:
             early_stopping_threshold=self.early_stopping_threshold,
             verbose=self.verbose,
             forcing_coef_constraints=self.forcing_coef_constraints,
-            constraints=self.constraints,
             kernel=self.kernel,
+            fast_mode=self.fast_mode,
+            optimizer_kwargs=self.optimizer_kwargs,
             **kwargs,
         )
         self.system_ = result["system"]
@@ -1186,6 +1195,8 @@ class LTISystem:
             "forcing_coef_constraints": self.forcing_coef_constraints,
             "constraints": self.constraints,
             "kernel": self.kernel,
+            "fast_mode": self.fast_mode,
+            "optimizer_kwargs": self.optimizer_kwargs,
         }
 
     def set_params(self, **params: Any) -> "LTISystem":

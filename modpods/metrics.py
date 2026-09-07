@@ -51,6 +51,15 @@ def compute_detailed_metrics(
     Returns:
         Dict with keys: MAE, RMSE, NSE, alpha, beta, HFV, HFV10, LFV, FDC.
     """
+    # FDC uses log10 of sorted values; clip to a small positive floor so
+    # zero/negative predictions do not produce -inf/NaN.
+    log_floor = 1e-12
+
+    def _log10_sorted(arr: np.ndarray, q: float) -> float:
+        sorted_vals = np.sort(arr)
+        idx = int(q * len(sorted_vals))
+        return float(np.log10(max(sorted_vals[idx], log_floor)))
+
     n_cols = y_true.shape[1]
     mae = []
     rmse = []
@@ -97,13 +106,16 @@ def compute_detailed_metrics(
         fdc.append(
             100
             * (
-                np.log10(np.sort(y_pred[:, col_idx])[int(0.2 * len(y_pred))])
-                - np.log10(np.sort(y_pred[:, col_idx])[int(0.7 * len(y_pred))])
-                - np.log10(np.sort(y_true[:, col_idx])[int(0.2 * len(y_true))])
-                + np.log10(np.sort(y_true[:, col_idx])[int(0.7 * len(y_true))])
+                _log10_sorted(y_pred[:, col_idx], 0.2)
+                - _log10_sorted(y_pred[:, col_idx], 0.7)
+                - _log10_sorted(y_true[:, col_idx], 0.2)
+                + _log10_sorted(y_true[:, col_idx], 0.7)
             )
-            / np.log10(np.sort(y_true[:, col_idx])[int(0.2 * len(y_true))])
-            - np.log10(np.sort(y_true[:, col_idx])[int(0.7 * len(y_true))])
+            / max(
+                _log10_sorted(y_true[:, col_idx], 0.2)
+                - _log10_sorted(y_true[:, col_idx], 0.7),
+                log_floor,
+            )
         )
 
     logger.info("MAE = %s", mae)
