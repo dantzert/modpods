@@ -110,6 +110,8 @@ class DelayIO:
         optimization_method: str = "bayesian",
         kernel: str | Any = "gamma",
         random_state: int | None = None,
+        fast_mode: bool = False,
+        optimizer_kwargs: dict | None = None,
     ) -> None:
         self.dependent_columns = dependent_columns
         self.independent_columns = independent_columns
@@ -130,6 +132,8 @@ class DelayIO:
         self.optimization_method = optimization_method
         self.kernel = kernel
         self.random_state = random_state
+        self.fast_mode = fast_mode
+        self.optimizer_kwargs = optimizer_kwargs or {}
         self.estimators_: list[DelayIOModel] = []
 
     def fit(self, system_data: pd.DataFrame, **kwargs: Any) -> list[DelayIOModel]:
@@ -160,6 +164,8 @@ class DelayIO:
             optimization_method=self.optimization_method,
             kernel=self.kernel,
             seed=self.random_state,
+            fast_mode=self.fast_mode,
+            **self.optimizer_kwargs,
             **kwargs,
         )
 
@@ -233,6 +239,8 @@ class DelayIO:
             "optimization_method": self.optimization_method,
             "kernel": self.kernel,
             "random_state": self.random_state,
+            "fast_mode": self.fast_mode,
+            "optimizer_kwargs": self.optimizer_kwargs,
         }
 
     def set_params(self, **params: Any) -> DelayIO:
