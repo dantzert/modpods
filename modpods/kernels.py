@@ -260,7 +260,17 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
             h = omega_n**2 * t * np.exp(-omega_n * t)
         else:
             s = omega_n * np.sqrt(zeta**2 - 1.0)
-            h = omega_n * np.exp(-zeta * omega_n * t) * np.sinh(s * t) / s
+            # Use stable difference-of-exponentials to avoid sinh overflow:
+            # sinh(s*t) = 0.5 * (exp(s*t) - exp(-s*t))
+            # h = omega_n * exp(-zeta*omega_n*t) * sinh(s*t) / s
+            #   = 0.5 * omega_n * (exp((s - zeta*omega_n)*t) - exp(-(s + zeta*omega_n)*t)) / s
+            # Both exponents are negative for zeta > 1, so no overflow occurs.
+            h = (
+                0.5
+                * omega_n
+                * (np.exp((s - zeta * omega_n) * t) - np.exp(-(s + zeta * omega_n) * t))
+                / s
+            )
         if zeta < 0:
             return h  # type: ignore[no-any-return]
         return np.maximum(h, 0.0)  # type: ignore[no-any-return]
