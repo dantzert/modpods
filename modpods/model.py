@@ -226,62 +226,77 @@ class SINDYModelFactory:
 
         # feature_names should only include forcing feature names (for the u input),
         # not response variable names. The response is handled separately.
-        feature_names = forcing.columns.tolist()
+        forcing_feature_names = forcing.columns.tolist()
+        response_feature_names = self.response.columns.tolist()
+        all_feature_names = response_feature_names + forcing_feature_names
 
         if self.bibo_stable or self.forcing_coef_constraints or self.constraints:
-            poly_feature_names = _polynomial_feature_names(
-                feature_names,
+            # Compute total polynomial features (response + forcing)
+            total_poly_feature_names = _polynomial_feature_names(
+                all_feature_names,
+                self.poly_degree,
+                self.include_bias,
+                self.include_interaction,
+            )
+            forcing_poly_feature_names = _polynomial_feature_names(
+                forcing_feature_names,
                 self.poly_degree,
                 self.include_bias,
                 self.include_interaction,
             )
             n_targets = len(self.response.columns)
+            n_total_features = len(total_poly_feature_names)
+            n_forcing_features = len(forcing_poly_feature_names)
+
             custom_lhs, custom_rhs, custom_inequality = self._build_constraint_matrices(
-                poly_feature_names, n_targets
+                forcing_poly_feature_names, n_targets
             )
             if custom_lhs.shape[0] > 0:
                 constraint_rhs = np.zeros((n_targets + custom_lhs.shape[0],))
                 constraint_lhs = np.zeros(
                     (
                         n_targets + custom_lhs.shape[0],
-                        n_targets * len(poly_feature_names),
+                        n_targets * n_total_features,
                     )
                 )
+                # Constrain only the linear forcing terms (first n_forcing_features per target)
                 for j in range(n_targets):
-                    constraint_lhs[
-                        j,
-                        j * len(poly_feature_names) + j,
-                    ] = 1
+                    if j < n_forcing_features:
+                        constraint_lhs[
+                            j,
+                            j * n_total_features + len(response_feature_names) + j,
+                        ] = 1
                 constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
                 constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
                 all_inequality = custom_inequality
             else:
                 constraint_rhs = np.zeros((n_targets,))
-                n_features = len(poly_feature_names)
-                constraint_lhs = np.zeros((n_targets, n_targets * n_features))
+                constraint_lhs = np.zeros((n_targets, n_targets * n_total_features))
+                # Constrain only the linear forcing terms (first forcing features per target)
                 for j in range(n_targets):
-                    constraint_lhs[j, j * n_features + j] = 1
+                    if j < n_forcing_features:
+                        constraint_lhs[j, j * n_total_features + len(response_feature_names) + j] = 1
                 all_inequality = True
 
             builder = ConstrainedSINDYBuilder(
                 constraint_lhs, constraint_rhs, all_inequality
             )
             model = builder.build(
-                poly_feature_names,
+                total_poly_feature_names,
                 self.poly_degree,
                 self.include_bias,
                 self.include_interaction,
             )
-            return model, poly_feature_names, forcing
+            return model, total_poly_feature_names, forcing
 
         std_builder = StandardSINDYBuilder()
         model = std_builder.build(
-            feature_names,
+            all_feature_names,
             self.poly_degree,
             self.include_bias,
             self.include_interaction,
         )
-        return model, feature_names, forcing
+        return model, all_feature_names, forcing
 
     def _build_transform_dependent_model(
         self, forcing: pd.DataFrame
@@ -293,30 +308,39 @@ class SINDYModelFactory:
             self.index,
             forcing,
         )
-        # feature_names should only include forcing feature names (for the u input),
-        # not response variable names. The response is handled separately.
-        feature_names = forcing_transformed.columns.tolist()
+        forcing_feature_names = forcing_transformed.columns.tolist()
+        response_feature_names = self.response.columns.tolist()
+        all_feature_names = response_feature_names + forcing_feature_names
 
         n_targets = self.response.shape[1]
-        poly_feature_names = _polynomial_feature_names(
-            feature_names,
+        total_poly_feature_names = _polynomial_feature_names(
+            all_feature_names,
             self.poly_degree,
             self.include_bias,
             self.include_interaction,
         )
-        n_features = len(poly_feature_names)
+        forcing_poly_feature_names = _polynomial_feature_names(
+            forcing_feature_names,
+            self.poly_degree,
+            self.include_bias,
+            self.include_interaction,
+        )
+        n_total_features = len(total_poly_feature_names)
+        n_forcing_features = len(forcing_poly_feature_names)
 
         constraint_rhs = np.zeros((n_targets,))
-        constraint_lhs = np.zeros((n_targets, n_features * n_targets))
+        constraint_lhs = np.zeros((n_targets, n_targets * n_total_features))
         if self.bibo_stable:
-            initial_guess = np.zeros((n_targets, n_features))
+            initial_guess = np.zeros((n_targets, n_total_features))
             for idx in range(n_targets):
-                initial_guess[idx, idx] = -1
+                if idx < n_total_features:
+                    initial_guess[idx, len(response_feature_names) + idx] = -1
         else:
             initial_guess = None
 
         for idx in range(n_targets):
-            constraint_lhs[idx, idx * n_features + idx] = 1
+            if idx < n_forcing_features:
+                constraint_lhs[idx, idx * n_total_features + len(response_feature_names) + idx] = 1
 
         model = SystemIdModel(
             poly_degree=self.poly_degree,
@@ -327,7 +351,7 @@ class SINDYModelFactory:
             inequality_constraints=False,
             initial_guess=initial_guess,
         )
-        return model, feature_names, forcing_transformed
+        return model, total_poly_feature_names, forcing_transformed
 
     def _fit_and_score(
         self,
