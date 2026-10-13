@@ -45,7 +45,7 @@ def delay_io_predict(
             system_data[delay_io_model[num_transforms]["dependent_columns"]].iloc[
                 windup_timesteps, :
             ],
-            t=np.arange(0, len(system_data.index), 1)[windup_timesteps:],
+            t=system_data.index[windup_timesteps:],
             u=transformed_forcing[windup_timesteps:],
         )
     except Exception as e:

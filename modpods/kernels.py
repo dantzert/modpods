@@ -239,8 +239,8 @@ class UnderdampedOscillatorKernel(ConvolutionKernel):
     def default_bounds(self) -> np.ndarray:
         return np.array(
             [
-                [0.001, 5.0],
-                [0.001, 50.0],
+                [0.01, 5.0],    # zeta: allow overdamped (zeta up to 5)
+                [0.1, 50.0],    # omega_n
             ]
         )
 

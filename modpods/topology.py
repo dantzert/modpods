@@ -117,11 +117,11 @@ def find_topology_no_geo(
         # Fit with no control input (u=None), just the state
         fit = model.fit(
             x=system_data.loc[:, dep_col],
-            t=np.arange(0, len(system_data.index), 1),
+            t=system_data.index,
             feature_names=[dep_col],
         )
         auto_r2 = fit.score(
-            x=system_data.loc[:, dep_col], t=np.arange(0, len(system_data.index), 1)
+            x=system_data.loc[:, dep_col], t=system_data.index
         )
         r2_values.loc[dep_col, dep_col] = auto_r2
 
@@ -194,13 +194,13 @@ def find_topology_no_geo(
                     fit = model.fit(
                         x=system_data.loc[:, dep_col],
                         u=transformed_inputs,
-                        t=np.arange(0, len(system_data.index), 1),
+                        t=system_data.index,
                         feature_names=feature_names,
                     )
                     r2 = fit.score(
                         x=system_data.loc[:, dep_col],
                         u=transformed_inputs,
-                        t=np.arange(0, len(system_data.index), 1),
+                        t=system_data.index,
                     )
 
                     return -r2  # Negative because minimize
@@ -260,14 +260,14 @@ def find_topology_no_geo(
             )
             fit = model.fit(
                 x=system_data.loc[:, dep_col],
-                t=np.arange(0, len(system_data.index), 1),
+                t=system_data.index,
                 u=transformed,
                 feature_names=feature_names,
             )
             # evaluate the r2 score
             r2 = fit.score(
                 x=system_data.loc[:, dep_col],
-                t=np.arange(0, len(system_data.index), 1),
+                t=system_data.index,
                 u=transformed,
             )
             try:
@@ -583,13 +583,13 @@ def find_topology_no_geo(
             )
             fit = model.fit(
                 x=system_data.loc[:, output_variable],
-                t=np.arange(0, len(system_data.index), 1),
+                t=system_data.index,
                 u=transformed_inputs,
                 feature_names=feature_names,
             )
             r2 = fit.score(
                 x=system_data.loc[:, output_variable],
-                t=np.arange(0, len(system_data.index), 1),
+                t=system_data.index,
                 u=transformed_inputs,
             )
             if debug:
@@ -688,13 +688,13 @@ def find_topology_no_geo(
         )
         fit = model.fit(
             x=system_data.loc[:, output_variable],
-            t=np.arange(0, len(system_data.index), 1),
+            t=system_data.index,
             u=transformed_inputs,
             feature_names=feature_names,
         )
         r2 = fit.score(
             x=system_data.loc[:, output_variable],
-            t=np.arange(0, len(system_data.index), 1),
+            t=system_data.index,
             u=transformed_inputs,
         )
 

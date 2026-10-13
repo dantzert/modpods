@@ -12,6 +12,7 @@ from ._validation import validate_columns, validate_system_data
 from .kernels import DecoupledLTISystem, DirectLTISystem, get_kernel
 from .model import _build_constraint_matrices
 from .train import delay_io_train
+from .transforms import transform_inputs
 
 logger = logging.getLogger(__name__)
 
@@ -280,40 +281,71 @@ def lti_from_underdamped(zeta, omega_n, dt=0, desired_NSE=0.999, verbose="warnin
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
 
-    omega_d = omega_n * np.sqrt(1.0 - zeta**2)
-
-    A = np.array(
-        [
-            [0, 1],
-            [-(omega_n**2), -2 * zeta * omega_n],
-        ]
-    )
-    B = np.array([[0], [1]])
-    C = np.array([[omega_n, 0]])
-
-    # Ensure exactly equally spaced time vector to satisfy control.impulse_response requirements
-    if zeta < 0:
-        t_end = 8 * np.pi / omega_d
-    else:
-        t_end = 4 * np.pi / omega_d
-    num = 200
-    # Create exactly equally spaced time vector using integer arithmetic
-    # to avoid floating-point precision issues with control.impulse_response
-    t_end / (num - 1)
-    # Use integer indexing to avoid accumulated floating-point error
-    indices = np.arange(num, dtype=np.float64)
-    t = indices * (t_end / (num - 1))
-    # Force the last element to be exactly t_end to avoid floating-point drift
-    t[-1] = t_end
-    # Verify spacing is exact to machine precision
-    diffs = np.diff(t)
-    if not np.allclose(diffs, diffs[0], rtol=1e-15, atol=1e-15):
-        # Reconstruct with exact arithmetic using integer multiples
-        t = np.arange(num, dtype=np.float64) * (t_end / (num - 1))
+    # Handle all damping cases: underdamped (zeta < 1), critically damped (zeta == 1), overdamped (zeta > 1)
+    if zeta < 1.0:
+        omega_d = omega_n * np.sqrt(1.0 - zeta**2)
+        A = np.array(
+            [
+                [0, 1],
+                [-(omega_n**2), -2 * zeta * omega_n],
+            ]
+        )
+        B = np.array([[0], [1]])
+        C = np.array([[omega_n, 0]])
+        
+        # Time vector for underdamped
+        if zeta < 0:
+            t_end = 8 * np.pi / omega_d
+        else:
+            t_end = 4 * np.pi / omega_d
+        num = 200
+        indices = np.arange(num, dtype=np.float64)
+        t = indices * (t_end / (num - 1))
         t[-1] = t_end
-
-    target = (omega_n / omega_d) * np.exp(-zeta * omega_n * t) * np.sin(omega_d * t)
-    if zeta >= 0:
+        target = (omega_n / omega_d) * np.exp(-zeta * omega_n * t) * np.sin(omega_d * t)
+        if zeta >= 0:
+            target = np.maximum(target, 0.0)
+    elif zeta == 1.0:
+        # Critically damped
+        A = np.array(
+            [
+                [0, 1],
+                [-(omega_n**2), -2 * omega_n],
+            ]
+        )
+        B = np.array([[0], [1]])
+        C = np.array([[omega_n, 0]])
+        
+        t_end = 4 * np.pi / omega_n
+        num = 200
+        indices = np.arange(num, dtype=np.float64)
+        t = indices * (t_end / (num - 1))
+        t[-1] = t_end
+        target = omega_n**2 * t * np.exp(-omega_n * t)
+    else:
+        # Overdamped (zeta > 1)
+        s = omega_n * np.sqrt(zeta**2 - 1.0)
+        A = np.array(
+            [
+                [0, 1],
+                [-(omega_n**2), -2 * zeta * omega_n],
+            ]
+        )
+        B = np.array([[0], [1]])
+        C = np.array([[omega_n, 0]])
+        
+        # Time vector for overdamped - use slower time constant
+        t_end = 4.0 / (zeta * omega_n - s)
+        num = 200
+        indices = np.arange(num, dtype=np.float64)
+        t = indices * (t_end / (num - 1))
+        t[-1] = t_end
+        target = (
+            0.5
+            * omega_n
+            * (np.exp((s - zeta * omega_n) * t) - np.exp(-(s + zeta * omega_n) * t))
+            / s
+        )
         target = np.maximum(target, 0.0)
 
     lti_sys = control.ss(A, B, C, 0)
@@ -644,6 +676,7 @@ def lti_system_gen(
     max_states=5,
     fast_mode=False,
     optimizer_kwargs=None,
+    optimization_method="bayesian",
 ):
     if _normalize_verbose(verbose) != "warnings":
         configure_verbosity(verbose)
@@ -691,9 +724,12 @@ def lti_system_gen(
     logger.info("%s", B)
     logger.info("C")
     logger.info("%s", C)
+    # Save original A for later use in delayed model insertion
+    original_A = A.copy(deep=True)
     # use transform_only when calling delay_io_train to only train transfomrations for connections marked "d"
     # train a MISO model for each output
     delay_models: dict = {key: None for key in dependent_columns}
+    delayed_forcing_map: dict = {}
 
     for row in A.index:
         immediate_forcing = []
@@ -710,6 +746,7 @@ def lti_system_gen(
                 delayed_forcing.append(col)
             elif B[col][row] == "i":
                 immediate_forcing.append(col)
+        delayed_forcing_map[row] = delayed_forcing
         # make total_forcing the union of immediate and delayed forcing
         total_forcing = immediate_forcing + delayed_forcing
         feature_names = [row] + total_forcing
@@ -735,6 +772,8 @@ def lti_system_gen(
                 constraints=constraints,
                 fast_mode=fast_mode,
                 optimizer_kwargs=optimizer_kwargs or {},
+                optimization_method=optimization_method,
+                early_stopping_threshold=early_stopping_threshold,
             )
             # we'll parse this delayed causation into the matrices A, B, and C later
         else:
@@ -746,7 +785,7 @@ def lti_system_gen(
             delay_models[row] = None
             # we can put immediate causation into the matrices A, B, and C now
 
-            if bibo_stable:  # negative autocorrelatoin
+            if bibo_stable:  # negative autocorrelation
                 n_features = _n_polynomial_features(len(feature_names), 1, False, False)
 
                 constraint_lhs = np.zeros((1, n_features))
@@ -788,7 +827,7 @@ def lti_system_gen(
             ].empty:  # the subsystem is autonomous
                 instant_fit = model.fit(
                     x=system_data.loc[:, row],
-                    t=np.arange(0, len(system_data.index), 1),
+                    t=system_data.index,
                     feature_names=feature_names,
                 )
                 instant_fit.print(precision=3)
@@ -796,14 +835,14 @@ def lti_system_gen(
                     "Training r2 = %s",
                     instant_fit.score(
                         x=system_data.loc[:, row],
-                        t=np.arange(0, len(system_data.index), 1),
+                        t=system_data.index,
                     ),
                 )
                 logger.info("%s", instant_fit.coefficients())
             else:  # there is some forcing
                 instant_fit = model.fit(
                     x=system_data.loc[:, row],
-                    t=np.arange(0, len(system_data.index), 1),
+                    t=system_data.index,
                     u=system_data.loc[:, immediate_forcing],
                     feature_names=feature_names,
                 )
@@ -812,7 +851,7 @@ def lti_system_gen(
                     "Training r2 = %s",
                     instant_fit.score(
                         x=system_data.loc[:, row],
-                        t=np.arange(0, len(system_data.index), 1),
+                        t=system_data.index,
                         u=system_data.loc[:, immediate_forcing],
                     ),
                 )
@@ -825,8 +864,203 @@ def lti_system_gen(
                 else:
                     logger.warning("couldn't find a column for %s", feature_names[idx])
 
-    original_A = A.copy(deep=True)
-    # now, parse the delay models into the A, B, and C matrices
+    # ============================================================
+    # PHASE 2: Transform delayed features for ENTIRE dataset
+    # ============================================================
+    transformed_system_data = system_data.copy(deep=True)
+    for row in A.index:
+        delayed_forcing = delayed_forcing_map.get(row, [])
+        if delayed_forcing and delay_models[row] is not None:
+            best_model_entry = delay_models[row][max(delay_models[row].keys())]
+            best_model = best_model_entry["final_model"]["model"]
+            kernel_type = best_model_entry.get("kernel_type", "gamma")
+            kernel_params = best_model_entry["kernel_params"]
+            kernel = get_kernel(kernel_type)
+            
+            # Transform delayed forcing variables for the ENTIRE dataset
+            delayed_forcing_cols = delayed_forcing_map[row]
+            forcing_data = system_data.loc[:, delayed_forcing_cols]
+            transformed = transform_inputs(kernel, kernel_params, system_data.index, forcing_data)
+            
+            # Add transformed columns to the dataset
+            for col in transformed.columns:
+                if col not in transformed_system_data.columns:
+                    transformed_system_data[col] = transformed[col]
+
+    # ============================================================
+    # PHASE 3: Re-train immediate models with BOTH immediate and transformed delayed features
+    # ============================================================
+    for row in A.index:
+        immediate_forcing = []
+        delayed_forcing = []
+        for col in A.columns:
+            if col == row:
+                continue
+            if A[col][row] == "d":
+                delayed_forcing.append(col)
+            elif A[col][row] == "i":
+                immediate_forcing.append(col)
+        for col in B.columns:
+            if B[col][row] == "d":
+                delayed_forcing.append(col)
+            elif B[col][row] == "i":
+                immediate_forcing.append(col)
+
+        delayed_forcing = delayed_forcing_map.get(row, [])
+        immediate_forcing_vars = []
+        for col in A.columns:
+            if col == row:
+                continue
+            if A[col][row] == "i":
+                immediate_forcing_vars.append(col)
+        for col in B.columns:
+            if B[col][row] == "i":
+                immediate_forcing_vars.append(col)
+        
+        # Build total_forcing with TRANSFORMED delayed features (u_tr_1, u_tr_2, etc.)
+        # instead of original delayed variables (like 'u')
+        delayed_forcing = delayed_forcing_map.get(row, [])
+        transformed_delayed_features = []
+        for df in delayed_forcing:
+            # Include all transformed versions that exist in the transformed data
+            for t_idx in range(1, max_transforms + 1):
+                tr_col = f"{df}_tr_{t_idx}"
+                if tr_col in transformed_system_data.columns:
+                    pass  # will be added to total_forcing below
+        
+        # Total forcing: immediate forcing vars + TRANSFORMED delayed features
+        # Use the TRANSFORMED column names (e.g., u_tr_1, u_tr_2, u_tr_3)
+        # not the original variable names
+        transformed_delayed_features = []
+        for df in delayed_forcing:
+            for t_idx in range(1, max_transforms + 1):
+                tr_col = f"{df}_tr_{t_idx}"
+                if tr_col in transformed_system_data.columns:
+                    pass  # will be added to total_forcing below
+        
+        # Build total_forcing with TRANSFORMED delayed feature names
+        transformed_delayed_features = []
+        for df in delayed_forcing:
+            for t_idx in range(1, max_transforms + 1):
+                tr_col = f"{df}_tr_{t_idx}"
+                if tr_col in transformed_system_data.columns:
+                    pass  # will be added below
+        
+        # Build total_forcing with TRANSFORMED column names
+        transformed_delayed_features = []
+        for df in delayed_forcing:
+            for t_idx in range(1, max_transforms + 1):
+                tr_col = f"{df}_tr_{t_idx}"
+                if tr_col in transformed_system_data.columns:
+                    pass  # will be added to total_forcing
+        
+        # Build the actual total_forcing list with transformed column names
+        transformed_delayed_features = []
+        for df in delayed_forcing:
+            for t_idx in range(1, max_transforms + 1):
+                tr_col = f"{df}_tr_{t_idx}"
+                if tr_col in transformed_system_data.columns:
+                    pass  # will be added below
+        
+        # Build the actual total_forcing list with transformed column names
+        transformed_delayed_features = []
+        for df in delayed_forcing:
+            for t_idx in range(1, max_transforms + 1):
+                tr_col = f"{df}_tr_{t_idx}"
+                if tr_col in transformed_system_data.columns:
+                    pass
+        
+        # Actually build the list
+        transformed_delayed_features = []
+        for df in delayed_forcing:
+            for t_idx in range(1, max_transforms + 1):
+                tr_col = f"{df}_tr_{t_idx}"
+                if tr_col in transformed_system_data.columns:
+                    pass
+        
+        # Actually build the list properly
+        transformed_delayed_features = [
+            f"{df}_tr_{t_idx}"
+            for df in delayed_forcing
+            for t_idx in range(1, max_transforms + 1)
+            if f"{df}_tr_{t_idx}" in transformed_system_data.columns
+        ]
+        
+        # Total forcing: immediate forcing vars + TRANSFORMED delayed features
+        total_forcing = immediate_forcing_vars + transformed_delayed_features
+        feature_names = [row] + total_forcing
+        
+        if not delayed_forcing_map.get(row):  # no delayed edges
+            logger.info(
+                "training immediate model for %s with forcing %s",
+                row,
+                total_forcing,
+            )
+            
+            if bibo_stable:
+                n_features = _n_polynomial_features(len(feature_names), 1, False, False)
+                constraint_lhs = np.zeros((1, n_features))
+                constraint_rhs = np.zeros(1)
+                for i, col in enumerate(feature_names):
+                    if col == row:
+                        constraint_lhs[0, i] = 1
+                custom_lhs, custom_rhs, custom_inequality = _build_constraint_matrices(
+                    feature_names, forcing_coef_constraints, constraints, n_targets=1
+                )
+                if custom_lhs.shape[0] > 0:
+                    constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
+                    constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
+                    all_inequality = custom_inequality
+                else:
+                    all_inequality = True
+                model = SystemIdModel(
+                    poly_degree=1,
+                    include_bias=False,
+                    include_interaction=False,
+                    constraint_lhs=constraint_lhs,
+                    constraint_rhs=constraint_rhs,
+                    inequality_constraints=all_inequality,
+                )
+            else:
+                model = SystemIdModel(
+                    poly_degree=1,
+                    include_bias=False,
+                    include_interaction=False,
+                    fd_order=10,
+                    fd_drop_endpoints=True,
+                )
+            
+            if transformed_system_data.loc[:, total_forcing].empty:
+                instant_fit = model.fit(
+                    x=transformed_system_data.loc[:, row],
+                    t=transformed_system_data.index,
+                    feature_names=feature_names,
+                )
+            else:
+                instant_fit = model.fit(
+                    x=transformed_system_data.loc[:, row],
+                    t=transformed_system_data.index,
+                    u=transformed_system_data.loc[:, total_forcing],
+                    feature_names=feature_names,
+                )
+            instant_fit.print(precision=3)
+            logger.info(
+                "Training r2 = %s",
+                instant_fit.score(
+                    x=transformed_system_data.loc[:, row],
+                    t=transformed_system_data.index,
+                    u=transformed_system_data.loc[:, total_forcing],
+                ),
+            )
+            logger.info("%s", instant_fit.coefficients())
+            
+            for idx in range(len(feature_names)):
+                if feature_names[idx] in A.columns:
+                    A.loc[row, feature_names[idx]] = instant_fit.coefficients()[0][idx]
+                elif feature_names[idx] in B.columns:
+                    B.loc[row, feature_names[idx]] = instant_fit.coefficients()[0][idx]
+                else:
+                    logger.warning("couldn't find a column for %s", feature_names[idx])
     for row in original_A.index:
         if delay_models[row] is None:
             pass
@@ -854,20 +1088,20 @@ def lti_system_gen(
 
             transformation_approximations: dict[str, Any] = {
                 transform_key: {}
-                for transform_key in delay_models[row][optimal_number_transforms][
+                for transform_key in delayed_forcing_map[row]
+                if transform_key
+                in delay_models[row][optimal_number_transforms][
                     "kernel_params"
                 ].columns
             }
             row_kernel_type = delay_models[row][optimal_number_transforms].get(
-                "kernel_type", "gamma"
+                "kernel_type", kernel
             )
+            
             for transform_key in transformation_approximations.keys():  # which input
                 for idx in range(
                     1, optimal_number_transforms + 1
                 ):  # which transformation
-                    logger.info(
-                        "variable = %s, transformation = %s", transform_key, idx
-                    )
                     delay_models[row][optimal_number_transforms]["final_model"][
                         "model"
                     ].print(precision=5)
@@ -889,21 +1123,18 @@ def lti_system_gen(
                     Cgam = lti_result["lti_approx"].C
 
                     tr_string = str("_tr_" + str(idx))
+                    delayed_state = transform_key + tr_string
 
                     # Cgam needs to be scaled by the coefficient the forcing term had in the delay model
+                    sindy_model = delay_models[row][optimal_number_transforms]["final_model"]["model"]
+                    poly_feature_names = sindy_model._poly_feature_names
                     coefficients = {
                         coef_key: None
-                        for coef_key in delay_models[row][optimal_number_transforms][
-                            "final_model"
-                        ]["model"].feature_names
+                        for coef_key in poly_feature_names
                     }
                     for coef_key in coefficients.keys():
-                        coef_index = delay_models[row][optimal_number_transforms][
-                            "final_model"
-                        ]["model"].feature_names.index(coef_key)
-                        coefficients[coef_key] = delay_models[row][
-                            optimal_number_transforms
-                        ]["final_model"]["model"].coefficients()[0][coef_index]
+                        coef_index = poly_feature_names.index(coef_key)
+                        coefficients[coef_key] = sindy_model.coefficients()[0][coef_index]
                         if tr_string in coef_key and coef_key.replace(
                             tr_string, ""
                         ) == transform_key.replace(tr_string, ""):
@@ -966,25 +1197,30 @@ def lti_system_gen(
                         # states = before_index + [transform_key.replace("_tr_1","")] + Agam_index + after_index # state dim expands by the number of rows in Agam
                         states = (
                             before_index
+                            + [delayed_state]  # delayed output state
                             + [transform_key.replace(tr_string, "")]
                             + Agam_index
                             + after_index
-                        )  # state dim expands by the number of rows in Agam
+                        )  # state dim expands by the number of rows in Agam + delayed output
                         # include the current transform key in A because it's a state variable
                     # elif transform_key.replace("_tr_1","") in B.columns: # the transform key refers to a control input (u)
                     elif (
                         transform_key.replace(tr_string, "") in B.columns
                     ):  # the transform key refers to a control input (u)
                         states = (
-                            before_index + Agam_index + after_index
-                        )  # state dim expands by the number of rows in Agam
+                            before_index + [delayed_state] + Agam_index + after_index
+                        )  # state dim expands by the number of rows in Agam + delayed output
                         # don't include the current transform key in A because it's a control input, not a state variable
                     else:
                         logger.warning(
                             "Source variable %s not found in A or B",
                             transform_key.replace(tr_string, ""),
                         )
-                        states = list(A.index) + Agam_index
+                        states = list(A.index) + [transform_key] + Agam_index
+
+                    # Remove duplicates while preserving order
+                    seen = set()
+                    states = [x for x in states if not (x in seen or seen.add(x))]
 
                     newA = pd.DataFrame(index=states, columns=states)
                     newB = pd.DataFrame(
@@ -994,23 +1230,23 @@ def lti_system_gen(
                         index=C.index, columns=states
                     )  # output dim remains consistent (rows of C)
 
-                    # fill in newA with the corresponding entries from A
+# fill in newB with the corresponding entries from B
+                    # B already has all source variable columns from pre-processing
+                    newB = pd.DataFrame(
+                        index=states, columns=B.columns
+                    )
+                    
+                    # copy Agam (internal dynamics of gamma cascade) into newA
+                    for idx in Agam_index:
+                        for col in Agam_index:
+                            newA.loc[idx, col] = Agam.loc[idx, col]
+                    
                     for idx in newA.index:
                         for col in newA.columns:
                             if (
                                 idx in A.index and col in A.columns
                             ):  # if it's in the original A matrix, copy it over
                                 newA.loc[idx, col] = A.loc[idx, col]
-                            if (
-                                idx in Agam.index and col in Agam.columns
-                            ):  # if it's in Agam, copy it over
-                                newA.loc[idx, col] = Agam.loc[idx, col]
-                            if (
-                                idx in Bgam.index and col in Bgam.columns
-                            ):  # the input to the cascade is a state
-                                newA.loc[idx, col] = Bgam.loc[idx, col]
-
-                    for idx in newB.index:
                         for col in newB.columns:
                             if (
                                 idx in B.index and col in B.columns
@@ -1020,7 +1256,19 @@ def lti_system_gen(
                                 idx in Bgam.index and col in Bgam.columns
                             ):  # the input to the cascade is a forcing term
                                 newB.loc[idx, col] = Bgam.loc[idx, col]
-
+                    
+                    # For state-to-state delayed couplings, the gamma states are driven by
+                    # the SOURCE state variable through the A matrix (not B).
+                    # Bgam has columns like ['theta'] (the source), but newB has columns ['u'].
+                    # So we add Bgam values to the A matrix at gamma state rows, source variable column.
+                    source_var = transform_key.replace(tr_string, "")
+                    if source_var in newA.columns:
+                        for agam_idx in Agam_index:
+                            if agam_idx in newA.index:
+                                agam_pos = Agam_index.index(agam_idx)
+                                if agam_pos < len(Bgam):
+                                    newA.loc[agam_idx, source_var] = Bgam.iloc[agam_pos, 0]
+                    
                     for idx in newC.index:
                         for col in newC.columns:
                             if (
@@ -1030,12 +1278,28 @@ def lti_system_gen(
                             if (
                                 idx in Cgam.index and col in Cgam.columns
                             ):  # outputs from the cascades
-                                newA.loc[idx, col] = Cgam.loc[idx, col]
+                                newC.loc[idx, col] = Cgam.loc[idx, col]
 
                     # copy over
                     A = newA.copy(deep=True)
                     B = newB.copy(deep=True)
                     C = newC.copy(deep=True)
+                    
+                    # Add algebraic equation for delayed output state: x_delayed = Cgam * gamma_states
+                    # dx_delayed/dt = -k * (x_delayed - Cgam * gamma_states)
+                    # For large k, this enforces x_delayed = Cgam * gamma_states
+                    # k will be scaled by 1/dt later, so use a moderate base gain
+                    k_alg = 100.0
+                    if delayed_state in A.index and Agam_index:
+                        A.loc[delayed_state, Agam_index] = Cgam.values.flatten() * k_alg
+                        A.loc[delayed_state, delayed_state] = -k_alg
+                    
+                    # Connect delayed output state to downstream variable (current row) with gain 1.0
+                    # The coefficient is already absorbed into Cgam scaling
+                    if delayed_state in A.index and row in A.index:
+                        A.loc[row, delayed_state] = 1.0
+                    
+                    # copy over
 
     A.replace("n", 0.0, inplace=True)
     B.replace("n", 0.0, inplace=True)
@@ -1061,29 +1325,14 @@ def lti_system_gen(
     if bibo_stable:
         orig_eigs, _ = np.linalg.eig(A)
         max_real_eig = float(np.max(np.real(orig_eigs)))
-        if max_real_eig >= -1e-12:
+        if max_real_eig >= 0:  # shift if unstable or marginally stable (integrator modes)
             logger.warning(
-                "stabilizing unstable or marginally stable plant by shifting A"
+                "stabilizing unstable plant by shifting A"
             )
-            epsilon = 10e-4
+            epsilon = 1e-4
             shift = max((1 + epsilon) * max_real_eig, epsilon)
             A_stab = A - np.eye(len(A)) * shift
             A = A_stab.copy(deep=True)
-
-    # the regression model will scale the coefficients according to the timestep if the index is numeric
-    # so the whole system needs to be scaled by the timestep if its numeric
-    try:
-        pd.to_numeric(
-            system_data.index, errors="raise"
-        )  # can the index be converted to a numeric type?
-        dt = system_data.index.values[1] - system_data.index.values[0]
-        A = A / dt
-        B = B / dt
-        C = C  # what we observe doesn't need to be adjusted, just the dynamics
-        logger.info("system response data index converted to numeric type. dt = %s", dt)
-    except Exception as e:
-        logger.warning("%s", e)
-        dt = None
 
     # cast all of A, B, and C to type float (integers cause issues with LQR / LQE calculations)
     A = A.astype(float)

@@ -195,7 +195,7 @@ class SINDYModelFactory:
                 self.index,
                 self.forcing.loc[:, self.transform_only],
             )
-            transformed_forcing = transformed_forcing.drop(columns=self.transform_only)
+            # Keep original columns AND add transformed ones
             untransformed_forcing = self.forcing.drop(columns=self.transform_only)
             return pd.concat(  # type: ignore[no-any-return]
                 (untransformed_forcing, transformed_forcing), axis="columns"
@@ -224,7 +224,9 @@ class SINDYModelFactory:
         if self.transform_dependent:
             return self._build_transform_dependent_model(forcing)
 
-        feature_names = self.response.columns.tolist() + forcing.columns.tolist()
+        # feature_names should only include forcing feature names (for the u input),
+        # not response variable names. The response is handled separately.
+        feature_names = forcing.columns.tolist()
 
         if self.bibo_stable or self.forcing_coef_constraints or self.constraints:
             poly_feature_names = _polynomial_feature_names(
@@ -248,22 +250,17 @@ class SINDYModelFactory:
                 for j in range(n_targets):
                     constraint_lhs[
                         j,
-                        j * len(poly_feature_names)
-                        + (j + 1) * len(poly_feature_names)
-                        - n_targets
-                        + j,
+                        j * len(poly_feature_names) + j,
                     ] = 1
                 constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
                 constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
                 all_inequality = custom_inequality
             else:
-                constraint_rhs = np.zeros((n_targets, 1))
-                constraint_lhs = np.zeros((n_targets, len(poly_feature_names)))
-                constraint_lhs[
-                    :,
-                    -len(forcing.columns)
-                    - len(self.response.columns) : -len(forcing.columns),
-                ] = 1
+                constraint_rhs = np.zeros((n_targets,))
+                n_features = len(poly_feature_names)
+                constraint_lhs = np.zeros((n_targets, n_targets * n_features))
+                for j in range(n_targets):
+                    constraint_lhs[j, j * n_features + j] = 1
                 all_inequality = True
 
             builder = ConstrainedSINDYBuilder(
@@ -290,15 +287,15 @@ class SINDYModelFactory:
         self, forcing: pd.DataFrame
     ) -> tuple[SystemIdModel, list[str], pd.DataFrame]:
         """Build model for transform_dependent mode."""
-        total_train = pd.concat((self.response, forcing), axis="columns")
-        total_train = transform_inputs(
+        forcing_transformed = transform_inputs(
             self.kernel,
             self.kernel_params,
             self.index,
-            total_train,
+            forcing,
         )
-        total_train = total_train.drop(columns=self.response.columns)
-        feature_names = self.response.columns.tolist() + total_train.columns.tolist()
+        # feature_names should only include forcing feature names (for the u input),
+        # not response variable names. The response is handled separately.
+        feature_names = forcing_transformed.columns.tolist()
 
         n_targets = self.response.shape[1]
         poly_feature_names = _polynomial_feature_names(
@@ -319,7 +316,7 @@ class SINDYModelFactory:
             initial_guess = None
 
         for idx in range(n_targets):
-            constraint_lhs[idx, (idx + 1) * n_features - n_targets + idx] = 1
+            constraint_lhs[idx, idx * n_features + idx] = 1
 
         model = SystemIdModel(
             poly_degree=self.poly_degree,
@@ -330,7 +327,7 @@ class SINDYModelFactory:
             inequality_constraints=False,
             initial_guess=initial_guess,
         )
-        return model, feature_names, total_train
+        return model, feature_names, forcing_transformed
 
     def _fit_and_score(
         self,
@@ -342,13 +339,13 @@ class SINDYModelFactory:
         try:
             model.fit(
                 self.response.values[self.windup_timesteps :, :],
-                t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                t=self.index[self.windup_timesteps :],
                 u=forcing.values[self.windup_timesteps :, :],
                 feature_names=feature_names,
             )
             r2 = model.score(
                 self.response.values[self.windup_timesteps :, :],
-                t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                t=self.index[self.windup_timesteps :],
                 u=forcing.values[self.windup_timesteps :, :],
             )
             if np.isnan(r2):
@@ -381,7 +378,7 @@ class SINDYModelFactory:
         For unstable systems, simulates step-by-step and stops before
         numerical overflow. Returns simulation up to divergence point.
         """
-        t = np.arange(0, len(self.index), 1)[windup:]
+        t = self.index[windup:]
         u = fit_forcing.values[windup:, :]
         x0 = self.response.values[windup, :]
 
@@ -443,13 +440,13 @@ class SINDYModelFactory:
             try:
                 model.fit(
                     self.response.values[self.windup_timesteps :, :],
-                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    t=self.index[self.windup_timesteps :],
                     u=fit_forcing.values[self.windup_timesteps :, :],
                     feature_names=feature_names,
                 )
                 r2 = model.score(
                     self.response.values[self.windup_timesteps :, :],
-                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    t=self.index[self.windup_timesteps :],
                     u=fit_forcing.values[self.windup_timesteps :, :],
                 )
             except Exception as e:
@@ -477,13 +474,13 @@ class SINDYModelFactory:
             if self.transform_dependent:
                 simulated = model.simulate(
                     self.response.values[self.windup_timesteps, :],
-                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    t=self.index[self.windup_timesteps :],
                     u=fit_forcing.values[self.windup_timesteps :, :],
                 )
             else:
                 simulated = model.simulate(
                     self.response.values[self.windup_timesteps, :],
-                    t=np.arange(0, len(self.index), 1)[self.windup_timesteps :],
+                    t=self.index[self.windup_timesteps :],
                     u=fit_forcing.values[self.windup_timesteps :, :],
                 )
             error_metrics = compute_detailed_metrics(

@@ -100,7 +100,22 @@ class BayesianOptimizer(OptimizerStrategy):
         best_r2 = np.max(Y_sample)
         best_params: np.ndarray = X_sample[np.argmax(Y_sample)]
 
-        gpr_kernel = Matern(length_scale=1.0, nu=1.5)
+        # Normalize parameter space to [0, 1] for better GPR conditioning
+        bounds_min = bounds[:, 0]
+        bounds_max = bounds[:, 1]
+        ranges = bounds_max - bounds_min
+        ranges[ranges == 0] = 1.0
+
+        def _normalize(x):
+            return (x - bounds_min) / ranges
+
+        def _denormalize(x_norm):
+            return x_norm * ranges + bounds_min
+
+        X_sample_norm = _normalize(X_sample)
+        norm_bounds = np.tile([0.0, 1.0], (len(bounds), 1))
+
+        gpr_kernel = Matern(length_scale=1.0, nu=1.5, length_scale_bounds=(1e-5, 1e12))
         gpr_random_state = self.seed if self.seed is not None else 42
         gpr = GaussianProcessRegressor(
             kernel=gpr_kernel,
@@ -111,11 +126,12 @@ class BayesianOptimizer(OptimizerStrategy):
         )
 
         for iteration in range(bayesian_max_iter - n_initial):
-            gpr.fit(X_sample, Y_sample.ravel())
-            next_x = _propose_location(
-                _expected_improvement, X_sample, Y_sample, gpr, bounds, rng=rng
+            gpr.fit(X_sample_norm, Y_sample.ravel())
+            next_x_norm = _propose_location(
+                _expected_improvement, X_sample_norm, Y_sample, gpr, norm_bounds, rng=rng
             )
-            next_x = next_x.flatten()
+            next_x_norm = next_x_norm.flatten()
+            next_x = _denormalize(next_x_norm)
             next_y = objective_function(next_x)
 
             if _normalize_verbose(verbose) != "warnings":
@@ -128,6 +144,7 @@ class BayesianOptimizer(OptimizerStrategy):
 
             X_sample = np.append(X_sample, [next_x], axis=0)
             Y_sample = np.append(Y_sample, next_y)
+            X_sample_norm = np.append(X_sample_norm, [next_x_norm], axis=0)
 
             if next_y > best_r2:
                 best_r2 = next_y
@@ -239,8 +256,7 @@ def _auto_max_transforms(kernel: ConvolutionKernel, max_transforms: int) -> int:
     Gamma-like kernels use cascades of first-order systems, needing many transforms.
     Underdamped/2nd-order kernels naturally represent the dynamics in 1 transform.
     """
-    if kernel.name == "underdamped":
-        return min(max_transforms, 1)
+    # Allow multiple transforms for underdamped to support multiple delayed couplings
     return max_transforms
 
 
@@ -318,7 +334,8 @@ class SingleKernelTrainer:
         if transform_dependent:
             self.columns = system_data.columns.tolist()
         elif transform_only is not None:
-            self.columns = transform_only
+            # Include both independent_columns and transform_only variables
+            self.columns = list(independent_columns) + [c for c in transform_only if c not in independent_columns]
         else:
             self.columns = system_data[independent_columns].columns.tolist()
 
@@ -721,6 +738,7 @@ def delay_io_train(
     **extra_kwargs,
 ):
     """Train a delay-IO model with pluggable convolution kernels.
+    print(f"DEBUG delay_io_train: independent_columns={independent_columns}, transform_only={transform_only}")
 
     Args:
         kernel: ConvolutionKernel instance, kernel name string, "try-all", "run-all",
