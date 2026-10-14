@@ -738,6 +738,16 @@ class SystemIdModel:
         coef = self._coef  # (n_targets, n_feat)
         target_names = self._feature_names[: self._n_targets]
 
+        # Safety check: ensure coef and feature_names have compatible shapes
+        n_feat_coef = coef.shape[1] if coef.ndim > 1 else 1
+        n_feat_names = len(feature_names)
+        if n_feat_coef != n_feat_names:
+            # Truncate or pad to match
+            if n_feat_coef > n_feat_names:
+                feature_names = feature_names + [f"feat_{i}" for i in range(n_feat_names, n_feat_coef)]
+            else:
+                feature_names = feature_names[:n_feat_coef]
+
         for i, target in enumerate(target_names):
             terms: list[str] = []
             for j, name in enumerate(feature_names):

@@ -224,14 +224,11 @@ class SINDYModelFactory:
         if self.transform_dependent:
             return self._build_transform_dependent_model(forcing)
 
-        # feature_names should only include forcing feature names (for the u input),
-        # not response variable names. The response is handled separately.
         forcing_feature_names = forcing.columns.tolist()
         response_feature_names = self.response.columns.tolist()
         all_feature_names = response_feature_names + forcing_feature_names
 
         if self.bibo_stable or self.forcing_coef_constraints or self.constraints:
-            # Compute total polynomial features (response + forcing)
             total_poly_feature_names = _polynomial_feature_names(
                 all_feature_names,
                 self.poly_degree,
@@ -248,6 +245,8 @@ class SINDYModelFactory:
             n_total_features = len(total_poly_feature_names)
             n_forcing_features = len(forcing_poly_feature_names)
 
+            # Ensure constraint matrix has exactly the right number of columns
+            # matching the polynomial feature count
             custom_lhs, custom_rhs, custom_inequality = self._build_constraint_matrices(
                 forcing_poly_feature_names, n_targets
             )
@@ -259,23 +258,20 @@ class SINDYModelFactory:
                         n_targets * n_total_features,
                     )
                 )
-                # Constrain only the linear forcing terms (first n_forcing_features per target)
                 for j in range(n_targets):
                     if j < n_forcing_features:
-                        constraint_lhs[
-                            j,
-                            j * n_total_features + len(response_feature_names) + j,
-                        ] = 1
+                        col_idx = j * n_total_features + len(response_feature_names) + j
+                        if col_idx < constraint_lhs.shape[1]:
+                            constraint_lhs[j, col_idx] = 1
                 constraint_lhs = np.vstack([constraint_lhs, custom_lhs])
-                constraint_rhs = np.concatenate([constraint_rhs, custom_rhs])
-                all_inequality = custom_inequality
             else:
                 constraint_rhs = np.zeros((n_targets,))
                 constraint_lhs = np.zeros((n_targets, n_targets * n_total_features))
-                # Constrain only the linear forcing terms (first forcing features per target)
                 for j in range(n_targets):
                     if j < n_forcing_features:
-                        constraint_lhs[j, j * n_total_features + len(response_feature_names) + j] = 1
+                        col_idx = j * n_total_features + len(response_feature_names) + j
+                        if col_idx < constraint_lhs.shape[1]:
+                            constraint_lhs[j, col_idx] = 1
                 all_inequality = True
 
             builder = ConstrainedSINDYBuilder(
