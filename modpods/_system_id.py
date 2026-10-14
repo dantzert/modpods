@@ -316,13 +316,15 @@ class SystemIdModel:
         include_bias: bool = False,
         include_interaction: bool = False,
         fd_order: int = 2,
-        fd_drop_endpoints: bool = False,
+        fd_drop_endpoints: bool = True,
         constraint_lhs: np.ndarray | None = None,
         constraint_rhs: np.ndarray | None = None,
         inequality_constraints: bool = False,
         initial_guess: np.ndarray | None = None,
         relax_coeff_nu: float | None = None,
         max_iter: int | None = None,
+        stlsq_threshold: float = 0.0,
+        stlsq_alpha: float = 1e-8,
     ) -> None:
         self.poly_degree = poly_degree
         self.include_bias = include_bias
@@ -345,6 +347,8 @@ class SystemIdModel:
         )
         self.relax_coeff_nu = relax_coeff_nu
         self.max_iter = max_iter
+        self.stlsq_threshold = stlsq_threshold
+        self.stlsq_alpha = stlsq_alpha
 
         self._coef: np.ndarray | None = None
         self._feature_names: list[str] | None = None
@@ -486,10 +490,14 @@ class SystemIdModel:
 
     def _solve(self, theta: np.ndarray, x_dot: np.ndarray) -> np.ndarray:
         """Return coefficient matrix of shape (n_targets, n_features)."""
+        if self.stlsq_threshold > 0:
+            # Use STLSQ (Sequential Thresholded Least Squares) like pysindy
+            return self._solve_stlsq(theta, x_dot)
+        
         if self.constraint_lhs is None or self.constraint_rhs is None:
             # Regularized OLS (ridge regression) for better numerical stability
             # This avoids SVD convergence issues with ill-conditioned matrices
-            ridge_lambda = 1e-8
+            ridge_lambda = self.stlsq_alpha
             AtA = theta.T @ theta + ridge_lambda * np.eye(theta.shape[1])
             Atb = theta.T @ x_dot
             coef = np.linalg.solve(AtA, Atb)
@@ -502,6 +510,42 @@ class SystemIdModel:
                 return self._solve_equality_constrained(theta, x_dot, C, d)
             else:
                 return self._solve_inequality_constrained(theta, x_dot, C, d)
+
+    def _solve_stlsq(self, theta: np.ndarray, x_dot: np.ndarray) -> np.ndarray:
+        """Solve using Sequential Thresholded Least Squares (STLSQ) like pysindy."""
+        n_targets = x_dot.shape[1] if x_dot.ndim > 1 else 1
+        x_dot_2d = x_dot.reshape(-1, 1) if x_dot.ndim == 1 else x_dot
+        n_samples, n_features = theta.shape
+        
+        # Initial ridge regression
+        ridge_lambda = self.stlsq_alpha
+        AtA = theta.T @ theta + ridge_lambda * np.eye(n_features)
+        Atb = theta.T @ x_dot_2d
+        coef = np.linalg.solve(AtA, Atb)  # (n_features, n_targets)
+        
+        # Sequential thresholding
+        for _ in range(self.max_iter or 20):
+            coef_prev = coef.copy()
+            # Threshold small coefficients
+            coef[np.abs(coef) < self.stlsq_threshold] = 0
+            
+            # Refit on non-zero coefficients
+            for j in range(n_targets):
+                mask = np.abs(coef[:, j]) > self.stlsq_threshold
+                if np.any(mask):
+                    theta_masked = theta[:, mask]
+                    AtA_m = theta_masked.T @ theta_masked + ridge_lambda * np.eye(np.sum(mask))
+                    Atb_m = theta_masked.T @ x_dot_2d[:, j:j+1]
+                    coef_masked = np.linalg.solve(AtA_m, Atb_m)
+                    coef[mask, j] = coef_masked.flatten()
+                else:
+                    coef[:, j] = 0
+            
+            # Check convergence
+            if np.allclose(coef, coef_prev, atol=1e-6):
+                break
+        
+        return coef.T
 
     def _solve_equality_constrained(
         self, theta: np.ndarray, x_dot: np.ndarray, C: np.ndarray, d: np.ndarray

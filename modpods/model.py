@@ -113,11 +113,15 @@ class StandardSINDYBuilder(SINDYBuilder):
         poly_degree: int,
         include_bias: bool,
         include_interaction: bool,
+        stlsq_threshold: float = 0.0,
+        stlsq_alpha: float = 1e-8,
     ) -> SystemIdModel:
         return SystemIdModel(
             poly_degree=poly_degree,
             include_bias=include_bias,
             include_interaction=include_interaction,
+            stlsq_threshold=stlsq_threshold,
+            stlsq_alpha=stlsq_alpha,
         )
 
 
@@ -140,6 +144,8 @@ class ConstrainedSINDYBuilder(SINDYBuilder):
         poly_degree: int,
         include_bias: bool,
         include_interaction: bool,
+        stlsq_threshold: float = 0.0,
+        stlsq_alpha: float = 1e-8,
     ) -> SystemIdModel:
         return SystemIdModel(
             poly_degree=poly_degree,
@@ -148,6 +154,8 @@ class ConstrainedSINDYBuilder(SINDYBuilder):
             constraint_lhs=self.constraint_lhs,
             constraint_rhs=self.constraint_rhs,
             inequality_constraints=self.inequality_constraints,
+            stlsq_threshold=stlsq_threshold,
+            stlsq_alpha=stlsq_alpha,
         )
 
 
@@ -170,6 +178,8 @@ class SINDYModelFactory:
         transform_only: list[str] | None = None,
         forcing_coef_constraints: Any = None,
         constraints: list[dict[str, Any]] | None = None,
+        stlsq_threshold: float = 0.0,
+        stlsq_alpha: float = 1e-8,
     ) -> None:
         self.kernel = kernel
         self.kernel_params = kernel_params
@@ -185,6 +195,8 @@ class SINDYModelFactory:
         self.transform_only = transform_only
         self.forcing_coef_constraints = forcing_coef_constraints
         self.constraints = constraints
+        self.stlsq_threshold = stlsq_threshold
+        self.stlsq_alpha = stlsq_alpha
 
     def _transform_forcing(self) -> pd.DataFrame:
         """Apply kernel convolution transformations to forcing inputs."""
@@ -282,6 +294,8 @@ class SINDYModelFactory:
                 self.poly_degree,
                 self.include_bias,
                 self.include_interaction,
+                self.stlsq_threshold,
+                self.stlsq_alpha,
             )
             return model, total_poly_feature_names, forcing
 
@@ -291,6 +305,8 @@ class SINDYModelFactory:
             self.poly_degree,
             self.include_bias,
             self.include_interaction,
+            self.stlsq_threshold,
+            self.stlsq_alpha,
         )
         return model, all_feature_names, forcing
 
@@ -346,6 +362,8 @@ class SINDYModelFactory:
             constraint_rhs=constraint_rhs,
             inequality_constraints=False,
             initial_guess=initial_guess,
+            stlsq_threshold=self.stlsq_threshold,
+            stlsq_alpha=self.stlsq_alpha,
         )
         return model, total_poly_feature_names, forcing_transformed
 
@@ -586,6 +604,8 @@ def SINDY_delays_MI(
     constraints=None,
     transform_cache=None,
     verbose: Verbosity = "warnings",
+    stlsq_threshold: float = 0.0,
+    stlsq_alpha: float = 1e-8,
 ):
     """Train a polynomial regression delay-IO model.
 
@@ -612,5 +632,7 @@ def SINDY_delays_MI(
         transform_only=transform_only,
         forcing_coef_constraints=forcing_coef_constraints,
         constraints=constraints,
+        stlsq_threshold=stlsq_threshold,
+        stlsq_alpha=stlsq_alpha,
     )
     return factory.train(final_run=final_run)

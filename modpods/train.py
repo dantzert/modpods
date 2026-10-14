@@ -287,6 +287,8 @@ class SingleKernelTrainer:
         seed: int | None = None,
         optimizer_kwargs: dict | None = None,
         fast_mode: bool = False,
+        stlsq_threshold: float = 0.0,
+        stlsq_alpha: float = 1e-8,
     ) -> None:
         self.kernel = kernel
         self.system_data = system_data
@@ -307,7 +309,6 @@ class SingleKernelTrainer:
             self.max_iter = max(1, max_iter // 10)
             self.optimizer_kwargs = dict(optimizer_kwargs or {})
             self.optimizer_kwargs.setdefault("maxiter", self.max_iter)
-            self.optimizer_kwargs.setdefault("popsize", 5)
         else:
             self.max_iter = max_iter
             self.optimization_method = optimization_method
@@ -330,6 +331,8 @@ class SingleKernelTrainer:
         self.constraints = constraints
         self.early_stopping_threshold = early_stopping_threshold
         self.seed = seed
+        self.stlsq_threshold = stlsq_threshold
+        self.stlsq_alpha = stlsq_alpha
 
         if transform_dependent:
             self.columns = system_data.columns.tolist()
@@ -543,6 +546,8 @@ class SingleKernelTrainer:
             self.constraints,
             transform_cache=_transform_cache,
             verbose=self.verbose,
+            stlsq_threshold=self.stlsq_threshold,
+            stlsq_alpha=self.stlsq_alpha,
         )
         if _normalize_verbose(self.verbose) != "warnings":
             logger.info("Final model:")
@@ -735,6 +740,8 @@ def delay_io_train(
     seed=None,
     fast_mode=False,
     optimizer_kwargs=None,
+    stlsq_threshold=0.0,
+    stlsq_alpha=1e-8,
     **extra_kwargs,
 ):
     """Train a delay-IO model with pluggable convolution kernels.
@@ -796,6 +803,8 @@ def delay_io_train(
             seed=seed,
             optimizer_kwargs=optimizer_kwargs,
             fast_mode=fast_mode,
+            stlsq_threshold=stlsq_threshold,
+            stlsq_alpha=stlsq_alpha,
         )
         return trainer.train()
 
@@ -840,6 +849,8 @@ def delay_io_train(
             seed=seed,
             optimizer_kwargs=optimizer_kwargs,
             fast_mode=fast_mode,
+            stlsq_threshold=stlsq_threshold,
+            stlsq_alpha=stlsq_alpha,
         )
         return single_trainer.train()
 
