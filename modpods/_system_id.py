@@ -315,7 +315,7 @@ class SystemIdModel:
         poly_degree: int = 3,
         include_bias: bool = False,
         include_interaction: bool = False,
-        fd_order: int = 2,
+        fd_order: int = 10,
         fd_drop_endpoints: bool = True,
         constraint_lhs: np.ndarray | None = None,
         constraint_rhs: np.ndarray | None = None,
